@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app import jobs
-from app.ai.decision import PIN
+from app.ai.decision import PIN, candidate_catalog
 from app.server import app
 from evaluation.model import MODEL_STYLE, inspect_pdf, load_arm
 from evaluation.packet import blind_pdf, corpus, digest, measured, read_json, save_json, verify_split
@@ -54,7 +54,7 @@ def audit_pair(group, manuscript):
                 or receipt["pdf_sha256"] != digest(pdf) or receipt["log_sha256"] != digest(log)):
             raise ValueError("receipt hash mismatch")
         rows = [json.loads(line) for line in log.splitlines()]
-        catalogs.append([(r["rule_id"], r["candidates"]) for r in rows])
+        catalogs.append([(r["block"], candidate_catalog(r)) for r in rows])
         pages.append(digest(blind_pdf(pdf)))
         selected, offset = [], 0
         for row in rows:

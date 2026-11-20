@@ -38,6 +38,10 @@ def limit_worker_files():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
+def complete_pdf(pdf: bytes) -> bool:
+    return pdf.startswith(b"%PDF-") and pdf[-1024:].rstrip().endswith(b"%%EOF")
+
+
 def worker():
     from app.document import InputError, parse_md
     from app.style import Style, apply_style
@@ -75,7 +79,7 @@ def worker():
         # Only the public input error crosses the process boundary.
         raise JobError(422, error.field, error.message) from None
 
-    if not pdf.startswith(b"%PDF-") or not pdf[-1024:].rstrip().endswith(b"%%EOF"):
+    if not complete_pdf(pdf):
         raise ValueError("incomplete PDF")
     (workdir / "response.pdf").write_bytes(pdf)
     (workdir / "decision-status").write_text(status, "ascii")

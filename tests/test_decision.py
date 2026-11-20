@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
 import os
+import shutil
 from pathlib import Path
 import time
 
@@ -280,3 +281,178 @@ def test_only_explicit_evaluation_requests_collect_measured_rows(tmp_path, monke
         ends, _ = scan((tmp_path / "response.pdf").read_bytes())
         assert ends == next([line["end_glyph"] for line in c["lines"]]
                             for c in row["candidates"] if c["id"] == row["rule_id"])
+
+
+@pytest.mark.parametrize(("expired", "stage"), [
+    ((2,), "replay"), ((2,), "measurement"), ((1, 2), "measurement"),
+    ((2,), "reply"), ((1, 2), "reply"),
+])
+def test_replay_expiry_returns_verified_paragraphs(installed, monkeypatch, tmp_path, expired, stage):
+    source = "풀잎 사이 Dew 은빛 이슬\n\n" * 2
+    doc, style = parse_md(source), apply_style(Style(), STYLE)
+    inventory, result = installed
+
+    replies = 0
+
+    def answer(path, data):
+        nonlocal replies
+        if data is None:
+            return inventory
+        options = json.loads(data["messages"][-1]["content"])
+        replies += 1
+        pick = min(options, key=lambda key: options[key][0]["end_glyph"])
+        if stage == "reply" and replies in expired:
+            pick = "unknown-model-response"
+        result["choices"][0]["message"]["content"] = json.dumps({"id": pick})
+        return result
+
+    def replay_expired(doc, style, folder, **kwargs):
+        if stage == "replay" and "paragraph_choices" in kwargs:
+            kwargs["paragraph_choices"] = {**kwargs["paragraph_choices"],
+                                            **dict.fromkeys(expired, "expired-at-replay")}
+        pdf = typeset(doc, style, folder, **kwargs)
+        if stage == "measurement" and folder.name == "measure":
+            # Give the selector an expired namespace. T11 regenerates the real IDs itself.
+            rows = list(decision.measured_rows(folder))
+            for row in rows:
+                if row["block"] in expired:
+                    for candidate in row["candidates"]:
+                        candidate["id"] = "expired-" + candidate["id"]
+                    row["rule_id"] = row["selected_id"] = "expired-" + row["rule_id"]
+            write_rows(folder, rows)
+        return pdf
+
+    monkeypatch.setattr(decision, "typeset", replay_expired)
+    with model_server(answer) as port:
+        monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
+        pdf, status = decision.render_choice(doc, style, tmp_path, time.monotonic() + 30)
+
+    partial = len(expired) == 1
+    assert status == ("mixed" if partial else "rule")
+    assert pdf == (tmp_path / ("replay" if partial else "measure") / "book.pdf").read_bytes()
+    rows = list(decision.measured_rows(tmp_path / ("replay" if partial else "measure")))
+    assert len(rows) == 2
+    (page,) = read_pages(pdf)
+    printed = ["".join(c.text for c in line.chars if not c.text.isspace()) for line in page.lines]
+    for index, row in enumerate(rows):
+        is_rule = row["block"] in expired
+        assert (row["selected_id"] == row["rule_id"]) == is_rule
+        choice, = [c for c in row["candidates"] if c["id"] == row["selected_id"]]
+        first, last = printed[2*index:2*index+2]
+        assert first + last == "풀잎사이Dew은빛이슬"
+        assert [len(first), len(first + last)] == [line["end_glyph"] for line in choice["lines"]]
+        assert len(first) == (9 if is_rule else 7)
+
+
+def write_rows(folder, rows):
+    (folder / "paragraph-candidates.jsonl").write_text("\n".join(map(json.dumps, rows)) + "\n")
+
+
+@pytest.mark.parametrize("fault", [
+    "duplicate-block", "missing-block", "extra-block", "wrong-rule", "unknown-selected",
+    "wrong-end", "invalid-width", "changed-lines", "duplicate-id", "unrequested-nonrule",
+    "bad-pdf", "bad-rule-check", "invalid-expired-measurement",
+])
+def test_unverifiable_replay_returns_original_pdf(tmp_path, monkeypatch, fault):
+    source = "풀잎 사이 Dew 은빛 이슬\n\n" * 2
+    doc, style = parse_md(source), apply_style(Style(), STYLE)
+
+    class Model:
+        calls = 0
+
+        def predict(self, options):
+            self.calls += 1
+            if fault == "unrequested-nonrule" and self.calls == 2:
+                return "absent"
+            return min(options, key=lambda k: options[k][0]["end_glyph"])
+
+    monkeypatch.setattr(decision.LocalModel, "verified", Model)
+
+    def engine(doc, style, folder, **kwargs):
+        pdf = typeset(doc, style, folder, **kwargs)
+        if fault == "invalid-expired-measurement" and folder.name == "measure":
+            rows = list(decision.measured_rows(folder))
+            other, = [c for c in rows[-1]["candidates"] if c["id"] != rows[-1]["rule_id"]]
+            other.update(id="expired-invalid", lines=[])
+            write_rows(folder, rows)
+        if folder.name != "replay" or fault == "invalid-expired-measurement":
+            return pdf
+        if fault == "bad-pdf":
+            return pdf[:-16]
+        rows = list(decision.measured_rows(folder))
+        row = rows[-1]
+        other, = [c for c in row["candidates"] if c["id"] != row["rule_id"]]
+        if fault == "duplicate-block":
+            rows.append(row)
+        elif fault == "missing-block":
+            rows.pop()
+        elif fault == "extra-block":
+            rows.append({**row, "block": 3})
+        elif fault == "wrong-rule":
+            row["rule_id"] = other["id"]
+        elif fault == "unknown-selected":
+            row["selected_id"] = "absent"
+        elif fault == "duplicate-id":
+            row["candidates"].append(other)
+        elif fault == "unrequested-nonrule":
+            row["selected_id"] = other["id"]
+        elif fault == "bad-rule-check":
+            # Internally consistent, but an independent T11 pass cannot reproduce this catalog.
+            other["id"] = "unverified"
+            row["selected_id"] = row["rule_id"]
+        else:
+            key, value = {"wrong-end": ("end_glyph", 0), "invalid-width": ("remaining_sp", -1),
+                          "changed-lines": ("remaining_sp", 10)}[fault]
+            other["lines"][0][key] = value
+        write_rows(folder, rows)
+        return pdf
+
+    monkeypatch.setattr(decision, "typeset", engine)
+    pdf, status = decision.render_choice(doc, style, tmp_path, time.monotonic() + 30)
+    assert (pdf, status) == ((tmp_path / "measure/book.pdf").read_bytes(), "rule")
+    if (tmp_path / "replay/book.pdf").exists():
+        assert pdf != (tmp_path / "replay/book.pdf").read_bytes()
+
+
+@pytest.mark.skipif(not os.getenv("JJOKGYEOL_DECISION_TEST_BUNDLE"), reason="requires frozen T13 bundle and T14 protocol")
+def test_prior_bundle_candidate_order(tmp_path, monkeypatch):
+    from evaluation.model import load_arm
+    from evaluation.packet import blind_pdf, corpus, digest, read_json, verify_split
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "packaging"))
+    from decision_bundle import audit_pair
+
+    bundle = Path(os.environ["JJOKGYEOL_DECISION_TEST_BUNDLE"])
+    manifest = read_json(bundle / "manifest.json")
+    pin = decision.PIN
+    assert manifest["model_sha256"] == pin["files"]["model.safetensors"]
+    assert manifest["runtime"] == f'{pin["variant"]} / {pin["runtime"]["name"]}@{pin["runtime"]["version"]}'
+    manuscripts = corpus()
+    verify_split(manuscripts, manifest["development"])
+    for ms in (ms for ms in manuscripts if ms["split"] == "model"):
+        original = bundle / ms["group"]
+        arms = [load_arm(original / arm, ms, arm, manifest["model_sha256"]) for arm in ("rules", "model")]
+        assert [arm[2]["applied"] for arm in arms] == ["rule", "model"]
+        assert arms[0][3] == arms[1][3] and arms[0][4]["choices"] == arms[1][4]["choices"]
+        assert blind_pdf(arms[0][0]) == blind_pdf(arms[1][0])
+        assert all(not arm[4]["end_mismatches"] and not arm[4]["constraint_violations"] for arm in arms)
+
+        group = tmp_path / ms["group"]
+        shutil.copytree(original, group)
+        audit_pair(group, ms)
+        assert read_json(group / "outcome.json") == read_json(original / "outcome.json")
+        folder = group / "model"
+        rows = list(decision.measured_rows(folder))
+        for row in rows:
+            row["candidates"].reverse()
+        receipt = read_json(folder / "measurement.json")
+        for expected in (True, False):
+            if not expected:
+                row = rows[0]
+                alternative = next(c for c in row["candidates"] if c["id"] != row["selected_id"])
+                alternative["lines"][0]["remaining_sp"] += 1
+            write_rows(folder, rows)
+            log = (folder / "paragraph-candidates.jsonl").read_bytes()
+            (folder / "measurement.json").write_text(json.dumps({**receipt, "log_sha256": digest(log)}))
+            audit_pair(group, ms)
+            assert read_json(group / "outcome.json")["same_candidate_sets"] is expected
