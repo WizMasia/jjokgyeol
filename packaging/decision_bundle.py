@@ -1,18 +1,17 @@
 """Export real /api/render responses using the separately mounted T14 protocol."""
+import argparse
 from functools import partial
-import json
 from pathlib import Path
-import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app import jobs
-from app.ai.decision import PIN, candidate_catalog
+from app.ai.decision import PIN
 from app.server import app
-from evaluation.model import MODEL_STYLE, inspect_pdf, load_arm
-from evaluation.packet import blind_pdf, corpus, digest, measured, read_json, save_json, verify_split
+from evaluation.model import load_arm, model_style
+from evaluation.packet import blind_pdf, corpus, digest, measured, save_json, verify_split
 
 
 def capture(client, folder, manuscript, mode, style):
@@ -43,41 +42,25 @@ def capture(client, folder, manuscript, mode, style):
     print(manuscript["group"], mode, applied, round(ms), "ms", flush=True)
 
 
-def audit_pair(group, manuscript):
+def audit_pair(group, manuscript, *, justified=False):
     pages, catalogs, outcomes = [], [], {}
     for arm in ("rules", "model"):
-        folder = group / arm
-        receipt = read_json(folder / "measurement.json")
-        pdf = (folder / "render.pdf").read_bytes()
-        log = (folder / "paragraph-candidates.jsonl").read_bytes()
-        if (receipt["source_sha256"] != digest(manuscript["source"].encode())
-                or receipt["pdf_sha256"] != digest(pdf) or receipt["log_sha256"] != digest(log)):
-            raise ValueError("receipt hash mismatch")
-        rows = [json.loads(line) for line in log.splitlines()]
-        catalogs.append([(r["block"], candidate_catalog(r)) for r in rows])
+        pdf, _, receipt, catalog, evidence = load_arm(
+            group / arm, manuscript, arm, PIN["files"]["model.safetensors"], justified=justified, audit=True)
+        catalogs.append(catalog)
         pages.append(digest(blind_pdf(pdf)))
-        selected, offset = [], 0
-        for row in rows:
-            choice, = [c for c in row["candidates"] if c["id"] == row["selected_id"]]
-            selected.extend(offset + line["end_glyph"] for line in choice["lines"])
-            offset = selected[-1]
-        printed, violations = inspect_pdf(pdf, manuscript)
-        mismatch = max(len(set(selected) - set(printed)), len(set(printed) - set(selected)))
-        # Keep genuine agreements and the protocol's rejection in the producer evidence.
-        rejection = None
-        try:
-            load_arm(folder, manuscript, arm, PIN["files"]["model.safetensors"])
-        except ValueError as exc:
-            rejection = str(exc)
-        outcomes[arm] = {"applied": receipt["applied"], "elapsed_ms": receipt["elapsed_ms"],
-                         "changed_blocks": [r["block"] for r in rows if r["selected_id"] != r["rule_id"]],
-                         "selected_ends": selected, "pdf_ends": printed, "end_mismatches": mismatch,
-                         "pdf_constraint_violations": violations, "t14_rejection": rejection}
+        fields = ("changed_blocks", "selected_ends", "pdf_ends", "end_mismatches",
+                  "pdf_constraint_violations", "t14_rejection")
+        outcome = {key: evidence[key] for key in fields}
+        if justified:
+            outcome["verification"] = evidence.get("verification")
+            outcome["constraint_violations"] = evidence["constraint_violations"]
+        outcomes[arm] = {**outcome, "applied": receipt["applied"], "elapsed_ms": receipt["elapsed_ms"]}
     save_json(group / "outcome.json", {"arms": outcomes, "same_candidate_sets": catalogs[0] == catalogs[1],
                                       "distinct_printed_pages": pages[0] != pages[1]})
 
 
-def export(dest):
+def export(dest, *, justified=False):
     if dest.exists():
         raise FileExistsError(dest)
     fixture = Path(__file__).resolve().parents[1] / "tests/fixtures/decision-dew.md"
@@ -88,11 +71,12 @@ def export(dest):
     verify_split(manuscripts, development)
     with TemporaryDirectory(dir=dest.parent) as tmp, TestClient(app) as client:
         stage = Path(tmp)
+        style = model_style(justified)
         for ms in manuscripts:
             if ms["split"] == "model":
-                capture(client, stage / ms["group"] / "rules", ms, "rule", MODEL_STYLE)
-                capture(client, stage / ms["group"] / "model", ms, "model", MODEL_STYLE)
-                audit_pair(stage / ms["group"], ms)
+                capture(client, stage / ms["group"] / "rules", ms, "rule", style)
+                capture(client, stage / ms["group"] / "model", ms, "model", style)
+                audit_pair(stage / ms["group"], ms, justified=justified)
         save_json(stage / "manifest.json", {
             "runtime": f'{PIN["variant"]} / {PIN["runtime"]["name"]}@{PIN["runtime"]["version"]}',
             "model_sha256": PIN["files"]["model.safetensors"], "development": development})
@@ -100,4 +84,8 @@ def export(dest):
 
 
 if __name__ == "__main__":
-    export(Path(sys.argv[1]))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("dest", type=Path)
+    parser.add_argument("--justified", action="store_true")
+    args = parser.parse_args()
+    export(args.dest, justified=args.justified)
