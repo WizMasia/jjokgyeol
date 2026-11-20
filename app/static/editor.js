@@ -103,6 +103,22 @@ function sameDecimal(left, right) {
   return key !== null && key === decimalKey(right);
 }
 
+function compareDecimal(left, right) {
+  const a = decimalKey(left);
+  const b = decimalKey(right);
+  if (a === null || b === null) return NaN;
+  if (a === b) return 0;
+  const sign = key => key === "0" ? 0 : key.startsWith("-") ? -1 : 1;
+  if (sign(a) !== sign(b)) return sign(a) - sign(b);
+  // Compare the decimal point positions first, then the normalized significant digits.
+  const [digitsA, powerA] = a.replace(/^-/, "").split("e");
+  const [digitsB, powerB] = b.replace(/^-/, "").split("e");
+  const placesA = BigInt(digitsA.length) + BigInt(powerA);
+  const placesB = BigInt(digitsB.length) + BigInt(powerB);
+  const smaller = placesA === placesB ? digitsA < digitsB : placesA < placesB;
+  return sign(a) * (smaller ? -1 : 1);
+}
+
 function matchesSplit() {
   return marginSplit && [1, 3].every(i => sameDecimal(margins[i].value, marginSplit.fixed.margins_mm[i]));
 }
@@ -238,17 +254,17 @@ const styleForm = {
     if (!gutter.disabled) values.gutter_mm = gutter.value;
     return Object.assign(values, typography.get());
   },
-  set(values, {preserveMarginSplit = false, inactiveArticleExpr = settings.default_article_expr ?? ""} = {}) {
+  set(values, {preserveDraft = false, inactiveArticleExpr = settings.default_article_expr ?? ""} = {}) {
     for (const [name, controls] of styleFields) {
       const value = values[name];
       controls.forEach((control, index) => {
         control.value = Array.isArray(value) ? value[index] : value;
       });
     }
-    if (!preserveMarginSplit || !matchesSplit()) marginSplit = undefined;
+    if (!preserveDraft || !matchesSplit()) marginSplit = undefined;
     setMarginMode(values.gutter_mm !== undefined, values.gutter_mm);
     sectionRules = structuredClone(values.section_rules);
-    typography.set(values);
+    typography.set(values, preserveDraft);
     listStyle.set(values.list_levels);
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;

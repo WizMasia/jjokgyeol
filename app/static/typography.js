@@ -10,6 +10,9 @@ function typographyEditor(settings) {
   layout.add(new Option("문단 전체 배치 비교", "balanced"));
   layout.add(new Option("양끝맞춤", "justified"));
   const bounds = ["tracking-lower", "tracking-upper"].map(id => document.getElementById(id));
+  const spaces = [...document.querySelectorAll('#style [name="space_pct"]')];
+  const notice = document.getElementById("spacing-notice");
+  let spacingEdited = false;
   const base = document.getElementById("ko_tracking_pct");
   const errorText = document.getElementById("typography-error");
   const defaults = settings.text_defaults;
@@ -91,11 +94,32 @@ function typographyEditor(settings) {
       control.value = values?.[i] ?? base.value;
     });
   }
-  layout.addEventListener("input", clearError);
+  function manualSpacing() {
+    spacingEdited = true;
+    notice.textContent = "";
+  }
+  spaces.forEach(control => control.addEventListener("input", manualSpacing));
+  layout.addEventListener("input", () => {
+    clearError();
+    notice.textContent = "";
+    const suggested = settings.justified_spacing ?? settings.new_spacing;
+    if (layout.value !== "justified" || !suggested?.ko_tracking_bounds_pct || enabled.checked || spacingEdited ||
+        !spaces.every(control => sameDecimal(control.value, "100"))) return;
+    const [low, high] = suggested.ko_tracking_bounds_pct;
+    enabled.closest("details").open = true;
+    if (!(compareDecimal(base.value, low) >= 0 && compareDecimal(base.value, high) <= 0)) {
+      notice.textContent = `현재 기본 자간을 유지했습니다. 줄별 보정을 쓰려면 자간 한계를 직접 지정하세요. 권장 범위는 ${low}% ~ ${high}%입니다.`;
+      return;
+    }
+    setBounds(suggested.ko_tracking_bounds_pct);
+    spaces.forEach((control, i) => { control.value = suggested.space_pct[i]; });
+  });
   enabled.addEventListener("input", () => {
+    manualSpacing();
     setBounds(enabled.checked ? [base.value, base.value] : undefined);
   });
   base.addEventListener("input", () => {
+    notice.textContent = "";
     if (!enabled.checked) setBounds(undefined);
   });
 
@@ -108,8 +132,10 @@ function typographyEditor(settings) {
       if (enabled.checked) values.ko_tracking_bounds_pct = bounds.map(control => control.value);
       return values;
     },
-    set(values) {
+    set(values, preserveDraft) {
       clearError();
+      notice.textContent = "";
+      if (!preserveDraft) spacingEdited = false;
       layout.value = values.paragraph_layout ?? "";
       styles = structuredClone(values.text_styles ?? {});
       setBounds(values.ko_tracking_bounds_pct);

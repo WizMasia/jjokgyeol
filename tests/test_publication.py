@@ -491,7 +491,8 @@ from app.style import NEW_DOCUMENT_STYLE, Style, editor_bootstrap
 stored = NEW_DOCUMENT_STYLE.to_stored()
 assert stored["ko_tracking_per_10000"] == 100 and stored["ko_tracking_bounds_per_10000"] == [-200, 450]
 assert stored["space_per_10000"] == [9100, 11200]
-assert editor_bootstrap()["new_spacing"] == {"ko_tracking_bounds_pct": ["-2", "4.5"], "space_pct": ["91", "112"]}
+assert editor_bootstrap()["new_spacing"] == editor_bootstrap()["justified_spacing"] == {
+    "ko_tracking_bounds_pct": ["-2", "4.5"], "space_pct": ["91", "112"]}
 assert Style().space_per_10000 == (10000, 10000) and Style().paragraph_layout is None
 """)
     assert result.returncode == 0, result.stderr

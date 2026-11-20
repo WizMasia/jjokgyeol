@@ -12,7 +12,7 @@ if __name__ == "__main__":
 from app.ai.style import SETTINGS, suggest_patch
 from app.document import InputError
 from app.jobs import INVALID_INPUT, limit_worker_files
-from app.style import Style, apply_style
+from app.style import from_editor_style
 
 
 def worker():
@@ -28,7 +28,7 @@ def worker():
         raise InputError({"request": "요청과 현재 양식을 JSON으로 보내세요."}) from None
     if not isinstance(data, dict) or data.keys() != {"request", "style"}:
         raise InputError({"request": "요청과 현재 양식을 함께 보내세요."})
-    current = apply_style(Style(), data["style"])
+    current = from_editor_style(data["style"])
     patch = suggest_patch(data["request"], current, draft=data["style"])
     Path("response.json").write_text(json.dumps({"patch": patch}, ensure_ascii=False, default=str), "utf-8")
 
