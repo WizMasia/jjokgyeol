@@ -1,6 +1,6 @@
 # 쪽결
 
-쪽결은 한글·영문 마크다운 원고를 책과 보고서용 PDF로 조판하는 로컬 웹 편집기입니다. 판형과 여백을 정하면 한글 어절과 영문 단어의 경계에서 줄을 나누고, 허용한 범위 안에서 자간과 어절 사이 공백을 조정해 본문 양끝을 맞춥니다. 문단의 마지막 줄은 자연스러운 길이로 둡니다.
+쪽결은 한글·영문 마크다운 원고를 책과 보고서용 PDF로 조판하는 편집기입니다. 이 브랜치에는 Docker 웹판과 네이티브 데스크톱 개발판이 함께 들어 있습니다. 판형과 여백을 정하면 한글 어절과 영문 단어의 경계에서 줄을 나누고, 허용한 범위 안에서 자간과 어절 사이 공백을 조정해 본문 양끝을 맞춥니다. 문단의 마지막 줄은 자연스러운 길이로 둡니다.
 
 ![같은 원고의 조판 전후. 오른쪽 예제에서 문단의 마지막 줄을 제외한 줄 끝이 붉은 기준선에 맞는다.](proofs/justified-publication/comparison.png)
 
@@ -12,9 +12,21 @@
 
 | 항목 | 상태 |
 | --- | --- |
-| 지금 사용할 수 있는 앱 | 소스에서 빌드하는 Docker 웹 편집기. Apple Silicon Mac에서 Linux ARM64 컨테이너를 실행하고 Chromium으로 PDF 출력을 확인했습니다. |
+| 지금 사용할 수 있는 앱 | Docker 웹 편집기와 macOS용 네이티브 개발 앱에서 PDF 출력을 확인했습니다. |
 | GitHub Releases | 게시된 릴리즈 0개, 초안 0개, 원격 Git 태그 0개입니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) |
 | Windows·macOS·Linux 네이티브 앱 | 세 운영체제 모두 다운로드할 설치 파일은 아직 배포 전입니다. [앱 구조와 운영체제별 출시 기준](docs/superpowers/specs/2026-11-20-native-desktop-design.md) |
+
+### 네이티브 개발판과 웹판 비교
+
+`feature/native-desktop`에서 Tauri 편집 창과 Rust 실행기를 개발합니다. 비교 기준은 `main`의 `6b8da3a`입니다. 두 앱에서 같은 UTF-8 원고와 저장 양식을 열고 규칙 조판을 선택하면, 아래 명령으로 쪽 수·줄 끝·글꼴·좌표를 대조할 수 있습니다.
+
+```sh
+python desktop/qa/compare_pdfs.py 네이티브.pdf 웹판.pdf
+```
+
+Mac 개발 앱에서 원고를 열고 편집한 뒤 PDF를 미리보고 저장했습니다. 원고만 고치거나 양식만 고친 경우 각각 창 닫기를 취소하면 수정값이 보존됩니다. 양면 줄 번호, 9단계 목록, 일반 보고서, 주석의 본문 크기 변경(11pt·16pt), 양끝맞춤 예제와 새 원고의 지면이 웹판과 일치했습니다. Mac 앱을 다른 폴더로 복사하고 네트워크와 개발 저장소 읽기를 차단한 상태에서도 같은 양면 PDF가 생성됐습니다. 데스크톱 개발판은 규칙 조판을 지원합니다. 웹판에서는 모델판과 규칙판을 선택할 수 있습니다. [네이티브 앱 빌드](desktop/gui/README.md) · [조판 작업자 준비](desktop/worker/README.md) · [Windows 검증](desktop/qa/runtime/README.md) · [Linux 검증](desktop/qa/linux/README.md)
+
+Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서 운영체제가 쪽결 창을 표시하는 것까지 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44737851837) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44737851780)
 
 ## 내 컴퓨터에서 실행하기
 
