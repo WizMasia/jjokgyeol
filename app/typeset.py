@@ -93,7 +93,12 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     role_styles = _role_styles(style)
     for index, block in enumerate(doc.blocks):
         role = f"heading{block.level}" if block.kind == "heading" else "body"
-        overrides[index] = role_styles[role] | overrides[index]
+        base = role_styles[role]
+        if block.kind == "list_item":
+            level = levels[min(block.level, len(levels)) - 1]
+            base = base | {k: v for k, v in (("font", level.font), ("font_sp", level.font_sp),
+                                              ("weight", level.weight)) if v is not None}
+        overrides[index] = base | overrides[index]
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
@@ -112,13 +117,18 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
         prefix = f"levels.{depth}."
         block["indent_sp"] = values.get(prefix + "indent_sp", row.indent_sp)
         block["gap_sp"] = values.get(prefix + "gap_sp", row.gap_sp)
+        if row.indent_origin:
+            block["indent_origin"] = row.indent_origin
         if block["first"]:
             try:
                 mark = format_mark(values.get(prefix + "expr", row.expr), block["ordinal"])
             except ValueError as error:
                 raise InputError({f"list_levels[{index}].expr": f"{index + 1}단계 표지를 만들 수 없습니다."}) from error
+            if row.mark_weight:
+                block["mark_weight"] = row.mark_weight
             key = (mark, values.get("font", style.body_font), values.get("font_sp", style.body_sp),
-                   values.get("color", TEXT_DEFAULTS["color"]), values.get("weight"), values.get("slant"))
+                   values.get("color", TEXT_DEFAULTS["color"]), row.mark_weight or values.get("weight"),
+                   values.get("slant"))
             block["mark"] = mark
             block["mark_id"] = box_ids.setdefault(key, len(box_ids) + 1)
     if doc.memos:

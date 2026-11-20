@@ -5,6 +5,7 @@ function listLevelEditor(settings, onEdit) {
   const preset = document.getElementById("list-preset");
   const rows = document.getElementById("list-levels");
   const template = document.getElementById("list-level-row");
+  const loadedRows = new WeakMap();
   const presets = settings.list_presets || {};
   const defaultPreset = settings.default_list_preset;
   const labels = {legal: "법령형", report: "보고서형"};
@@ -14,9 +15,11 @@ function listLevelEditor(settings, onEdit) {
   preset.add(new Option("사용자 지정", "custom"));
 
   function readRow(row) {
-    return Object.fromEntries(Array.from(row.elements)
-      .filter(control => control.name)
-      .map(control => [control.name, control.value]));
+    const level = {...loadedRows.get(row)};
+    for (const control of row.elements) {
+      if (control.name) level[control.name] = control.value;
+    }
+    return level;
   }
 
   function numberRows() {
@@ -28,6 +31,7 @@ function listLevelEditor(settings, onEdit) {
 
   function appendRow(level) {
     const row = template.content.firstElementChild.cloneNode(true);
+    loadedRows.set(row, level);
     for (const control of row.querySelectorAll("input")) control.value = level[control.name];
     rows.append(row);
     return row;
@@ -72,7 +76,8 @@ function listLevelEditor(settings, onEdit) {
       // An explicit choice of the default preset must survive saving and reopening.
       preset.value = levels === undefined ? "" : Object.keys(presets).find(key =>
         levels.length === presets[key].length && levels.every((row, i) =>
-          ["expr", "indent_mm", "gap_mm"].every(field => String(row[field]) === String(presets[key][i][field]))
+          Object.keys(row).length === Object.keys(presets[key][i]).length &&
+          Object.entries(row).every(([field, value]) => String(value) === String(presets[key][i][field]))
         )
       ) || "custom";
     },

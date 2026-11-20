@@ -1,7 +1,7 @@
 """Convert editor units once and validate the integer style consumed by LuaTeX."""
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, MAX_EMAX, MIN_EMIN, ROUND_HALF_UP, localcontext
 from fractions import Fraction
 
@@ -105,18 +105,33 @@ class ListLevel:
     expr: str
     indent_sp: int
     gap_sp: int
+    font: str | None = None
+    font_sp: int | None = None
+    weight: str | None = None
+    mark_weight: str | None = None
+    indent_origin: str | None = None
+
+    def to_stored(self) -> dict:
+        return {k: v for k, v in vars(self).items() if v is not None}
 
     def to_editor(self) -> dict:
         with localcontext() as context:
             context.prec = 40
-            return {"expr": self.expr, "indent_mm": _mm(self.indent_sp, 0), "gap_mm": _mm(self.gap_sp, 0)}
+            row = self.to_stored()
+            row["indent_mm"] = _mm(row.pop("indent_sp"), 0)
+            row["gap_mm"] = _mm(row.pop("gap_sp"), 0)
+            if self.font_sp is not None:
+                row["font_pt"] = _pt(row.pop("font_sp"))
+            return row
 
 
-def _list_levels(rows, *, stored, field="list_levels"):
+def _list_levels(rows, *, stored, field="list_levels", base=None):
     if not isinstance(rows, (list, tuple)) or not rows:
         raise InputError({field: "목록 양식에는 한 단계 이상이 필요합니다."})
     distance_keys = ("indent_sp", "gap_sp") if stored else ("indent_mm", "gap_mm")
     expected = ("expr", *distance_keys)
+    size_key = "font_sp" if stored else "font_pt"
+    optional = {"font", size_key, "weight", "mark_weight", "indent_origin"}
     maximum = _whole_mm(MAX_PAGE_MM) if stored else MAX_PAGE_MM
     levels = []
     with localcontext() as context:
@@ -125,7 +140,7 @@ def _list_levels(rows, *, stored, field="list_levels"):
         for index, row in enumerate(rows):
             path = f"{field}[{index}]"
             stage = f"목록 {index + 1}단계"
-            if not isinstance(row, dict) or row.keys() - set(expected):
+            if not isinstance(row, dict) or row.keys() - set(expected) - optional:
                 raise InputError({path: f"{stage}의 필드 구성을 확인하세요."})
             for key in expected:
                 if key not in row:
@@ -147,7 +162,26 @@ def _list_levels(rows, *, stored, field="list_levels"):
                 except (ValueError, InvalidOperation):
                     unit = "sp 정수" if stored else "mm"
                     raise InputError({f"{path}.{key}": f"{stage}의 거리는 0~{maximum} {unit}로 입력하세요."}) from None
-            levels.append(ListLevel(expr, *distances))
+            options = {}
+            for key, value in row.items():
+                if key not in optional:
+                    continue
+                try:
+                    if key == size_key:
+                        amount = _point_size(key, value, stored, context)
+                        scale = 1 if stored else DENOMINATOR
+                        if not stored and base is not None:
+                            _check_rule_fit("font_sp", amount, base, scale)
+                        options["font_sp"] = _rounded(amount, scale)
+                    elif key == "indent_origin":
+                        if value != "margin":
+                            raise ValueError("들여쓰기 기준은 margin이어야 합니다.")
+                        options[key] = value
+                    else:
+                        options[key] = _text_attribute("weight" if key == "mark_weight" else key, value)
+                except (ValueError, InvalidOperation) as error:
+                    raise InputError({f"{path}.{key}": f"{stage} {str(error) or '속성 값을 확인하세요.'}"}) from None
+            levels.append(ListLevel(expr, *distances, **options))
     return tuple(levels)
 
 
@@ -439,6 +473,9 @@ def _validate_typography(values, scale, errors, tracking_supplied, stored):
     styles = values["text_styles"]
     # A gloss always fits within the surrounding font size, including in a sized section.
     largest = max(body, styles.get("note", {}).get("font_sp", TEXT_DEFAULTS["note_sp"] * scale))
+    for level in values.get("list_levels") or _LIST_PRESETS[publication.DEFAULT_LIST_PRESET]:
+        if level.font_sp is not None:
+            largest = max(largest, level.font_sp * scale)
     for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
         size = styles.get(role, {}).get("font_sp")
         if size is None:
@@ -486,12 +523,6 @@ def _load(current, patch, *, stored):
             errors["article_expr"] = str(error) if isinstance(expr, str) else "조 번호 표현식은 문자열이어야 합니다."
         else:
             values["article_expr"] = expr
-    if "list_levels" in patch:
-        try:
-            values["list_levels"] = _list_levels(patch["list_levels"], stored=stored)
-        except InputError as error:
-            errors.update(error.errors)
-
     with localcontext() as context:
         context.prec = 64
         context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
@@ -528,6 +559,12 @@ def _load(current, patch, *, stored):
 
         if not current and errors:
             raise InputError({names.get(key, key): msg for key, msg in errors.items()})
+        if "list_levels" in patch:
+            try:
+                values["list_levels"] = _list_levels(patch["list_levels"], stored=stored,
+                                                    base=None if errors else values)
+            except InputError as error:
+                errors.update(error.errors)
         values["text_styles"] = _text_styles(values.get("text_styles"), patch.get("text_styles", {}),
                                             stored, context, scale, errors)
         bounds_only = patch.keys() == {"ko_tracking_bounds_pct"}
@@ -557,6 +594,13 @@ def _load(current, patch, *, stored):
     return values
 
 
+try:
+    _LIST_PRESETS = {name: _list_levels(rows, stored=False, field=f"list_presets.{name}")
+                     for name, rows in publication.LIST_PRESETS.items()}
+except InputError as error:
+    raise ValueError(f"publication.json {error.field}: {error.message}") from error
+
+
 if not isinstance(publication.DEFAULTS, dict):
     raise ValueError("publication.json defaults must be an editor style object")
 _field_difference = publication.DEFAULTS.keys() ^ (EDITOR_UNITS.keys() | set(FONTS))
@@ -578,13 +622,6 @@ try:
 except InputError as error:
     field = error.field.removeprefix("section_rules[0].values.")
     raise ValueError(f"publication.json running_defaults.{field}: {error.message}") from error
-
-try:
-    _LIST_PRESETS = {name: _list_levels(rows, stored=False, field=f"list_presets.{name}")
-                     for name, rows in publication.LIST_PRESETS.items()}
-except InputError as error:
-    raise ValueError(f"publication.json {error.field}: {error.message}") from error
-
 
 @dataclass(frozen=True)
 class Style:
@@ -617,7 +654,7 @@ class Style:
         if self.text_styles:
             values["text_styles"] = {role: dict(fields) for role, fields in self.text_styles}
         if self.list_levels is not None:
-            values["list_levels"] = [asdict(row) for row in self.list_levels]
+            values["list_levels"] = [row.to_stored() for row in self.list_levels]
         if self.section_rules:
             values["section_rules"] = [row.to_fields(stored=True) for row in self.section_rules]
         return values
