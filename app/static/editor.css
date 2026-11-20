@@ -113,3 +113,5 @@ legend { font-weight: 650; color: var(--muted); font-size: .8rem; }
 #running-fields fieldset { display: grid; align-content: start; }
 #running-fields input:not([type=checkbox]), #running-fields select { width: 100%; min-width: 0; }
 #running-error, #running-fields [aria-invalid=true] { color: var(--accent); }
+#suggestion-request { flex: 1 1 18rem; min-width: 0; min-height: 36px; padding: .3rem .45rem; }
+#suggestion-fields { overflow-wrap: anywhere; }

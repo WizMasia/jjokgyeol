@@ -11,6 +11,8 @@
 !app/config/publication.json
 !app/config/operations.json
 !app/config/reference.json
+!app/config/style-suggestion.json
+!app/ai/
 !app/static/
 !app/static/*.css
 !app/static/*.js

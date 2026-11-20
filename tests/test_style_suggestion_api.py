@@ -119,3 +119,24 @@ async def test_busy_deadline_and_recovery(client, local_model, monkeypatch):
     assert (await first).status_code == 504
     release.set()
     assert (await client.post(ENDPOINT, json=payload)).status_code == 200
+
+
+async def test_patch_uses_same_raw_geometry_as_manual_edit(client, local_model):
+    # Stored rounding leaves more room than the author's two original decimal margins.
+    style = {"page_mm": [".000014", 100], "margins_mm": [0, ".000002", 0, ".000002"]}
+    for value, status in [(".0000101", 422), (".000009", 200)]:
+        local_model[0]["answer"] = reply(("gutter_mm", value))
+        response = await client.post(ENDPOINT, json={"request": "제본 여백", "style": style})
+        manual = await client.post("/api/style/export", json={**style, "gutter_mm": value})
+        assert response.status_code == manual.status_code == status
+        if status == 422:
+            assert response.json()["field"] == manual.json()["field"] == "gutter_mm"
+        else:
+            assert response.json()["patch"] == {"gutter_mm": value}
+
+
+async def test_changing_one_margin_keeps_other_unrounded_inputs(client, local_model):
+    style = {"page_mm": [".000014", 100], "margins_mm": [0, ".000007", 0, 0]}
+    local_model[0]["answer"] = reply(("margin.left", ".000007"))
+    response = await client.post(ENDPOINT, json={"request": "왼쪽 여백 변경", "style": style})
+    assert response.status_code == 422 and response.json()["field"] == "margins_mm"

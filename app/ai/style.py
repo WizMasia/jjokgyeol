@@ -1,4 +1,5 @@
 """Ask the operator's local model for edits, then validate a sparse Style patch."""
+from copy import deepcopy
 import http.client
 import json
 import os
@@ -43,7 +44,7 @@ def _infer(request, fields):
     context = {"현재 양식": fields, "글꼴": publication.FONT_LABELS, "요청": request}
     payload = {"model": model, "temperature": 0, "max_tokens": SETTINGS["max_tokens"],
                "messages": [{"role": "system", "content": PROMPT},
-                            {"role": "user", "content": json.dumps(context, ensure_ascii=False)}],
+                            {"role": "user", "content": json.dumps(context, ensure_ascii=False, default=str)}],
                "response_format": {"type": "json_schema", "json_schema": {"name": "style_edits", "schema": schema}}}
     cls = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
     conn = cls(url.hostname, url.port, timeout=SETTINGS["timeout_seconds"])
@@ -82,17 +83,20 @@ def _running(rules, role, slot, value):
             row["values"][key] = v
 
 
-def suggest_patch(request: str, current: Style) -> dict:
+def suggest_patch(request: str, current: Style, *, draft: dict | None = None) -> dict:
+    """Keep the HTTP editor's original decimals when available."""
     if not isinstance(request, str) or not request.strip() or len(request) > SETTINGS["max_request_chars"]:
         raise InputError({"request": f'요청을 1~{SETTINGS["max_request_chars"]}자로 입력하세요.'})
     before = current.to_editor()
-    fields = {k: before.get(k) for k in SCALARS}
+    editor = {**before, **(draft or {})}
+    fields = {k: editor.get(k) for k in SCALARS}
     for key, names in ARRAYS.items():
-        fields.update(zip(names, before[key], strict=True))
-    levels = [row.to_editor() for row in current.resolved_list_levels()]
+        fields.update(zip(names, editor[key], strict=True))
+    levels = (deepcopy(editor["list_levels"]) if "list_levels" in editor else
+              [row.to_editor() for row in current.resolved_list_levels()])
     for i, level in enumerate(levels, 1):
         fields.update({f"list.{i}.{key}": v for key, v in level.items()})
-    rules = [row.to_fields(stored=False) for row in current.section_rules or ()]
+    rules = deepcopy(editor.get("section_rules", []))
     for role in RUNNING_ROLES:
         fields.update({f"{role}.{slot}": None for slot in SLOTS})
         for row in rules:
@@ -125,6 +129,9 @@ def suggest_patch(request: str, current: Style) -> dict:
         else:
             for key, names in ARRAYS.items():
                 if field in names:
-                    patch.setdefault(key, before[key].copy())[names.index(field)] = value
-    after = apply_style(current, patch).to_editor()
-    return {key: after[key] for key in patch if after[key] != before.get(key)}
+                    patch.setdefault(key, list(editor[key]))[names.index(field)] = value
+    after = apply_style(Style(), {**editor, **patch}).to_editor()
+    changes = {key: value for key, value in patch.items() if after[key] != before.get(key)}
+    if changes and len(changes) != len(patch):
+        apply_style(Style(), {**editor, **changes})
+    return changes

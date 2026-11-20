@@ -31,6 +31,12 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 
 같은 원고를 A5·14pt, 첫 줄 0mm·이후 줄 6mm로 출력한 예시입니다. 편집기에서 원고와 양식 파일을 각각 열면 두 쪽에 걸친 내어쓰기와 각주를 확인할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [양식 JSON](proofs/web-editor/fixed-point-style.json) · [출력 PDF](proofs/web-editor/fixed-point.pdf)
 
+### 자연어로 양식 바꾸기
+
+**AI 양식 제안**을 열고 “본문은 16pt로 하고 바닥글 가운데에 쪽 번호를 넣어 줘”처럼 요청합니다. 바뀔 항목과 값을 확인한 뒤 **제안 적용**을 누릅니다. 이어서 본문 크기를 직접 고쳐도 바닥글은 유지됩니다.
+
+Docker에서 호스트의 LM Studio로 연결할 때는 서비스 실행 명령의 이미지 이름 앞에 `-e JJOKGYEOL_STYLE_URL=http://host.docker.internal:1234/v1 -e JJOKGYEOL_STYLE_MODEL=google/gemma-4-e2b`를 추가합니다. 모델에는 변경 요청과 현재 양식 값이 전달됩니다. [구현 및 실모델 검증](docs/superpowers/plans/2026-11-20-style-suggestion.md)
+
 ### 단계별 목록 서식
 
 마크다운에서 항목 앞에 `- `를 쓰고 하위 항목을 안쪽으로 들여씁니다. `# 제1조`처럼 조 제목을 별도 줄에 적으면 다음 목록을 새로 시작할 수 있습니다.

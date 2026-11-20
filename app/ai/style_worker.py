@@ -29,8 +29,8 @@ def worker():
     if not isinstance(data, dict) or data.keys() != {"request", "style"}:
         raise InputError({"request": "요청과 현재 양식을 함께 보내세요."})
     current = apply_style(Style(), data["style"])
-    patch = suggest_patch(data["request"], current)
-    Path("response.json").write_text(json.dumps({"patch": patch}, ensure_ascii=False), "utf-8")
+    patch = suggest_patch(data["request"], current, draft=data["style"])
+    Path("response.json").write_text(json.dumps({"patch": patch}, ensure_ascii=False, default=str), "utf-8")
 
 
 if __name__ == "__main__":

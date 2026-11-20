@@ -9,6 +9,7 @@
   <script src="/static/list-style.js" defer></script>
   <script src="/static/editor.js" defer></script>
   <script src="/static/style-file.js" defer></script>
+  <script type="module" src="/static/style-suggestion.js"></script>
 </head>
 <body>
   <a class="skip" href="#source">원고 편집으로 이동</a>
@@ -54,6 +55,7 @@
         <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
         <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
         <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+        <button id="open-suggestion" type="button" aria-controls="style-suggestion" aria-expanded="false">AI 양식 제안</button>
         <button id="open-reference" type="button" aria-controls="reference-review" aria-expanded="false">참고 문서 서식 가져오기</button>
         <button id="open-running" type="button" aria-controls="running-editor" aria-expanded="false">머리글·바닥글 편집</button>
       </div>
@@ -119,6 +121,17 @@
           <button type="button" id="save-style">양식 저장</button>
         </div>
       </details>
+    </section>
+    <section id="style-suggestion" aria-labelledby="open-suggestion" hidden>
+      <form class="reference-tools" id="suggestion-form">
+        <label for="suggestion-request">양식 변경 요청</label>
+        <input id="suggestion-request" type="text" required placeholder="본문만 16pt로">
+        <button type="submit">제안 받기</button>
+      </form>
+      <p id="suggestion-message" aria-live="polite"></p>
+      <ul id="suggestion-fields" hidden></ul>
+      <button id="suggestion-apply" type="button" hidden>제안 적용</button>
+      <button id="suggestion-cancel" type="button" hidden>제안 취소</button>
     </section>
     <input type="file" id="style-file" accept=".json,application/json" hidden>
     <p id="reference-notice" aria-live="polite"></p>
