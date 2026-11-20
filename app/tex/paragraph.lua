@@ -41,20 +41,43 @@ end
 
 -- Each boundary keeps cumulative shaped advances before and after its gap.
 -- A range can then be tried in O(1) with fresh line-local rounding.
-local function boundaries(head, shapes, low_tracking, low_space)
+local function boundaries(head, shapes, low_tracking, low_space, justified)
   local parts, total = {}, {width=0, tracking=0, space=0, glyphs=0}
-  local function word(gap, first, stop)
+  local function word(gap, first, stop, annotated)
     local before = scan(gap, first, total)
     local after, left, right = scan(first, stop, before)
     local start = #parts + 1
     if width(before, after, low_tracking, low_space) > math.min(shapes[1].width, shapes[2].width) then
-      local chunks = breaks.chunks(first, stop)
-      for i, chunk in ipairs(chunks) do
-        local limit = chunks[i+1] and chunks[i+1].gap or stop
+      local chunks = breaks.chunks(first, stop, annotated)
+      local i, examined = 1, 0
+      while i <= #chunks do
+        local chunk, last = chunks[i], i
+        -- Retain a whole marked group wherever it fits. Within an overlong
+        -- explanation the normal-size base term still has its own protection.
+        if chunk.group and i > examined then
+          while chunks[last+1] and chunks[last+1].group == chunk.group do last = last + 1 end
+          examined = last
+          local function fits_group(j)
+            local limit = chunks[j+1] and chunks[j+1].gap or stop
+            return width(before, scan(chunk.first, limit, before), low_tracking, low_space)
+              <= shapes[2].width
+          end
+          if not fits_group(last) then
+            last = i
+            if chunk.term then
+              while chunks[last+1] and chunks[last+1].group == chunk.group and chunks[last+1].term do
+                last = last + 1
+              end
+              if not fits_group(last) then last = i end
+            end
+          end
+        end
+        local limit = chunks[last+1] and chunks[last+1].gap or stop
         if i > 1 then before = scan(chunk.gap, chunk.first, total) end
         total, left, right = scan(chunk.first, limit, before)
         parts[#parts+1] = {gap=i == 1 and gap or chunk.gap, first=chunk.first,
-          before=before, after=total, left=left, right=right, word_start=start}
+          before=before, after=total, left=left, right=right, word_start=start, marked=chunk.group}
+        i = last + 1
       end
     else
       total = after
@@ -63,20 +86,23 @@ local function boundaries(head, shapes, low_tracking, low_space)
     end
     for i=start,#parts do parts[i].word_end = #parts end
   end
-  local gap, first = head, nil
+  local gap, first, annotated = head, nil, nil
   for n in node.traverse(head) do
-    if n.id == glyph and node.has_attribute(n, breaks.gloss_attribute) then return end
+    if n.id == glyph and node.has_attribute(n, breaks.gloss_attribute) then
+      if not justified then return end
+      annotated = true
+    end
     if n.id == penalty and n.penalty <= -10000 then return end
     if breaks.wordspace(n, true) or n.id == glue and n.subtype == 15 then
       if first then
-        word(gap, first, n)
-        gap, first = n, nil
+        word(gap, first, n, annotated)
+        gap, first, annotated = n, nil, nil
       end
     else
       first = first or n
     end
   end
-  if first then word(gap, first, nil) end
+  if first then word(gap, first, nil, annotated) end
   return parts
 end
 
@@ -125,6 +151,110 @@ local function highest_fit(low, high, fits)
   return low
 end
 
+-- Minimize total unfillable width, then spacing correction. The suffix after
+-- every legal edge is already solved. Stop scanning shorter lines once their
+-- unavoidable shortfall alone exceeds the best complete path.
+local function justified_ends(parts, shapes, base, natural, low, high, smin, smax, want_alternate)
+  local n = #parts
+  local residual, cost, following = {[n+1]=0}, {[n+1]=0}, {}
+  local other = {}
+  for start=n,1,-1 do
+    local a = parts[start].before
+    local limit = shapes[start == 1 and 1 or 2].width
+    if width(a, parts[n].after, base, natural) <= limit then
+      following[start], residual[start], cost[start] = n, 0, 0
+    else
+      local far = highest_fit(start-1, n, function(j)
+        return width(a, parts[j].after, low, smin) <= limit
+      end)
+      local pivot = highest_fit(start-1, far, function(j)
+        return width(a, parts[j].after, base, natural) <= limit
+      end)
+      local flex_max = far >= start and math.max(1, parts[far].after.tracking-a.tracking
+                                                  + parts[far].after.space-a.space)
+      local function visit(j)
+        local part = parts[j]
+        local b = part.after
+        local short = math.max(0, limit - width(a, b, high, smax))
+        if residual[start] and short > residual[start] then return true end
+        local change = limit - short - width(a, b, base, natural)
+        -- On either side of natural fit the required change grows. Even if
+        -- all remaining glue were flexible, it could not beat this path.
+        if residual[start] == 0 and (not want_alternate or other[start])
+            and change / flex_max * change > cost[start] then return true end
+        local next_line = j+1
+        if residual[next_line] then
+          -- Only a word too large for an empty line can use an interior edge.
+          -- A final multi-word line must fit without tightening.
+          local legal = j == part.word_end
+          if not legal then
+            local word_begin = math.max(start, part.word_start)
+            legal = width(parts[word_begin].before, parts[part.word_end].after, low, smin)
+              > (word_begin == start and limit or shapes[2].width)
+          end
+          if legal and (j < n or part.word_start <= start) then
+            local gap = short + residual[next_line]
+            local flex = math.max(1, b.tracking-a.tracking + b.space-a.space)
+            local energy = change / flex * change + cost[next_line]
+            if not residual[start] or gap < residual[start] then
+              other[start] = nil
+              following[start], residual[start], cost[start] = j, gap, energy
+            elseif gap == residual[start] then
+              if energy < cost[start] then
+                other[start], following[start], cost[start] = following[start], j, energy
+              elseif not other[start] then
+                other[start] = j
+              end
+            end
+          end
+        end
+      end
+      for j=pivot+1,far do if visit(j) then break end end
+      for j=pivot,start,-1 do if visit(j) then break end end
+    end
+  end
+  if not following[1] then return end
+  local function path(alternate)
+    local ends, i = {}, 1
+    while i <= n do
+      local last = following[i]
+      if alternate and other[i] then last, alternate = other[i], false end
+      ends[#ends+1] = last
+      i = last + 1
+    end
+    if not alternate then return ends end
+  end
+  return path(false), want_alternate and residual[1] == 0 and path(true)
+end
+
+local function clamp(x, low, high)
+  return math.max(low, math.min(high, x))
+end
+
+-- Solve in actual scaled points. The integer ratios in the public features
+-- describe these totals to the nearest 0.01%. Rounding a ratio first loses
+-- measurable width on long lines.
+local function justify(a, b, limit, base, natural, bounds, spaces, final, allocation)
+  local tbase, sbase = b.tracking-a.tracking, b.space-a.space
+  local t, s = fixed.scaled(tbase, base), fixed.scaled(sbase, natural)
+  local delta = limit - (b.width-a.width + t+s)
+  if not final or delta < 0 then
+    local tmin, tmax = fixed.scaled(tbase, bounds[1]), fixed.scaled(tbase, bounds[2])
+    local smin, smax = fixed.scaled(sbase, spaces[1]), fixed.scaled(sbase, spaces[2])
+    local share = math.floor(delta * (tbase / math.max(1, tbase+sbase)) + .5)
+    if allocation == "space" then share = 0 elseif allocation == "tracking" then share = delta end
+    local new_t = clamp(t + share, tmin, tmax)
+    local new_s = clamp(s + delta - (new_t-t), smin, smax)
+    t, s = clamp(t + delta - (new_s-s), tmin, tmax), new_s
+  end
+  local function ratio(amount, nominal, fallback, limits)
+    if nominal == 0 or amount == fixed.scaled(nominal, fallback) then return fallback end
+    return clamp(math.floor(amount / nominal * unit + .5), limits[1], limits[2])
+  end
+  return ratio(t,tbase,base,bounds), ratio(s,sbase,natural,spaces),
+         limit - (b.width-a.width+t+s), t, s
+end
+
 local function candidate(parts, shapes, ends, style, spread)
   local base = style.ko_tracking_per_10000
   local bounds = style.ko_tracking_bounds_per_10000 or {base, base}
@@ -137,8 +267,11 @@ local function candidate(parts, shapes, ends, style, spread)
     local shape = shapes[math.min(i, 2)]
     local function fits(t, s) return width(a.before, b.after, t, s) <= shape.width end
     if not fits(bounds[1], low_space) then return end
-    local t, s = base, natural
-    if not fits(t, s) then
+    local t, s, remaining, tw, sw = base, natural
+    if style.paragraph_layout == "justified" then
+      t, s, remaining, tw, sw = justify(a.before, b.after, shape.width, base, natural,
+        bounds, style.space_per_10000, i == #ends, spread)
+    elseif not fits(t, s) then
       if not fits(t, low_space) then
         t = highest_fit(bounds[1], base, function(v) return fits(v, low_space) end)
       end
@@ -151,15 +284,16 @@ local function candidate(parts, shapes, ends, style, spread)
         t = highest_fit(base, bounds[2], function(v) return fits(v, s) end)
       end
     end
-    local remaining = shape.width - width(a.before, b.after, t, s)
+    remaining = remaining or shape.width - width(a.before, b.after, t, s)
     local dt, ds = t - previous_t, s - previous_s
     local line = {end_glyph=b.after.glyphs, first_char=a.left, last_char=b.right,
       start_sp=shape.start, available_sp=shape.width, remaining_sp=remaining,
       tracking_per_10000=t, space_per_10000=s, tracking_delta=t-base, space_deviation=s-unit,
       tracking_change=i == 1 and 0 or dt, space_change=i == 1 and 0 or ds,
-      split_word=last ~= b.word_end}
+      split_word=last ~= b.word_end, tracking_width_sp=tw, space_width_sp=sw}
     lines[i] = line
     keys[i] = table.concat({last, t, s, shape.start, shape.width, remaining}, "/")
+    if tw then keys[i] = keys[i] .. "/" .. tw .. "/" .. sw end
     local ragged = remaining / shape.width
     if i < #ends then cost = cost + ragged * ragged end
     cost = cost + (math.abs(t-base) + math.abs(s-natural) +
@@ -176,22 +310,41 @@ local function better(a, b)
   return a.cost < b.cost
 end
 
+-- Difference successive rounded prefix advances: every eligible gap gets its
+-- proportional share and the last gap closes the channel to exactly its total.
+local function glue_advances(parts, start, last, line)
+  local a, b = parts[start].before, parts[last].after
+  local bases = {tracking=b.tracking-a.tracking, space=b.space-a.space}
+  local targets = {tracking=line.tracking_width_sp, space=line.space_width_sp}
+  local prefix, placed = {tracking=0, space=0}, {tracking=0, space=0}
+  return function(spec)
+    local k = spec.tracking and "tracking" or "space"
+    if bases[k] == 0 then return 0 end
+    prefix[k] = prefix[k] + spec.base
+    local x = math.floor(prefix[k] / bases[k] * targets[k] + .5)
+    local w = x - placed[k]
+    placed[k] = x
+    return w
+  end
+end
+
 -- Check intermediate glyph/box edges too: negative tracking or a kern can
 -- put an earlier glyph outside the measure even when the final advance fits.
 local function check_nodes(parts, choice, collect)
   local start = 1
   for i, last in ipairs(choice.ends) do
     local line = choice.lines[i]
+    local advance = line.tracking_width_sp and glue_advances(parts, start, last, line)
     local stop = parts[last+1] and parts[last+1].gap
     local x, tc, sc = 0, nil, nil
     local n = parts[start].first
     while n ~= stop do
       local spec, w = fixed.spacing(n)
-      if spec and spec.tracking then
-        w, tc = fixed.scaled(spec.base, line.tracking_per_10000, tc)
-      elseif spec then
-        w, sc = fixed.scaled(spec.base, line.space_per_10000, sc)
-        if collect then
+      if spec then
+        if advance then w = advance(spec)
+        elseif spec.tracking then w, tc = fixed.scaled(spec.base, line.tracking_per_10000, tc)
+        else w, sc = fixed.scaled(spec.base, line.space_per_10000, sc) end
+        if collect and not spec.tracking then
           line.spaces_sp = line.spaces_sp or {}
           line.spaces_sp[#line.spaces_sp+1] = w
         end
@@ -212,12 +365,16 @@ local function pack(head, parts, choice)
   local start = 1
   for i, last in ipairs(choice.ends) do
     local line = choice.lines[i]
+    local advance = line.tracking_width_sp and glue_advances(parts, start, last, line)
     local next_part = parts[last+1]
     local stop = next_part and next_part.gap
     local state, n = {}, parts[start].first
     while n ~= stop do
       local spacing = fixed.spacing(n)
-      if spacing then
+      if spacing and advance then
+        n.width, n.stretch, n.shrink = advance(spacing), 0, 0
+        node.getproperty(n).jjok_spacing = nil
+      elseif spacing then
         if spacing.tracking then spacing.tracking = line.tracking_per_10000
         else
           local s = line.space_per_10000
@@ -237,27 +394,33 @@ local function pack(head, parts, choice)
   return breaks.lock(head)
 end
 
-local function apply(head, style, block, request)
+local function apply(head, style, block, request, level)
   local shapes = {geometry(1), geometry(2)}
   local base = style.ko_tracking_per_10000
   local low = style.ko_tracking_bounds_per_10000 and style.ko_tracking_bounds_per_10000[1] or base
   local low_space, high_space = table.unpack(style.space_per_10000)
   local natural = math.max(low_space, math.min(unit, high_space))
-  local parts = boundaries(head, shapes, low, low_space)
-  if not parts or #parts == 0 then return breaks.apply(head, true) end
+  local justified = style.paragraph_layout == "justified"
+  local parts = boundaries(head, shapes, low, low_space, justified)
+  if not parts or #parts == 0 then return breaks.apply(head, true, false, level) end
+  local skipped = justified and parts[1].marked and
+    width(parts[1].before, parts[1].after, low, low_space) > shapes[1].width
+    and shapes[2].width > shapes[1].width
+  if skipped then shapes[1] = shapes[2] end
   local options, seen, rule, replay = {}, {}
   local function consider(ends, spread)
     local option = candidate(parts, shapes, ends, style, spread)
     if not option or seen[option.key] then return end
     if not check_nodes(parts, option, request and request.collect) then return end
     seen[option.key] = true
-    if better(option, rule) then rule = option end
+    if not rule or not justified and better(option, rule) then rule = option end
     if request then
       local id = md5.sumhexa(request.snapshot .. "/" .. block .. "/" .. option.key)
       option.id = id
       if request.collect then options[#options+1] = {id=id, lines=option.lines} end
       if id == request.choices[tostring(block)] then replay = option end
     end
+    return true
   end
   local function compare(t, s, spread)
     local ends = line_ends(parts, shapes, t, s, low, low_space)
@@ -272,9 +435,21 @@ local function apply(head, style, block, request)
     alternate[p] = earlier
     consider(alternate, spread)
   end
-  compare(base, natural)
-  if low_space ~= high_space or style.ko_tracking_bounds_per_10000 then compare(low, low_space, true) end
-  if not rule then breaks.no_room() end
+  if justified then
+    local high = style.ko_tracking_bounds_per_10000 and style.ko_tracking_bounds_per_10000[2] or base
+    local ends, alternate = justified_ends(parts, shapes, base, natural, low, high, low_space, high_space, request)
+    if ends then
+      consider(ends, false)
+      if (request or not rule) and low < high and low_space < high_space and not consider(ends, "space") then
+        consider(ends, "tracking")
+      end
+      if alternate then consider(alternate, false) end
+    end
+  else
+    compare(base, natural)
+    if low_space ~= high_space or style.ko_tracking_bounds_per_10000 then compare(low, low_space, true) end
+  end
+  if not rule then breaks.no_room(level) end
   local choice = replay or rule
   if request and request.collect then
     local row = {block=block, candidates=options, rule_id=rule.id, selected_id=choice.id}
@@ -282,7 +457,15 @@ local function apply(head, style, block, request)
     assert(file:write(utilities.json.tostring(row), "\n"))
     assert(file:close())
   end
-  return pack(head, parts, choice)
+  head = pack(head, parts, choice)
+  if skipped then
+    local at = head.next
+    if at.id == node.id("hlist") and at.subtype == 3 then at = at.next end
+    local edge = node.new(penalty)
+    edge.penalty = -10000
+    head = node.insert_before(head, at, edge)
+  end
+  return head, skipped
 end
 
 return {apply=apply}
