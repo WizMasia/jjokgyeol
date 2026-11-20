@@ -28,15 +28,14 @@ byId("save-style").addEventListener("click", async () => {
     const blob = new Blob([JSON.stringify(result, null, 2) + "\n"], {type: "application/json"});
     saveBlob(blob, "쪽결-양식.json");
   } catch (error) {
+    if (JSON.stringify(styleForm.get()) !== JSON.stringify(values)) return;
     if (/^(gutter_mm|margins_mm(?:\[\d+\])?)$/.test(error.field)) {
-      if (JSON.stringify(styleForm.get()) !== JSON.stringify(values)) return;
       marginError(error.field, error.message);
     }
     if (error.field === "article_expr") {
-      if (!articleNumbering.checked || articleExpr.value !== values.article_expr) return;
       articleError(error.message);
     }
-    if (JSON.stringify(styleForm.get()) === JSON.stringify(values)) typography.error(error.field, error.message);
+    typography.error(error.field, error.message);
     showStyleError(error);
   }
 });

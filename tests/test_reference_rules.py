@@ -26,7 +26,7 @@ def test_targets_use_visible_markdown_titles_in_outline_order():
               "~~~\n# 예시\n~~~\n\n## 항목\n\n# 부록")
     assert targets(source) == [
         {"path": ["첫 제목"], "count": 1, "level": 1},
-        {"path": ["첫 제목", "항목"], "count": 2, "level": 3},
+        {"path": ["첫 제목", "항목"], "count": 2, "level": 3, "levels": [3, 2]},
         {"path": ["첫 제목", "항목", "메모"], "count": 1, "level": 5},
         {"path": ["부록"], "count": 1, "level": 1},
     ]

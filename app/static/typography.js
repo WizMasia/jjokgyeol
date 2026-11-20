@@ -66,7 +66,6 @@ function typographyEditor(settings) {
       for (const [label, value] of options[key]) control.add(new Option(label, value));
     }
     control.addEventListener("input", () => {
-      clearError();
       const row = styles[role.value] ??= {};
       if (control.value) row[key] = control.value;
       else delete row[key];
@@ -96,16 +95,14 @@ function typographyEditor(settings) {
     explicitBalance = balance.checked;
   });
   enabled.addEventListener("input", () => {
-    clearError();
     setBounds(enabled.checked ? [base.value, base.value] : undefined);
   });
-  for (const control of bounds) control.addEventListener("input", clearError);
   base.addEventListener("input", () => {
-    clearError();
     if (!enabled.checked) setBounds(undefined);
   });
 
   return {
+    clearError,
     get() {
       const values = {};
       if (explicitBalance) values.paragraph_layout = "balanced";

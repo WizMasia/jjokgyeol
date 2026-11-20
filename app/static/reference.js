@@ -321,29 +321,59 @@ function inheritedValue(style, path, role, key, face = "default", parity = face 
   return value;
 }
 
-function currentValue(style, path, role, key, face, parity, firstDepth) {
-  const value = inheritedValue(style, path, role, key, face, parity, firstDepth);
-  if (value !== undefined) return value;
-  if (isRunning(role)) return key === "visible" ? false : settings.running_defaults?.[key];
-  const headingLevel = role === "heading" && targets.find(t => t.count === 1 && JSON.stringify(t.path) === path)?.level;
-  const textRole = headingLevel ? "heading" + headingLevel : ["body", "list"].includes(role) ? "body" : null;
-  const direct = style.text_styles?.[textRole];
-  if (direct?.[key] !== undefined) return direct[key];
-  if (role === "heading" && ["font_pt", "leading_pt"].includes(key)) {
-    const level = headingLevel;
+function currentHeadingValue(style, path, key) {
+  const rules = new Map((style.section_rules ?? []).filter(rule => rule.role === "heading")
+    .map(rule => [JSON.stringify(rule.path), rule.values]));
+  const common = rules.get(globalPath);
+  function at(level, scoped) {
+    const direct = style.text_styles?.["heading" + level];
+    const field = name => scoped?.[name] ?? common?.[name] ?? direct?.[name];
+    const value = field(key);
+    if (value !== undefined) return value;
+    if (key === "font") return style.heading_font;
+    if (key === "color") return settings.text_defaults?.color ?? "#000000";
+    if (key !== "font_pt" && key !== "leading_pt") return style[key];
+
+    const size = field("font_pt");
     const scale = config?.heading_per_10000?.[level - 1];
-    if (!scale || !config.heading_leading_per_10000) return "제목 단계별 자동";
-    // The engine rounds to a TeX scaled point after each multiplication.
+    if (size === undefined && !scale || key === "leading_pt" && !config?.heading_leading_per_10000) {
+      return "제목 단계별 자동";
+    }
+    // TeX rounds to a scaled point after each multiplication.
     const sp = 65536;
-    const size = inheritedValue(style, path, role, "font_pt") ?? direct?.font_pt;
     const sizeSp = size === undefined ? Math.round(Math.round(Number(style.body_pt) * sp) * scale / 10000)
       : Math.round(Number(size) * sp);
     const measured = key === "font_pt" ? sizeSp : Math.round(sizeSp * config.heading_leading_per_10000 / 10000);
     return measured > 0 && Number.isFinite(measured) ? Number((measured / sp).toFixed(4)) : "본문 크기 확인 필요";
   }
+  if (path !== globalPath) {
+    const target = targets.find(t => t.count === 1 && JSON.stringify(t.path) === path);
+    return at(target?.level, target && rules.get(path));
+  }
+  let first;
+  for (const target of targets) {
+    const scoped = target.count === 1 ? rules.get(JSON.stringify(target.path)) : undefined;
+    for (const level of target.levels ?? [target.level]) {
+      const value = at(level, scoped);
+      first ??= value;
+      if (first === value) continue;
+      if (key === "color" && first.toLowerCase() === value.toLowerCase()) continue;
+      if (key.endsWith("_pt") && sameDecimal(first, value)) continue;
+      return "제목마다 다름";
+    }
+  }
+  return first ?? at(undefined);
+}
+
+function currentValue(style, path, role, key, face, parity, firstDepth) {
+  if (role === "heading") return currentHeadingValue(style, path, key);
+  const value = inheritedValue(style, path, role, key, face, parity, firstDepth);
+  if (value !== undefined) return value;
+  if (isRunning(role)) return key === "visible" ? false : settings.running_defaults?.[key];
+  if (["body", "list"].includes(role) && style.text_styles?.body?.[key] !== undefined) return style.text_styles.body[key];
   if (role === "list" && ["first_indent_mm", "rest_indent_mm"].includes(key)) return "0";
   if (Object.hasOwn(style, key)) return style[key];
-  if (key === "font") return style[role === "heading" ? "heading_font" : "body_font"];
+  if (key === "font") return style.body_font;
   if (key === "font_pt") return style.body_pt;
   if (key === "color") return settings.text_defaults?.color ?? "#000000";
   const level = levelKey.exec(key);

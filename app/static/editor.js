@@ -520,7 +520,10 @@ function importManuscript(file) {
 }
 
 function edited(kind) {
-  if (kind === "style") document.dispatchEvent(new Event("style-suggestion-invalidate"));
+  if (kind === "style") {
+    typography.clearError();
+    document.dispatchEvent(new Event("style-suggestion-invalidate"));
+  }
   fileLoads[kind] = null;
   initialPreviewNeeded = false;
   errorText.textContent = "";
