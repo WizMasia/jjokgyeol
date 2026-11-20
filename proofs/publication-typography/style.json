@@ -1,0 +1,60 @@
+{
+  "page_sp": [
+    27597261,
+    39158276
+  ],
+  "margins_sp": [
+    3729360,
+    3356424,
+    3729360,
+    3356424
+  ],
+  "body_sp": 720896,
+  "leading_sp": 1310720,
+  "body_font": "nanum-myeongjo",
+  "heading_font": "nanum-gothic",
+  "first_indent_sp": 0,
+  "rest_indent_sp": 0,
+  "ko_tracking_per_10000": 0,
+  "space_per_10000": [
+    10000,
+    10000
+  ],
+  "section_rules": [
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "visible": true,
+        "left": "능선 관측소"
+      }
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "visible": true,
+        "center": "{현재쪽}"
+      }
+    }
+  ],
+  "text_styles": {
+    "body": {
+      "color": "#222222"
+    },
+    "heading1": {
+      "font_sp": 1179648,
+      "weight": "bold",
+      "color": "#17365D"
+    },
+    "heading2": {
+      "font_sp": 917504,
+      "weight": "normal"
+    },
+    "note": {
+      "font": "nanum-gothic",
+      "font_sp": 589824,
+      "color": "#714126"
+    }
+  }
+}
