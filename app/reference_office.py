@@ -308,6 +308,23 @@ def _word_numbering(unit, level, depth):
         unit.add("list", prefix + "gap_mm", "", f"numbering · suff={suffix} · 실제 표지 폭 확인", "confirm")
 
 
+class _WordNumbering:
+    def __init__(self, root):
+        self.levels = {(a.get("abstractNumId"), level.get("ilvl")): level for a in root.findall("abstractNum")
+                       for level in a.findall("lvl")}
+        self.nums = {n.get("numId"): n for n in root.findall("num")}
+
+    def level(self, num_id, depth):
+        definition = self.nums.get(num_id)
+        if definition is None:
+            return None
+        override = definition.find(f"lvlOverride[@ilvl='{int(depth)}']/lvl")
+        if override is not None:
+            return override
+        abstract = _attrs(definition, "abstractNumId").get("val")
+        return self.levels.get((abstract, depth))
+
+
 def _word_nodes(root, tag):
     # Keep only ancestry on the stack, even for a paragraph with thousands of runs.
     pending = [iter(root)]
@@ -613,10 +630,8 @@ def _word(z, settings, warnings):
         path = refs.get(kind, posixpath.join(posixpath.dirname(main), default))
         return _xml(z, path) if path in z.NameToInfo else ET.Element(kind)
     styles = _WordStyles(part("styles", "styles.xml"))
-    numbering = part("numbering", "numbering.xml")
+    numbering = _WordNumbering(part("numbering", "numbering.xml"))
     theme = part("theme", "theme/theme1.xml")
-    levels = {(a.get("abstractNumId"), lvl.get("ilvl")): lvl for a in numbering.findall("abstractNum") for lvl in a.findall("lvl")}
-    nums = {n.get("numId"): n for n in numbering.findall("num")}
     # Section properties on a paragraph apply backwards to the section ending there.
     max_units = settings["max_units"]
     paragraphs = list(islice(_word_nodes(body, "p"), max_units + 1))
@@ -667,13 +682,7 @@ def _word(z, settings, warnings):
             depth = int(ilvl) + 1 if nid and nid != "0" else 0
             level = None
             if depth:
-                definition = nums.get(nid)
-                aid = _attrs(definition, "abstractNumId").get("val")
-                level = levels.get((aid, ilvl))
-                if definition is not None:
-                    override = definition.find(f"lvlOverride[@ilvl='{int(ilvl)}']/lvl")
-                    if override is not None:
-                        level = override
+                level = numbering.level(nid, ilvl)
                 if level is not None:
                     para = _props_merge(para, _wprops(level.find("pPr"), "numbering"))
             para = _props_merge(para, direct)

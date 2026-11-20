@@ -1,4 +1,5 @@
 """HWP 5 DocInfo and BodyText records inside an OLE compound file."""
+from dataclasses import dataclass, field
 from io import BytesIO
 import re
 from struct import pack, iter_unpack, unpack_from
@@ -28,7 +29,7 @@ def _records(data, out):
         pos += size
 
 
-def _text(raw):
+def _text(raw, numbers):
     """Control codes occupy one or eight UTF-16 units, including their payload."""
     pieces = []
     start = pos = 0
@@ -40,6 +41,11 @@ def _text(raw):
         pieces.append(bytes(raw[start:pos]).decode("utf-16le"))
         if code in (9, 10, 30, 31):
             pieces.append(" ")
+        elif code == 18 and raw[pos + 2:pos + 6] == b"onta":
+            try:
+                pieces.append(next(numbers))
+            except StopIteration as error:
+                raise ValueError("HWP 자동 번호의 값이 없습니다.") from error
         elif code == 24:
             pieces.append("-")
         pos += 16 if (1 <= code <= 23 and code not in (10, 13)) else 2
@@ -50,7 +56,7 @@ def _text(raw):
     return "".join(pieces)
 
 
-def _paragraph(raw, ranges, chars):
+def _paragraph(raw, ranges, chars, numbers, warn):
     if not raw:
         return ""
     if len(raw) % 2 or not ranges or ranges[0][0] != 0:
@@ -60,44 +66,71 @@ def _paragraph(raw, ranges, chars):
         end = ranges[i + 1][0] if i + 1 < len(ranges) else len(raw) // 2
         if not start <= end <= len(raw) // 2:
             raise ValueError("HWP 글자 모양 위치가 본문 밖입니다.")
-        text = _text(raw[start * 2:end * 2])
+        text = _text(raw[start * 2:end * 2], numbers)
         runs.append((text, bool(chars[shape] & 2), bool(chars[shape] & 1)))
-    return styled(runs)
+    return styled(runs, warn)
 
 
-def _section(data, paras, chars, out):
-    paragraph = None
-    raw, ranges = b"", []
+@dataclass
+class _Paragraph:
+    kind: str
+    depth: int
+    location: str
+    raw: bytes | memoryview = b""
+    ranges: list = field(default_factory=list)
+    numbers: list = field(default_factory=list)
+
+
+def _section(data, paras, chars, out, section=1):
+    # A parent's field records can follow a whole nested table. Keep their owners
+    # by record level and emit the completed paragraphs in original header order.
+    paragraphs = []
+    parents = []
     excluded = None
-    for tag, level, payload in _records(data, out):
+    for record, (tag, level, payload) in enumerate(_records(data, out), 1):
         if excluded is not None:
             if level > excluded:
                 continue
             excluded = None
-        if tag == CTRL_HEADER:
-            control = bytes(payload[:4])[::-1]
-            if control in (b"head", b"foot", b"fn  ", b"en  ", b"gso "):
-                excluded = level
-                if control == b"gso ":
-                    out.warn("HWP 본문의 그림·도형을 생략했습니다.")
-                elif control in (b"fn  ", b"en  "):
-                    out.warn("HWP 각주·미주를 생략했습니다.")
-            elif control == b"tbl ":
-                out.warn("HWP 표의 셀을 문단으로 옮겼습니다.")
-        elif tag == PARA_HEADER:
-            if paragraph:
-                out.block(_paragraph(raw, ranges, chars), *paragraph)
+        while parents and parents[-1][0] >= level:
+            parents.pop()
+        if tag == PARA_HEADER:
             shape, = unpack_from("<H", payload, 8)
             flags = paras[shape]
             kind = ("body", "heading", "ordered", "bullet")[(flags >> 23) & 3]
-            paragraph = kind, 1 + ((flags >> 25) & 7)
-            raw, ranges = b"", []
-        elif tag == PARA_TEXT:
-            raw = payload
-        elif tag == PARA_CHAR_SHAPE:
-            ranges = list(iter_unpack("<II", payload))
-    if paragraph:
-        out.block(_paragraph(raw, ranges, chars), *paragraph)
+            location = f"HWP 구역 {section} 문단 {len(paragraphs) + 1}"
+            paragraph = _Paragraph(kind, 1 + ((flags >> 25) & 7), location)
+            paragraphs.append(paragraph)
+            parents.append((level, paragraph))
+        elif parents:
+            paragraph = parents[-1][1]
+            if tag == PARA_TEXT:
+                paragraph.raw = payload
+            elif tag == PARA_CHAR_SHAPE:
+                paragraph.ranges = list(iter_unpack("<II", payload))
+            elif tag == CTRL_HEADER:
+                control = bytes(payload[:4])[::-1]
+                location = f"{paragraph.location} 레코드 {record}"
+                if control in (b"head", b"foot", b"fn  ", b"en  ", b"gso "):
+                    excluded = level
+                    if control == b"gso ":
+                        out.warn(f"{location}의 그림·도형을 생략했습니다.")
+                    elif control in (b"fn  ", b"en  "):
+                        out.warn(f"{location}의 각주·미주를 생략했습니다.")
+                elif control == b"tbl ":
+                    out.warn(f"{location}의 표 셀을 문단으로 옮겼습니다.")
+                elif control == b"atno":
+                    flags, number, _, prefix, suffix = unpack_from("<I4H", payload, 4)
+                    label = ""
+                    if flags & 15:
+                        if flags >> 4 & 255:
+                            out.warn(f"{location}의 자동 번호를 숫자로 옮겼습니다.")
+                        label = (chr(prefix) if prefix else "") + str(number) + (chr(suffix) if suffix else "")
+                    paragraph.numbers.append(label)
+    for paragraph in paragraphs:
+        text = _paragraph(paragraph.raw, paragraph.ranges, chars, iter(paragraph.numbers),
+                          lambda msg: out.warn(f"{paragraph.location} · {msg}"))
+        out.block(text, paragraph.kind, paragraph.depth, location=paragraph.location)
 
 
 def read(data, out):
@@ -148,4 +181,4 @@ def read(data, out):
             elif tag == PARA_SHAPE:
                 paras.append(unpack_from("<I", payload)[0])
         for i in sections:
-            _section(stream(f"BodyText/Section{i}"), paras, chars, out)
+            _section(stream(f"BodyText/Section{i}"), paras, chars, out, i + 1)

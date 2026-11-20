@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass, field
 
+from app.manuscript_markup import read_escape
+
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
@@ -112,6 +114,7 @@ _MD.inline.ruler.before("text", "annotation", read_annotation)
 # The legacy renderer displays fenced examples with its original block styles.
 # Read fence boundaries separately so those examples never enter article numbering.
 _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])
+_MD.inline.ruler.before("text", "manuscript_escape", read_escape)
 
 
 def _fence_context(source, notes):
