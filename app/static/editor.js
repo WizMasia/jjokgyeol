@@ -74,7 +74,13 @@ marginMode.add(new Option("고정 좌우 여백", "fixed"));
 marginMode.add(new Option("양면 여백", "mirrored"));
 const gutter = byId("gutter-mm");
 const margins = stylePanel.querySelectorAll('[name="margins_mm"]');
-const [pageWidth] = stylePanel.querySelectorAll('[name="page_mm"]');
+const [pageWidth, pageHeight] = stylePanel.querySelectorAll('[name="page_mm"]');
+const pagePreset = byId("page-preset");
+const pagePresets = settings.page_presets_mm ?? {};
+for (const [name, size] of Object.entries(pagePresets)) {
+  pagePreset.add(new Option(`${name} (${size.join(" × ")} mm)`, name));
+}
+pagePreset.add(new Option("직접 입력", "custom"));
 let marginSplit;
 const indentKeys = ["first_indent_mm", "rest_indent_mm"];
 const listStyle = listLevelEditor(settings, () => edited("style"));
@@ -104,6 +110,12 @@ function sameDecimal(left, right) {
   if (left === right) return true;
   const key = decimalKey(left);
   return key !== null && key === decimalKey(right);
+}
+
+function syncPagePreset() {
+  const match = Object.entries(pagePresets).find(([, [width, height]]) =>
+    sameDecimal(pageWidth.value, width) && sameDecimal(pageHeight.value, height));
+  pagePreset.value = match?.[0] ?? "custom";
 }
 
 function compareDecimal(left, right) {
@@ -179,6 +191,7 @@ function marginGeometry(values) {
 
 function applyMarginGeometry(geometry) {
   pageWidth.value = geometry.page_mm[0];
+  syncPagePreset();
   for (const i of [1, 3]) margins[i].value = geometry.margins_mm[i];
   for (const key of indentKeys) byId(key).value = geometry[key];
   let index = 0;
@@ -264,6 +277,7 @@ const styleForm = {
         control.value = Array.isArray(value) ? value[index] : value;
       });
     }
+    syncPagePreset();
     if (!preserveDraft || !matchesSplit()) marginSplit = undefined;
     setMarginMode(values.gutter_mm !== undefined, values.gutter_mm);
     sectionRules = structuredClone(values.section_rules);
@@ -634,6 +648,15 @@ articleNumbering.addEventListener("input", () => {
   articleError("");
 });
 articleExpr.addEventListener("input", () => articleError(""));
+for (const field of [pageWidth, pageHeight]) field.addEventListener("input", syncPagePreset);
+pagePreset.addEventListener("input", event => {
+  if (pagePreset.value === "custom") {
+    event.stopPropagation();
+    pageWidth.focus();
+    return;
+  }
+  [pageWidth.value, pageHeight.value] = pagePresets[pagePreset.value];
+});
 marginMode.addEventListener("input", event => {
   event.stopPropagation();
   const onError = error => {

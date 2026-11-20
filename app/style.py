@@ -604,6 +604,19 @@ except InputError as error:
     raise ValueError(f"publication.json {error.field}: {error.message}") from error
 
 
+def _installed_page_presets(sizes):
+    if not isinstance(sizes, dict) or not sizes:
+        raise ValueError("publication.json page_presets_mm requires named page sizes")
+    for name, size in sizes.items():
+        if (not name.strip() or name == "custom" or not isinstance(size, list) or len(size) != 2
+                or any(type(n) not in (int, Decimal) for n in size)
+                or not 0 < size[0] <= size[1] <= MAX_PAGE_MM):
+            raise ValueError(f"publication.json page_presets_mm.{name} requires a portrait size in mm")
+    return {name: tuple(map(str, size)) for name, size in sizes.items()}
+
+
+_PAGE_PRESETS_MM = _installed_page_presets(publication.PAGE_PRESETS_MM)
+
 if not isinstance(publication.DEFAULTS, dict):
     raise ValueError("publication.json defaults must be an editor style object")
 _field_difference = publication.DEFAULTS.keys() ^ (EDITOR_UNITS.keys() | set(FONTS))
@@ -770,6 +783,7 @@ def editor_bootstrap() -> dict:
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
         "defaults": Style().to_editor(),
+        "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],
         "new_spacing": {key: new[key] for key in publication.NEW_SPACING},
