@@ -2,6 +2,18 @@ name: Native Windows proof
 on:
   push:
     branches: [feature/native-desktop]
+    paths:
+      - .github/workflows/native-proof.yml
+      - .dockerignore
+      - Dockerfile
+      - app/**
+      - '!app/**/*.md'
+      - desktop/**
+      - '!desktop/**/*.md'
+      - proofs/numbering/**
+      - proofs/engine-comparison/manuscript.md
+      - tests/pdf_metrics.py
+      - runtime.lock
 permissions:
   contents: read
 jobs:
@@ -28,6 +40,9 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
           name: tex-resources
