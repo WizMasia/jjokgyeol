@@ -184,6 +184,13 @@ def geometry(pdf):
 
 def target(page, folder):
     source = (PROOF / "target.md").read_text(encoding="utf-8")
+    # BASELINE was printed with the original fixed-spacing publication settings.
+    original = json.loads((PROOF / "style.json").read_bytes())
+    original.pop("section_rules")
+    with page.expect_response(lambda reply: reply.url.endswith("/api/style/open")) as opened:
+        page.locator("#style-file").set_input_files({
+            "name": "기존 양식.json", "mimeType": "application/json", "buffer": compact_json(original)})
+    assert opened.value.ok
     page.locator("#file").set_input_files(PROOF / "target.md")
     expect(page.locator("#source")).to_have_value(source)
     before = download_proof(page, folder / "before.pdf")

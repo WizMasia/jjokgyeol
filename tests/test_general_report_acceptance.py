@@ -61,4 +61,8 @@ def test_download_open_and_reuse_report(editor, tmp_path):
         for char in (mark, first):
             assert char.size == pytest.approx(pt * 72 / 72.27, abs=.02)
         assert mark.x0 == pytest.approx(18 * 72 / 25.4 + indent * 72 / 72.27, abs=.07)
+    index, = [i for i, row in enumerate(lines) if text(row).startswith("○열람실로")]
+    wrapped, continuation = lines[index:index + 2]
+    assert wrapped[-1].x0 + wrapped[-1].advance == pytest.approx((210 - 18) * 72 / 25.4, abs=.05)
+    assert continuation[0].x0 == pytest.approx(wrapped[1].x0, abs=.05)
     assert save(editor, "#save") == source
