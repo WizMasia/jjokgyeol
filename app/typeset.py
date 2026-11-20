@@ -90,18 +90,18 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     levels = style.resolved_list_levels()
     overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
+    role_styles = _role_styles(style)
+    for index, block in enumerate(doc.blocks):
+        role = f"heading{block.level}" if block.kind == "heading" else "body"
+        overrides[index] = role_styles[role] | overrides[index]
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
-    role_styles = _role_styles(style)
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
     box_ids = {}
     for block, values in zip(blocks, overrides, strict=True):
         if "running_id" in values:
             block["running_id"] = values.pop("running_id")
-        heading = block["kind"] == "heading"
-        role = f"heading{block['level']}" if heading else "body"
-        values = role_styles[role] | values
         if values:
             block["overrides"] = {k: v for k, v in values.items() if not k.startswith("levels.")}
         if block["kind"] != "list_item":
