@@ -308,3 +308,33 @@ def test_corrected_typography_ignores_late_save_error(desk):
     p.evaluate("() => new Promise(requestAnimationFrame)")
     expect(p.locator("#error")).to_be_empty()
     expect(color).not_to_have_attribute("aria-invalid", "true")
+
+
+def test_editor_saves_and_reopens_exact_paragraph_spacing(browser, server_url):
+    with browser.new_context() as context:
+        page = context.new_page()
+        page.goto(server_url)
+        page.locator("#style summary").click()
+        layout = page.get_by_label("문단 배치 방식", exact=True)
+
+        def save():
+            with page.expect_download() as output:
+                page.locator("#save-style").click()
+            return json.loads(output.value.path().read_bytes())
+
+        new = save()
+        assert new["paragraph_layout"] == "justified"
+        assert new["ko_tracking_bounds_per_10000"] == [-1500, 1500] and new["space_per_10000"] == [7000, 13000]
+        for mode in ("balanced", None, "justified"):
+            saved = {**new, "space_per_10000": [9800, 9800]}
+            if mode is None:
+                del saved["paragraph_layout"], saved["ko_tracking_bounds_per_10000"]
+            else:
+                saved.update(paragraph_layout=mode, ko_tracking_bounds_per_10000=[-700, 1500] if mode == "justified" else [0, 0])
+            with page.expect_response("**/api/style/open"):
+                page.locator("#style-file").set_input_files({
+                    "name": "고정 양식.json", "mimeType": "application/json", "buffer": json.dumps(saved).encode(),
+                })
+            expect(layout).to_have_value(mode or "")
+            expect(page.get_by_label("최소", exact=True)).to_have_value("98")
+            assert save() == saved

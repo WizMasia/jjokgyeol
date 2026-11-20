@@ -57,7 +57,7 @@ def measured(page, points, numbered):
 
 def open_saved_style(page):
     stored = apply_style(Style(), {"margins_mm": [20, 23, 20, 23], "section_rules": [HEADER],
-                                  "text_styles": TEXT_STYLES, "ko_tracking_bounds_pct": [-2, 2]}).to_stored()
+                                  "text_styles": TEXT_STYLES, "paragraph_layout": "justified", "ko_tracking_bounds_pct": [-2, 2]}).to_stored()
     with page.expect_response("**/api/style/open"):
         page.locator("#style-file").set_input_files({"name": "보고서.json", "mimeType": "application/json",
                                                     "buffer": json.dumps(stored).encode()})
@@ -81,6 +81,7 @@ def test_suggestions_reach_pdf(page, request, real, tmp_path):
             page.get_by_role("button", name="제안 받기").click()
         assert response.value.ok, response.value.text()
         submitted = response.value.request.post_data_json["style"]
+        assert submitted["paragraph_layout"] == "justified"
         assert submitted["text_styles"] == TEXT_STYLES
         assert submitted["ko_tracking_bounds_pct"] == ["-2", "2"]
         patch = response.value.json()["patch"]
@@ -97,6 +98,7 @@ def test_suggestions_reach_pdf(page, request, real, tmp_path):
         with page.expect_download() as export:
             page.locator("#save-style").click()
         saved = json.loads(export.value.path().read_bytes())
+        assert saved["paragraph_layout"] == "justified"
         assert saved["text_styles"] == {"heading1": {"font_sp": 18 * 65536, "color": "#17365d"}}
         assert saved["ko_tracking_bounds_per_10000"] == [-200, 200]
         manual = None

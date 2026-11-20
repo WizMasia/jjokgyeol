@@ -5,8 +5,10 @@ function typographyEditor(settings) {
   const role = document.getElementById("text-role");
   const controls = [...fieldset.querySelectorAll("[data-text]")];
   const enabled = document.getElementById("tracking-enabled");
-  const balance = document.getElementById("paragraph-balanced");
-  let explicitBalance = false;
+  const layout = document.getElementById("paragraph-layout");
+  layout.add(new Option("이전 양식", ""));
+  layout.add(new Option("문단 전체 배치 비교", "balanced"));
+  layout.add(new Option("양끝맞춤", "justified"));
   const bounds = ["tracking-lower", "tracking-upper"].map(id => document.getElementById(id));
   const base = document.getElementById("ko_tracking_pct");
   const errorText = document.getElementById("typography-error");
@@ -25,7 +27,7 @@ function typographyEditor(settings) {
   };
 
   function clearError() {
-    for (const control of [...controls, ...bounds, base, balance]) {
+    for (const control of [...controls, ...bounds, base, layout]) {
       if (control.getAttribute("aria-describedby") === errorText.id) {
         control.removeAttribute("aria-invalid");
         control.removeAttribute("aria-describedby");
@@ -83,17 +85,13 @@ function typographyEditor(settings) {
   }
   function setBounds(values) {
     enabled.checked = values !== undefined;
-    balance.checked = explicitBalance || enabled.checked;
-    balance.disabled = enabled.checked;
+    layout.options[0].textContent = enabled.checked ? "이전 양식 · 자간 범위로 배치 비교" : "이전 양식";
     bounds.forEach((control, i) => {
       control.disabled = !enabled.checked;
       control.value = values?.[i] ?? base.value;
     });
   }
-  balance.addEventListener("input", () => {
-    clearError();
-    explicitBalance = balance.checked;
-  });
+  layout.addEventListener("input", clearError);
   enabled.addEventListener("input", () => {
     setBounds(enabled.checked ? [base.value, base.value] : undefined);
   });
@@ -105,14 +103,14 @@ function typographyEditor(settings) {
     clearError,
     get() {
       const values = {};
-      if (explicitBalance) values.paragraph_layout = "balanced";
+      if (layout.value) values.paragraph_layout = layout.value;
       if (Object.keys(styles).length) values.text_styles = structuredClone(styles);
       if (enabled.checked) values.ko_tracking_bounds_pct = bounds.map(control => control.value);
       return values;
     },
     set(values) {
       clearError();
-      explicitBalance = values.paragraph_layout === "balanced";
+      layout.value = values.paragraph_layout ?? "";
       styles = structuredClone(values.text_styles ?? {});
       setBounds(values.ko_tracking_bounds_pct);
       show();
@@ -120,7 +118,7 @@ function typographyEditor(settings) {
     error(field, message) {
       clearError();
       let invalid = [];
-      if (field === "paragraph_layout") invalid = [balance];
+      if (field === "paragraph_layout") invalid = [layout];
       if (field === "ko_tracking_pct") invalid = [base];
       if (field === "ko_tracking_bounds_pct") invalid = bounds;
       if (field?.startsWith("text_styles.")) {

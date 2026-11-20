@@ -35,6 +35,8 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 def typeset(doc, style, workdir, *, collect_candidates=False):
     doc = doc.blocks[0].inlines[0].text
     markers = Path(__file__).parent
+    if doc == "style-probe":
+        (markers / "style.json").write_text(json.dumps(style.to_stored()))
     if doc in {"crash", "partial", "stall", "first", "second"}:
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
         marker = markers / (doc + ".tmp")
@@ -271,3 +273,22 @@ async def test_render_decision_is_opt_in(api, monkeypatch):
             assert_pdf(response, "ok")
             assert response.headers["X-Jjokgyeol-Decision"] == "rule"
         assert_error(await render(api, "ok", decision="https://example.org"), 422, "decision")
+
+
+async def test_new_render_defaults_and_explicit_old_styles(api, tmp_path):
+    async with api:
+        for fields, mode, tracking, spaces in [
+            ({}, "justified", [-1500, 1500], [7000, 13000]),
+            ({"style": {}}, "justified", [-1500, 1500], [7000, 13000]),
+            ({"style": {"body_pt": 14}}, None, None, [10000, 10000]),
+            ({"style": {"paragraph_layout": "balanced"}}, "balanced", None, [10000, 10000]),
+            ({"style": {"paragraph_layout": "justified", "ko_tracking_bounds_pct": [0, 0],
+                        "space_pct": [95, 95]}}, "justified", [0, 0], [9500, 9500]),
+        ]:
+            response = await api.post("/api/render", json={"source": "style-probe", **fields})
+            assert response.status_code == 200, response.text[:100]
+            stored = json.loads((tmp_path / "style.json").read_text())
+            assert stored.get("paragraph_layout") == mode
+            assert stored.get("ko_tracking_bounds_per_10000") == tracking
+            assert stored["ko_tracking_per_10000"] == 0 and stored["space_per_10000"] == spaces
+        assert (await api.post("/api/render", json={"source": "style-probe", "style": None})).status_code == 422

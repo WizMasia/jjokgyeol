@@ -44,7 +44,7 @@ def complete_pdf(pdf: bytes) -> bool:
 
 def worker():
     from app.document import InputError, parse_md
-    from app.style import Style, apply_style
+    from app.style import NEW_DOCUMENT_STYLE, Style, apply_style
     from app.typeset import typeset
 
     if os.geteuid() == 0:
@@ -66,7 +66,8 @@ def worker():
     status = "rule"
     try:
         doc = parse_md(payload.get("source"))
-        style = apply_style(Style(), payload.get("style"))
+        fields = payload.get("style", {})
+        style = NEW_DOCUMENT_STYLE if fields == {} else apply_style(Style(), fields)
         if mode == "model" and os.getenv("JJOKGYEOL_DECISION_HOST"):
             from app.ai.decision import render_choice
             deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT

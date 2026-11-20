@@ -514,10 +514,10 @@ def _load(current, patch, *, stored):
     if patch.keys() - units.keys() - set(FONTS) - optional_fields:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "paragraph_layout" in patch:
-        if patch["paragraph_layout"] == publication.BALANCED_PARAGRAPH_LAYOUT:
+        if patch["paragraph_layout"] in publication.PARAGRAPH_LAYOUTS:
             values["paragraph_layout"] = patch["paragraph_layout"]
         else:
-            errors["paragraph_layout"] = "문단 배치 값은 balanced여야 합니다."
+            errors["paragraph_layout"] = "문단 배치 값은 balanced 또는 justified여야 합니다."
     if "article_expr" in patch:
         expr = patch["article_expr"]
         try:
@@ -734,20 +734,38 @@ def from_stored_style(fields: dict) -> Style:
     return Style(**_load(_DEFAULT_FIELDS, fields, stored=True))
 
 
+def _new_document_style() -> Style:
+    mode = publication.NEW_PARAGRAPH_LAYOUT
+    with localcontext() as context:
+        context.prec = 40
+        headings = {}
+        for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
+            sp = _rounded(_DEFAULT_FIELDS["body_sp"] * ratio, publication.RATIO_UNIT)
+            headings[role] = {"font_pt": _pt(sp)}
+    patch = {**publication.NEW_SPACING, "text_styles": headings}
+    if mode is not None:
+        patch["paragraph_layout"] = mode
+    return apply_style(Style(), patch)
+
+
+try:
+    NEW_DOCUMENT_STYLE = _new_document_style()
+except InputError as error:
+    raise ValueError(f"publication.json new document {error.field}: {error.message}") from error
+
+
 def editor_bootstrap() -> dict:
+    new = NEW_DOCUMENT_STYLE.to_editor()
     with localcontext() as context:
         context.prec = 40
         running = _editor_rule_values(RUNNING_DEFAULTS)
-        new_text_styles = {}
-        for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
-            sp = _rounded(_DEFAULT_FIELDS["body_sp"] * ratio, publication.RATIO_UNIT)
-            new_text_styles[role] = {"font_pt": _pt(sp)}
         text_defaults = dict(TEXT_DEFAULTS)
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
         "defaults": Style().to_editor(),
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
-        "new_text_styles": new_text_styles,
+        "new_text_styles": new["text_styles"],
+        "new_spacing": {key: new[key] for key in publication.NEW_SPACING},
         "text_defaults": text_defaults,
         "heading_per_10000": list(publication.HEADINGS),
         "heading_leading_per_10000": publication.HEADING_LEADING,

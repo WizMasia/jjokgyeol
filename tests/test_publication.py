@@ -44,15 +44,16 @@ def test_paragraph_layout_round_trip_and_new_document_default():
     from app.style import Style, apply_style, editor_bootstrap, from_stored_style
 
     boot = editor_bootstrap()
-    assert boot["new_paragraph_layout"] == "balanced"
+    assert boot["new_paragraph_layout"] == "justified"
+    assert boot["new_spacing"] == {"ko_tracking_bounds_pct": ["-15", "15"], "space_pct": ["70", "130"]}
     legacy = Style()
     assert "paragraph_layout" not in boot["defaults"]
     assert "paragraph_layout" not in legacy.to_stored()
     assert "paragraph_layout" not in from_stored_style(legacy.to_stored()).to_editor()
     chosen = apply_style(legacy, {"paragraph_layout": boot["new_paragraph_layout"]})
-    assert chosen.to_editor()["paragraph_layout"] == chosen.to_stored()["paragraph_layout"] == "balanced"
+    assert chosen.to_editor()["paragraph_layout"] == chosen.to_stored()["paragraph_layout"] == "justified"
     assert from_stored_style(chosen.to_stored()) == apply_style(legacy, chosen.to_editor()) == chosen
-    assert apply_style(chosen, {"body_pt": 16}).paragraph_layout == "balanced"
+    assert apply_style(chosen, {"body_pt": 16}).paragraph_layout == "justified"
 
 
 @pytest.mark.parametrize("value", [None, False, "", "legacy", "BALANCED", ["balanced"]])
@@ -478,3 +479,19 @@ def test_direct_heading_styles_after_fences(tmp_path, levels):
         elif level == 1:
             # A legacy Setext level still shares the closing fence's printed line.
             assert letter.matrix[5] in fence_rows
+
+
+def test_installed_justified_defaults_drive_new_documents_only(install):
+    def edit(config):
+        config["defaults"]["ko_tracking_pct"] = 1
+        config["justified_spacing"] = {"ko_tracking_bounds_pct": [-2, 4.5], "space_pct": [91, 112]}
+    rewrite(install, CONFIG, edit)
+    result = start(install, """
+from app.style import NEW_DOCUMENT_STYLE, Style, editor_bootstrap
+stored = NEW_DOCUMENT_STYLE.to_stored()
+assert stored["ko_tracking_per_10000"] == 100 and stored["ko_tracking_bounds_per_10000"] == [-200, 450]
+assert stored["space_per_10000"] == [9100, 11200]
+assert editor_bootstrap()["new_spacing"] == {"ko_tracking_bounds_pct": ["-2", "4.5"], "space_pct": ["91", "112"]}
+assert Style().space_per_10000 == (10000, 10000) and Style().paragraph_layout is None
+""")
+    assert result.returncode == 0, result.stderr
