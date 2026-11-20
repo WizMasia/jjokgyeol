@@ -32,7 +32,7 @@ from pathlib import Path
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-def typeset(doc, style, workdir):
+def typeset(doc, style, workdir, *, collect_candidates=False):
     doc = doc.blocks[0].inlines[0].text
     markers = Path(__file__).parent
     if doc in {"crash", "partial", "stall", "first", "second"}:

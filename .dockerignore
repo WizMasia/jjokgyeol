@@ -4,6 +4,7 @@
 !requirements.lock
 !packaging/
 !packaging/check_runtime.py
+!packaging/decision_bundle.py
 !packaging/requirements-test.lock
 !app/
 !app/**/*.py

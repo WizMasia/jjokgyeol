@@ -254,3 +254,24 @@ def test_real_local_model():
             pair.append(scan(r.content))
     assert pair[0][0] != pair[1][0]
     assert pair[0][1] == pair[1][1]
+
+
+@pytest.mark.parametrize("mode", [None, "rule", "model"])
+def test_only_explicit_evaluation_requests_collect_measured_rows(tmp_path, monkeypatch, mode):
+    import subprocess
+    from app.jobs import WORKER_CMD
+
+    monkeypatch.delenv("JJOKGYEOL_DECISION_HOST", raising=False)
+    payload = {"source": SOURCE, "style": STYLE}
+    if mode is not None:
+        payload["decision"] = mode
+    (tmp_path / "request.json").write_text(json.dumps(payload))
+    subprocess.run(WORKER_CMD, cwd=tmp_path, check=True)
+    trace = tmp_path / "paragraph-candidates.jsonl"
+    assert trace.exists() == (mode is not None)
+    if trace.exists():
+        row, = map(json.loads, trace.read_text().splitlines())
+        assert row["selected_id"] == row["rule_id"]
+        ends, _ = scan((tmp_path / "response.pdf").read_bytes())
+        assert ends == next([line["end_glyph"] for line in c["lines"]]
+                            for c in row["candidates"] if c["id"] == row["rule_id"])
