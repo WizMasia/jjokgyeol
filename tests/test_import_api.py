@@ -1,5 +1,6 @@
 """Exercise the raw manuscript upload through the ASGI app and its child worker."""
 import asyncio
+import sys
 from threading import BoundedSemaphore
 
 import httpx
@@ -83,3 +84,14 @@ async def test_import_bounds_slow_upload_and_releases_slot(api, monkeypatch):
     monkeypatch.setattr(jobs, "TIMEOUT", server.LIMITS.timeout_seconds)
     recovered = await api.post(path, content=b"done")
     assert recovered.status_code == 200 and recovered.json() == {"markdown": "done", "warnings": []}
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="worker address-space limit runs on Linux")
+async def test_import_memory_limit_is_confined_to_worker(api, monkeypatch):
+    with monkeypatch.context() as limits:
+        limits.setitem(server.REFERENCE, "worker_memory_bytes", 1)
+        failed = await api.post("/api/import?name=large.txt", content=b"a" * 512_000)
+        assert failed.status_code == 500
+        assert failed.json()["field"] == "source" and "markdown" not in failed.json()
+    retry = await api.post("/api/import?name=next.txt", content=b"done")
+    assert retry.status_code == 200 and retry.json()["markdown"] == "done"

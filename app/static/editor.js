@@ -461,14 +461,26 @@ async function readMarkdown(file) {
   return new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(await input.arrayBuffer());
 }
 
+function applyManuscript(text, name, warnings = []) {
+  withBom = text.startsWith("\uFEFF");
+  const manuscript = withBom ? text.slice(1) : text;
+  source.value = manuscript;
+  rememberSource(manuscript);
+  byId("filename").textContent = name;
+  const list = byId("import-warnings");
+  list.replaceChildren();
+  for (const warning of warnings) {
+    const item = document.createElement("li");
+    item.textContent = warning;
+    list.append(item);
+  }
+  byId("import-notice").hidden = !warnings.length;
+}
+
 function openMarkdown(file) {
   initialPreviewNeeded = false;
   return openFile("source", () => readMarkdown(file), text => {
-    withBom = text.startsWith("\uFEFF");
-    const manuscript = withBom ? text.slice(1) : text;
-    source.value = manuscript;
-    rememberSource(manuscript);
-    byId("filename").textContent = file?.name || "비교 원고.md";
+    applyManuscript(text, file?.name || "비교 원고.md");
     initialPreviewNeeded = !file;
   }, () => {
     errorText.textContent = file ? "원고를 열지 못했습니다. UTF-8 파일인지 확인하세요." :
@@ -477,6 +489,29 @@ function openMarkdown(file) {
       statusText.textContent = "원고 열기 실패";
       byId("placeholder").textContent = "원고를 입력하고 미리보기를 갱신하세요.";
     }
+  });
+}
+
+async function requestImport(file) {
+  const query = new URLSearchParams({name: file.name});
+  const response = await fetch("/api/import?" + query, {
+    method: "POST", body: file, redirect: "error", headers: {"Content-Type": "application/octet-stream"},
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.message || "원고를 가져오지 못했습니다. 다시 시도하세요.");
+  if (typeof data?.markdown !== "string" || !Array.isArray(data.warnings) ||
+      !data.warnings.every(warning => typeof warning === "string")) {
+    throw new Error("원고 가져오기 결과를 읽을 수 없습니다. 다시 시도하세요.");
+  }
+  return data;
+}
+
+function importManuscript(file) {
+  initialPreviewNeeded = false;
+  return openFile("source", () => requestImport(file), ({markdown, warnings}) => {
+    applyManuscript(markdown, file.name.replace(/\.[^.]*$/, "") + ".md", warnings);
+  }, error => {
+    errorText.textContent = error instanceof TypeError ? "연결을 확인하고 원고 가져오기를 다시 시도하세요." : error.message;
   });
 }
 
@@ -572,6 +607,7 @@ stylePanel.addEventListener("input", () => {
   edited("style");
 });
 bindFilePicker("open", "file", openMarkdown);
+bindFilePicker("import-source", "import-file", importManuscript);
 byId("refresh").addEventListener("click", () => requestPdf(false));
 byId("export").addEventListener("click", () => requestPdf(true));
 byId("save").addEventListener("click", () => {
