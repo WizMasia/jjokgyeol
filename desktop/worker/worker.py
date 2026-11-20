@@ -1,6 +1,7 @@
 """One local, rule-only render request; the caller owns the working directory."""
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import subprocess
@@ -22,12 +23,21 @@ def resource(root, value):
     return path
 
 
+def limit_worker_files(max_bytes):
+    if os.name == 'posix':
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        resource.setrlimit(resource.RLIMIT_FSIZE, (min(soft, max_bytes) if soft != resource.RLIM_INFINITY else max_bytes, hard))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runtime', required=True, type=Path)
     args = parser.parse_args()
     try:
-        raw = Path('request.json').read_bytes()
+        limit_worker_files(LIMITS.worker_file_bytes)
+        with Path('request.json').open('rb') as stream:
+            raw = stream.read(LIMITS.request_body_bytes + 1)
         if len(raw) > LIMITS.request_body_bytes:
             raise InputError({'request': '요청 크기가 너무 큽니다.'})
         request = json.loads(raw, object_pairs_hook=unique_fields)
@@ -48,15 +58,15 @@ def main():
         if not engine.is_file() or not fonts.is_dir():
             raise ValueError('invalid runtime resources')
         with tempfile.TemporaryDirectory(dir='.') as folder:
-            pdf = typeset(doc, style, Path(folder), engine=engine, font_dir=fonts)
+            pdf = typeset(doc, style, Path(folder), engine=engine, font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
         if len(pdf) > LIMITS.worker_file_bytes or not pdf.startswith(b'%PDF-'):
             raise ValueError('invalid or oversized PDF')
         Path('response.pdf').write_bytes(pdf)
         return 0
     except InputError as error:
         print(json.dumps({'code': error.code, 'field': error.field, 'message': error.message}, ensure_ascii=False), file=sys.stderr)
-    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as error:
-        print(json.dumps({'code': 'worker_error', 'message': str(error)}, ensure_ascii=False), file=sys.stderr)
+    except (OSError, ValueError, UnicodeError, RecursionError, subprocess.SubprocessError):
+        print(json.dumps({'code': 'worker_error', 'message': '작업을 처리할 수 없습니다.'}, ensure_ascii=False), file=sys.stderr)
     return 1
 
 

@@ -27,9 +27,10 @@ TEMPLATES = Path(__file__).resolve().with_name("tex")
 
 def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
             paragraph_choices: dict[int, str] | None = None,
-            engine: Path | None = None, font_dir: Path | None = None) -> bytes:
+            engine: Path | None = None, font_dir: Path | None = None,
+            max_pdf_bytes: int | None = None) -> bytes:
     """Optionally collect paragraph-candidates.jsonl or replay its per-block IDs."""
-    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir)
+    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir, max_pdf_bytes)
 
 
 def _running_fields(values):
@@ -96,7 +97,7 @@ def _hierarchy_items(doc, style, levels):
                 yield i
 
 
-def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None, font_dir=None):
+def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None, font_dir=None, max_pdf_bytes=None):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     levels = style.resolved_list_levels()
@@ -221,4 +222,7 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
         if reason == b"line_width":
             raise InputError({"style": "한 글자 또는 함께 놓을 묶음이 줄 폭을 넘습니다. 들여쓰기나 여백을 줄이거나 판형을 넓혀 주세요."})
         process.check_returncode()
-    return (workdir / "book.pdf").read_bytes()
+    pdf = workdir / "book.pdf"
+    if max_pdf_bytes is not None and pdf.stat().st_size > max_pdf_bytes:
+        raise ValueError("PDF exceeds size limit")
+    return pdf.read_bytes()
