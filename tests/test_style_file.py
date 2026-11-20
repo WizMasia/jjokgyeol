@@ -305,6 +305,29 @@ def test_list_style_file_recovery(browser, server_url):
         assert json.loads(restored.value.path().read_bytes()) == json.loads(old_file.read_bytes())
 
 
+def test_pending_preview_and_save_keep_distinct_margin_errors(desk):
+    desk.ready()
+    page = desk.page
+    page.locator("#style summary").click()
+    original_pdf = desk.frame.get_attribute("src")
+    desk.submit(desk.refresh)
+    errors = iter([("margins_mm[1]", "오른쪽 여백 오류"), ("article_expr", "조 번호 오류")])
+    def reject(route):
+        field, message = next(errors)
+        route.fulfill(status=422, json={"field": field, "message": message})
+    page.route("**/api/style/export", reject)
+    right = page.locator('[name="margins_mm"]').nth(1)
+    for message in ("오른쪽 여백 오류", "조 번호 오류"):
+        page.locator("#save-style").click()
+        expect(page.locator("#error")).to_have_text(message)
+        expect(right).to_have_attribute("aria-invalid", "true")
+    expect(page.locator("#article-expr")).to_have_attribute("aria-invalid", "true")
+    desk.reply(0, {"field": "source", "message": "원고 오류"}, 422)
+    expect(right).not_to_have_attribute("aria-invalid", "true")
+    expect(page.locator("#margin-error")).to_be_empty()
+    assert desk.frame.get_attribute("src") == original_pdf
+
+
 def test_corrected_typography_ignores_late_save_error(desk):
     desk.ready()
     p = desk.page

@@ -206,6 +206,12 @@ function marginError(field, message) {
   if (fields.length) stylePanel.querySelector("details").open = true;
 }
 
+function showStyleFieldError(field, message, {clearMargin = false} = {}) {
+  if (field === "article_expr") articleError(message);
+  if (clearMargin || /^(gutter_mm|margins_mm(?:\[\d+\])?)$/.test(field)) marginError(field, message);
+  typography.error(field, message);
+}
+
 function marginGeometry(values) {
   const {page_mm, margins_mm, first_indent_mm, rest_indent_mm, gutter_mm} = values;
   const geometry = {page_mm, margins_mm, first_indent_mm, rest_indent_mm, gutter_mm};
@@ -504,9 +510,7 @@ async function render(job) {
     if (pending !== job || version !== job.version) return;
     const field = error.field;
     const message = error instanceof TypeError ? "조판에 실패했습니다. 연결을 확인하고 다시 시도하세요." : error.message;
-    if (field === "article_expr") articleError(message);
-    marginError(field, message);
-    typography.error(field, message);
+    showStyleFieldError(field, message, {clearMargin: true});
     errorText.textContent = field ? `${field} · ${message}` : message;
     statusText.textContent = displayedVersion === version ? "현재 지면 · 갱신 실패" :
       displayedProof ? "이전 버전 · 조판 실패" : "조판 실패";

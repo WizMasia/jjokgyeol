@@ -29,13 +29,7 @@ byId("save-style").addEventListener("click", async () => {
     saveBlob(blob, "쪽결-양식.json");
   } catch (error) {
     if (JSON.stringify(styleForm.get()) !== JSON.stringify(values)) return;
-    if (/^(gutter_mm|margins_mm(?:\[\d+\])?)$/.test(error.field)) {
-      marginError(error.field, error.message);
-    }
-    if (error.field === "article_expr") {
-      articleError(error.message);
-    }
-    typography.error(error.field, error.message);
+    showStyleFieldError(error.field, error.message);
     showStyleError(error);
   }
 });
