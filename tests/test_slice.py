@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from settings_ui import close_settings, open_settings
 from proof_response import selected_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -194,7 +195,9 @@ def test_real_edit_export(server_url):
             assert page_for(old_pages, "종이 위에서 읽는 문장") == [1]
             revised = sample.replace("종이 위에서 읽는 문장", "고친 지도의 제목")
             editor.fill(revised)
+            open_settings(page)
             page.get_by_label("본문 크기", exact=False).fill("16")
+            close_settings(page)
             with page.expect_download() as downloaded:
                 page.get_by_role("button", name="PDF 다운로드", exact=True).click()
             pdf = downloaded.value.path().read_bytes()

@@ -3,16 +3,18 @@ import json
 
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from pdf_metrics import read_pages
-from test_article_acceptance import save
 from test_duplex_acceptance import reopen_file
-from test_list_acceptance import download_proof
-from test_reference_acceptance import editor, url
+from test_reference_acceptance import save, download_proof, editor, url
 
 
 def test_numbering_controls_reopen_and_print(editor, tmp_path):
     source = "- 조사\n  - 현장\n    - 기록\n- 검토\n  - 결과"
+    close_settings(editor)
     editor.locator("#source").fill(source)
+    open_settings(editor)
     editor.locator("#style summary").click()
     preset = editor.get_by_label("목록 양식", exact=True)
     side = editor.get_by_label("줄 번호 위치")
@@ -54,7 +56,9 @@ def test_numbering_controls_reopen_and_print(editor, tmp_path):
 
 
 def test_separate_line_numbers_reopen_and_switch_to_common(editor, tmp_path):
+    close_settings(editor)
     editor.locator("#source").fill("\n\n".join(["교정 문장"] * 40))
+    open_settings(editor)
     editor.locator("#style summary").click()
     position = editor.get_by_role("combobox", name="줄 번호 위치", exact=True)
     odd = editor.get_by_role("combobox", name="홀수 쪽 줄 번호", exact=True)

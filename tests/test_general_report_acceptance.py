@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from settings_ui import open_settings, close_settings
 from app.style import from_stored_style
 from test_article_acceptance import save
 from test_duplex_acceptance import reopen_file
@@ -29,6 +30,7 @@ def test_distributed_report_is_a_saved_style():
 def test_download_open_and_reuse_report(editor, tmp_path):
     source = SOURCE.read_bytes()
     editor.locator("#source").fill(source.decode())
+    open_settings(editor)
     editor.locator("#style summary").click()
     link = editor.get_by_role("link", name="일반 보고서 양식 다운로드")
     assert link.count() == 1
@@ -43,6 +45,7 @@ def test_download_open_and_reuse_report(editor, tmp_path):
     saved.write_bytes(save(editor, "#save-style"))
     assert json.loads(saved.read_bytes()) == json.loads(path.read_bytes())
     reopen_file(editor, saved)
+    close_settings(editor)
     pdf = download_proof(editor, tmp_path / "general-report.pdf")
     lines = [chars for _, chars in baselines(pdf)]
     title, = [line for line in lines if text(line) == "현장점검결과보고"]

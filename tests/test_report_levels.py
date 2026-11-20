@@ -6,6 +6,7 @@ from playwright.sync_api import expect
 
 from app.ai import style as style_ai
 from app.document import InputError, parse_md
+from settings_ui import open_settings
 from app.style import Style, apply_style, editor_bootstrap, from_stored_style
 from app.typeset import typeset
 from test_editor import browser
@@ -121,6 +122,7 @@ def test_browser_opens_edits_and_exports_optional_row_fields(browser, server_url
     with browser.new_context() as context:
         page = context.new_page()
         page.goto(server_url)
+        open_settings(page)
         page.locator("#style summary").click()
         with page.expect_response("**/api/style/open") as opened:
             page.locator("#style-file").set_input_files({"name": "보고서.json", "mimeType": "application/json",

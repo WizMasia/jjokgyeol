@@ -4,6 +4,8 @@ import json
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from test_editor import browser
 from test_reference_editor import candidate, review, unit
 from test_slice import server_url
@@ -11,7 +13,9 @@ from test_slice import server_url
 
 def controls(d):
     p = d.page
-    p.locator("#style summary").click()
+    open_settings(p)
+    if not p.locator("#style details").evaluate("el => el.open"):
+        p.locator("#style summary").click()
     mode = p.get_by_label("여백 방식", exact=True)
     expect(mode).to_have_value("fixed", timeout=1200)
     return p, mode
@@ -55,7 +59,9 @@ def test_toggle_restore_and_reopen(review):
     gutter.fill("6")
     expect(p.locator("#margin-summary")).to_contain_text("실제 안쪽 18 mm")
     expect(p.locator("#margin-summary")).to_contain_text("본문 폭 120 mm")
+    close_settings(p)
     d.submit(d.refresh)
+    open_settings(p)
     style = d.requests[-1]["style"]
     assert style["gutter_mm"] == "6" and style["margins_mm"] == ["20", "10", "20", "12"]
     d.reply(0, d.pdf)
@@ -233,7 +239,9 @@ def test_restore_split_after_indent_leaves_one_scaled_point(review, scoped):
     assert restored == expected
     indent = restored["section_rules"][0]["values"]["rest_indent_sp"] if scoped else restored["rest_indent_sp"]
     assert restored["page_sp"][0] - restored["margins_sp"][1] - restored["margins_sp"][3] - restored["gutter_sp"] - indent == 1
+    close_settings(p)
     d.submit(d.refresh)
+    open_settings(p)
     rendered = p.request.post(d.service + "/api/render", data=d.requests[-1])
     assert rendered.ok, rendered.text()
     pdf = rendered.body()
@@ -319,7 +327,9 @@ def test_invalid_gutter_preserves_preview(review):
     mode.select_option("mirrored")
     gutter = field(p, "제본 여백")
     gutter.fill("-1")
+    close_settings(p)
     d.submit(d.refresh)
+    open_settings(p)
     d.reply(0, {"field": "gutter_mm", "message": "제본 여백은 0 이상이어야 합니다."}, 422)
     expect(gutter).to_have_attribute("aria-invalid", "true")
     expect(gutter).to_have_accessible_description("제본 여백은 0 이상이어야 합니다.")

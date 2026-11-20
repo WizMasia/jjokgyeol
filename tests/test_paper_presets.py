@@ -2,6 +2,8 @@
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import close_settings, open_settings
+
 from test_editor import STATIC, browser, desk
 from test_mirrored_margin_editor import open_style, save_style
 from test_reference_editor import candidate, review, unit
@@ -13,6 +15,7 @@ SIZES = {"A4": ("210", "297"), "A5": ("148", "210"), "A6": ("105", "148"),
 
 
 def controls(page):
+    open_settings(page)
     page.locator("#style summary").click()
     preset = page.get_by_role("combobox", name="판형 선택", exact=True)
     expect(preset).to_have_id("page-preset", timeout=1000)
@@ -37,9 +40,11 @@ def test_portrait_presets_and_custom_edits_reach_preview(desk):
         preset.select_option(label=label)
         expect(width).to_have_value(w)
         expect(height).to_have_value(h)
+    close_settings(desk.page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"]["page_mm"] == ["188", "257"]
     desk.reply(0, desk.pdf)
+    open_settings(desk.page)
     preset.select_option(label="직접 입력")
     expect(width).to_have_value("188")
     expect(height).to_have_value("257")
@@ -49,6 +54,7 @@ def test_portrait_presets_and_custom_edits_reach_preview(desk):
     expect(preset).to_have_value("A4")
     height.fill("297.00000000000000001")
     expect(preset).to_have_value("custom")
+    close_settings(desk.page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"]["page_mm"] == ["2.10e2", "297.00000000000000001"]
 

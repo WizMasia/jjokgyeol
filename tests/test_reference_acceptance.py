@@ -11,13 +11,34 @@ from urllib.parse import urlsplit
 import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
+
+from settings_ui import open_settings, close_settings
 from pypdf import PdfReader
 
 from proof_response import selected_pdf
 from pdf_metrics import read_pages
-from test_article_acceptance import save
-from test_list_acceptance import download_proof, match_item, rows
+from test_article_acceptance import save as _save
+from test_list_acceptance import download_proof as _download_proof, match_item, rows
 from test_refactor_acceptance import compact_json, image_id, stock
+
+
+def save(page, selector):
+    was_open = page.locator("#settings-dialog").is_visible()
+    (open_settings if selector == "#save-style" else close_settings)(page)
+    if selector == "#save-style" and not page.locator("#save-style").is_visible():
+        page.locator("#style summary").click()
+    result = _save(page, selector)
+    (open_settings if was_open else close_settings)(page)
+    return result
+
+
+def download_proof(page, destination):
+    was_open = page.locator("#settings-dialog").is_visible()
+    close_settings(page)
+    result = _download_proof(page, destination)
+    if was_open:
+        open_settings(page)
+    return result
 
 
 PROOF = Path(__file__).resolve().parents[1] / "proofs/reference-style"
@@ -58,6 +79,7 @@ def test_operator_model_and_structural_targets(url):
 
 
 def test_reference_import_visible_in_real_editor(editor):
+    open_settings(editor)
     control = editor.get_by_text("참고 문서 서식 가져오기", exact=True)
     assert control.count() > 0, "참고 문서 서식 가져오기 must be reachable in the real editor"
 
@@ -78,6 +100,7 @@ def upload(page, name, *, directory=PROOF):
         }
         window.referenceReplies.length = 0;
     }""")
+    open_settings(page)
     page.locator("#open-reference").click()
     expect(page.locator("#reference-file")).to_be_attached()
     path = directory / name
@@ -188,6 +211,7 @@ def target(page, folder):
     # BASELINE was printed with the original fixed-spacing publication settings.
     original = json.loads((PROOF / "style.json").read_bytes())
     original.pop("section_rules")
+    open_settings(page)
     with page.expect_response(lambda reply: reply.url.endswith("/api/style/open")) as opened:
         page.locator("#style-file").set_input_files({
             "name": "기존 양식.json", "mimeType": "application/json", "buffer": compact_json(original)})
@@ -246,7 +270,7 @@ def body_sample(pdf, word):
 def test_office_body_only_trial_rollback_and_roundtrip(editor, tmp_path, name):
     source, before = target(editor, tmp_path)
     committed = hashlib.sha256(before).hexdigest()
-    editor.locator("#style summary").click()
+    open_settings(editor)
     old_style = save(editor, "#save-style")
 
     for action in ("cancel", "apply"):
@@ -321,15 +345,19 @@ def test_list_scoped_indent_follows_moved_section_and_rebinds(editor, tmp_path):
             assert right.x0 - left.x0 == pytest.approx(step, abs=.025)
     check(after, True)
     prefixed = "# 머리글\n\n" + "이른 새벽 물결을 살피고 발자국을 기록한다.\n\n" * 30 + source
+    close_settings(editor)
     editor.locator("#source").fill(prefixed)
     moved = download_proof(editor, tmp_path / "moved.pdf")
     assert body_sample(moved, "물수제비")[0] > body_sample(after, "물수제비")[0]
     check(moved, True)
+    close_settings(editor)
     editor.locator("#source").fill(source + "\n\n## 모래톱\n\n별도 구역")
     check(download_proof(editor, tmp_path / "duplicate.pdf"), False)
     renamed = source.replace("## 모래톱", "## 물안개")
+    close_settings(editor)
     editor.locator("#source").fill(renamed)
     check(download_proof(editor, tmp_path / "missing.pdf"), False)
+    open_settings(editor)
     editor.locator("#open-reference").click()
     binding = editor.locator("#reference-bindings").get_by_label("다시 연결할 대상")
     binding.select_option(label="들판 기록 › 물안개")

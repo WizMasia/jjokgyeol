@@ -5,6 +5,7 @@ import os
 from playwright.sync_api import expect
 import pytest
 
+from settings_ui import open_settings, close_settings
 from proof_response import rendered_pdfs
 from app.style import Style, apply_style
 from test_decision import SOURCE, STYLE, scan
@@ -14,12 +15,14 @@ from test_reference_acceptance import editor, url
 
 @pytest.mark.skipif(not os.environ.get("JJOKGYEOL_DECISION_TEST_URL"), reason="requires the production decision model")
 def test_selected_proof_is_the_downloaded_pdf(editor):
+    open_settings(editor)
     with editor.expect_response("**/api/style/open") as opened:
         editor.locator("#style-file").set_input_files({
             "name": "조판 비교.json", "mimeType": "application/json",
             "buffer": compact_json(apply_style(Style(), STYLE).to_stored()),
         })
     assert opened.value.ok
+    close_settings(editor)
     editor.locator("#source").fill(SOURCE)
     requests = []
     editor.on("request", lambda request: requests.append(request) if request.url.endswith("/api/render") else None)

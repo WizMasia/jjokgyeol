@@ -4,6 +4,8 @@ import json
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from app import style
 from test_editor import browser
 from test_reference_editor import Review, candidate, unit
@@ -26,6 +28,7 @@ def desk(browser, server_url, monkeypatch, request):
 
 
 def open_editor(desk):
+    open_settings(desk.page)
     desk.page.get_by_role("button", name="머리글·바닥글 편집", exact=True).click(timeout=1000)
     expect(desk.page.locator("#running-editor")).to_be_visible()
     expect(desk.page.locator("#running-target option")).to_have_count(3)
@@ -75,7 +78,8 @@ def test_direct_inheritance_empty_and_reopen(desk):
         {"path": ["표지"], "role": "footer", "values": {"visible": False}},
         {"path": ["표지", "부록"], "role": "footer", "values": {"left": "추가 자료", "center": ""}}]
     apply(d)
-    p.locator("summary").click()
+    open_settings(p)
+    p.locator("#style summary").click()
     with p.expect_download() as downloaded:
         p.locator("#save-style").click()
     raw = downloaded.value.path().read_bytes()
@@ -89,7 +93,9 @@ def test_direct_inheritance_empty_and_reopen(desk):
     assert trial(d)[-1]["values"] == {"left": "추가 자료"}
     apply(d)
     d.targets = [{"path": ["새 표지"], "count": 1}, {"path": ["새 부록"], "count": 1}]
+    close_settings(p)
     d.source.fill("# 새 표지\n\n# 새 부록")
+    open_settings(p)
     open_button = p.locator("#open-running")
     open_button.click()
     bindings = p.locator("#reference-bindings").get_by_label("다시 연결할 대상")
@@ -126,16 +132,19 @@ def test_page_ten_error_and_recovery(desk):
     trial(d)
     apply(d)
     good = d.frame.get_attribute("src")
+    close_settings(p)
     d.source.fill("# 늘어난 원고")
     open_editor(d)
     trial(d)
     d.reply(3, error, 422)
     expect(p.locator("#reference-message")).to_contain_text("10쪽")
     p.locator("#reference-cancel").click()
+    close_settings(p)
     d.submit(d.export)
     d.reply(4, error, 422)
     expect(p.get_by_role("alert")).to_contain_text("10쪽")
     assert d.frame.get_attribute("src") == good
+    close_settings(p)
     d.submit(d.export)
     with p.expect_download() as saved:
         d.reply(5, d.pdf)
@@ -294,7 +303,9 @@ def test_rebind_direct_edits_when_heading_changes_before_first_trial(desk):
     target(p, ["표지", "부록"], "header")
     own(p, "right", "보충 {현재쪽}")
     d.targets = [{"path": ["보충 자료"], "count": 1}]
+    close_settings(p)
     d.source.fill("# 보충 자료\n\n기록")
+    open_settings(p)
     bind = p.locator("#reference-bindings").get_by_label("다시 연결할 대상")
     expect(bind).to_have_count(1)
     bind.select_option(label="보충 자료")

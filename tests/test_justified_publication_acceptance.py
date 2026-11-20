@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from settings_ui import open_settings, close_settings
 from pdf_metrics import read_pages
 from test_article_acceptance import save
 from test_duplex_acceptance import reopen_file
@@ -45,10 +46,12 @@ def test_new_manuscript_fills_the_measure_without_splitting_words(editor, tmp_pa
                 assert remaining == pytest.approx(0, abs=.05), line.text
     assert "".join(text) == "".join(source.split())
     assert len(short_last_lines) == 3 and max(short_last_lines) > 11
+    open_settings(editor)
     editor.locator("#style summary").click()
     style = tmp_path / "publication.json"
     style.write_bytes(save(editor, "#save-style"))
     assert json.loads(style.read_bytes())["paragraph_layout"] == "justified"
     reopen_file(editor, style)
+    close_settings(editor)
     assert read_pages(download_proof(editor, tmp_path / "reopened.pdf")) == read_pages(pdf)
     assert save(editor, "#save") == SOURCE.read_bytes()

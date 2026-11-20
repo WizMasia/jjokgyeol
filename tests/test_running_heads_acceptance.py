@@ -7,10 +7,10 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from pdf_metrics import read_pages
-from test_article_acceptance import save
-from test_list_acceptance import download_proof
-from test_reference_acceptance import blob_hash, commit_pdf, editor, only_unit, trial, upload, url
+from test_reference_acceptance import save, download_proof, blob_hash, commit_pdf, editor, only_unit, trial, upload, url
 from test_slice import render
 
 
@@ -120,6 +120,7 @@ def setup_book(page, url, version):
     source = (PROOF / f"{version}.md").read_text()
     page.locator("#file").set_input_files(PROOF / f"{version}.md")
     expect(page.locator("#source")).to_have_value(source)
+    open_settings(page)
     page.locator("#style summary").click()
     response = httpx.post(url + "/api/style/export", json=BASE, trust_env=False)
     response.raise_for_status()
@@ -142,6 +143,7 @@ def test_browser_authors_rules_and_reopens_layout(editor, url, tmp_path):
     baseline = download_proof(editor, tmp_path / "unmarked.pdf")
     check_book(baseline, "before", False)
     assert editor.locator("#open-running").count() == 1, "running-area editor absent"
+    open_settings(editor)
     editor.locator("#open-running").click()
     for entry in STYLE["section_rules"]:
         area(editor, entry["path"], entry["role"])
@@ -164,11 +166,13 @@ def test_browser_authors_rules_and_reopens_layout(editor, url, tmp_path):
     open_style(editor, saved)
     check_book(download_proof(editor, tmp_path / "after-reopened.pdf"), "after", True)
     assert json.loads(save(editor, "#save-style")) == json.loads(saved)
+    open_settings(editor)
     editor.locator("#open-running").click()
     area(editor, ["부록"], "header")
     set_text(editor, "center", "")
     cleared = commit_pdf(editor, trial(editor), tmp_path / "explicit-empty.pdf")
     assert compact(regions(read_pages(cleared)[10])[1]) == "부록기록{현재쪽}"
+    open_settings(editor)
     editor.locator("#open-running").click()
     area(editor, ["부록"], "header")
     editor.locator("#running-own-center").uncheck()
@@ -179,8 +183,10 @@ def test_browser_authors_rules_and_reopens_layout(editor, url, tmp_path):
 
 def test_page_ten_rejects_collision_and_preserves_committed_preview(editor, url, tmp_path):
     source, _ = setup_book(editor, url, "before")
+    close_settings(editor)
     editor.locator("#source").fill(source.split("추적문장", 1)[0])
     assert editor.locator("#open-running").count() == 1
+    open_settings(editor)
     editor.locator("#open-running").click()
     area(editor, [], "footer")
     editor.locator("#running-visible").select_option("show")
@@ -193,9 +199,12 @@ def test_page_ten_rejects_collision_and_preserves_committed_preview(editor, url,
     assert len(pages) == 9 and compact(regions(pages[-1])[2]) == "나" * 29 + "9"
     old_hash = hashlib.sha256(valid).hexdigest()
     old_style = save(editor, "#save-style")
+    close_settings(editor)
     editor.locator("#source").fill(source)
+    open_settings(editor)
     editor.locator("#open-running").click()
     for action in ("#reference-trial", "#export"):
+        (open_settings if action == "#reference-trial" else close_settings)(editor)
         with editor.expect_response(lambda r: r.url.endswith("/api/render")) as bad:
             editor.locator(action).click()
         assert bad.value.status == 422
@@ -219,8 +228,9 @@ def slot(units, role, key):
 @pytest.mark.parametrize("name", ["reference.docx", "reference.hwpx", "reference.pdf", "scan.png"])
 def test_import_edit_running_text_without_reference_body(editor, name, tmp_path):
     source = "# 항구\n\n해안선에 부표를 띄웠다."
+    close_settings(editor)
     editor.locator("#source").fill(source)
-    editor.locator("#style summary").click()
+    open_settings(editor)
     if name == "reference.docx":
         editor.locator("#open-running").click()
         area(editor, [], "footer")

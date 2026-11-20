@@ -5,6 +5,8 @@ import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from settings_ui import close_settings, open_settings
+
 from app.server import app
 from test_editor import DEFAULTS, ORIGIN, browser, desk
 from test_slice import server_url
@@ -121,11 +123,12 @@ def test_style_file_in_browser(server_url, tmp_path):
         with playwright.chromium.launch() as browser:
             page = browser.new_page()
             page.goto(server_url)
-            page.locator("summary").click()
             tracking = page.locator("#ko_tracking_pct")
             manuscript = "# 내 원고\n\n본문 [^주]\n"
             editor = page.get_by_role("textbox", name="마크다운 원고")
             editor.fill(manuscript)
+            open_settings(page)
+            page.locator("#style summary").click()
             tracking.fill("-7.245")
             with page.expect_download() as download:
                 page.get_by_role("button", name="양식 저장").click()
@@ -139,13 +142,13 @@ def test_style_file_in_browser(server_url, tmp_path):
             page.locator("#style-file").set_input_files({
                 "name": "invalid.json", "mimeType": "application/json", "buffer": b"{}",
             })
-            expect(page.get_by_role("alert")).not_to_be_empty()
+            expect(page.locator("#settings-error")).not_to_be_empty()
             expect(tracking).to_have_value("-7.25")
             assert page.evaluate("styleForm.get()") == before
             expect(editor).to_have_value(manuscript)
             page.locator("#style-file").set_input_files(file)
             expect(page.locator("#body_pt")).to_have_value("11")
-            expect(page.get_by_role("alert")).to_be_empty()
+            expect(page.locator("#settings-error")).to_be_empty()
             with page.expect_download() as recovered:
                 page.get_by_role("button", name="양식 저장").click()
             assert json.loads(recovered.value.path().read_bytes()) == json.loads(file.read_bytes())
@@ -173,10 +176,13 @@ def hold_style(desk, action):
 
 def test_save_finishes_after_edit(desk):
     desk.ready()
-    desk.page.locator("summary").click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     desk.page.locator("#body_pt").fill("16")
     save = hold_style(desk, "export")
+    close_settings(desk.page)
     desk.source.fill("# 계속 편집")
+    open_settings(desk.page)
     desk.page.locator("#body_pt").fill("13")
     assert save.request.post_data_json["body_pt"] == "16"
     with desk.page.expect_download(timeout=1500) as saved:
@@ -188,12 +194,15 @@ def test_save_finishes_after_edit(desk):
 
 def test_style_open_blocks_previous_pdf(desk):
     desk.ready()
-    desk.page.locator("summary").click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     downloads = []
     desk.page.on("download", lambda item: downloads.append(item))
     old_url = desk.frame.get_attribute("src")
+    close_settings(desk.page)
     desk.source.fill("# 새 원고")
     desk.submit(desk.export)
+    open_settings(desk.page)
     opening = hold_style(desk, "open")
     desk.reply(0, desk.pdf)
     assert downloads == []
@@ -201,6 +210,7 @@ def test_style_open_blocks_previous_pdf(desk):
     expect(desk.export).to_be_disabled()
     expect(desk.refresh).to_be_disabled()
     opening.fulfill(json={**DEFAULTS, "body_pt": "16"})
+    close_settings(desk.page)
     expect(desk.export).to_be_enabled()
     desk.submit(desk.export)
     assert desk.requests[-1]["style"]["body_pt"] == "16"
@@ -211,7 +221,8 @@ def test_style_open_blocks_previous_pdf(desk):
 @pytest.mark.parametrize("first", ["source", "style"])
 def test_overlapping_file_opens(desk, first):
     desk.ready()
-    desk.page.locator("summary").click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     desk.page.evaluate("""() => {
         const read = File.prototype.arrayBuffer;
         File.prototype.arrayBuffer = async function() {
@@ -237,6 +248,7 @@ def test_overlapping_file_opens(desk, first):
     expect(desk.export).to_be_disabled(timeout=1000)
     last_done()
     expect(desk.export).to_be_enabled()
+    close_settings(desk.page)
     desk.submit(desk.refresh)
     assert desk.requests[-1] == {"source": "# 다음", "style": {**DEFAULTS, "body_pt": "16"}}
     desk.reply(0, desk.pdf)
@@ -244,13 +256,15 @@ def test_overlapping_file_opens(desk, first):
 
 def test_failed_style_open_restores_controls(desk):
     desk.ready()
-    desk.page.locator("summary").click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     opening = hold_style(desk, "open")
     expect(desk.page.locator("#save-style")).to_be_disabled(timeout=1000)
     opening.fulfill(status=422, json={"message": "양식 오류"})
-    expect(desk.page.get_by_role("alert")).to_have_text("양식 오류")
+    expect(desk.page.locator("#settings-error")).to_have_text("양식 오류")
     for control in [desk.export, desk.refresh, desk.page.locator("#save-style"), desk.page.locator("#save")]:
         expect(control).to_be_enabled()
+    close_settings(desk.page)
     with desk.page.expect_download():
         desk.export.click()
 
@@ -261,7 +275,8 @@ def test_list_style_file_recovery(browser, server_url):
         page.goto(server_url)
         viewer = page.locator("#preview")
         page.wait_for_function("document.querySelector('#preview').src.startsWith('blob:')")
-        page.locator("summary").click()
+        open_settings(page)
+        page.locator("#style summary").click()
         preset = page.get_by_label("목록 양식", exact=True)
         expect(preset).to_be_visible(timeout=1500)
         save = page.get_by_role("button", name="양식 저장")
@@ -285,14 +300,20 @@ def test_list_style_file_recovery(browser, server_url):
         downloads = []
         page.on("download", lambda item: downloads.append(item))
         for button in [save, page.get_by_role("button", name="PDF 다운로드")]:
+            if button == save:
+                open_settings(page)
+            else:
+                close_settings(page)
             with page.expect_response(lambda response: response.request.method == "POST") as rejected:
                 button.click()
             assert rejected.value.status == 422
-            expect(page.get_by_role("alert")).to_contain_text("2단계")
+            expect(page.locator("#settings-error" if button == save else "#error")).to_contain_text("2단계")
+            open_settings(page)
             expect(marker).to_have_value("{없는표지}")
             assert viewer.get_attribute("src") == previous
         assert downloads == []
         assert json.loads(custom_file.read_bytes()) == stored
+        open_settings(page)
         upload.set_input_files(custom_file)
         expect(marker).to_have_value(literal)
         with page.expect_download() as reopened:
@@ -308,9 +329,12 @@ def test_list_style_file_recovery(browser, server_url):
 def test_pending_preview_and_save_keep_distinct_margin_errors(desk):
     desk.ready()
     page = desk.page
+    open_settings(page)
     page.locator("#style summary").click()
     original_pdf = desk.frame.get_attribute("src")
+    close_settings(page)
     desk.submit(desk.refresh)
+    open_settings(page)
     errors = iter([("margins_mm[1]", "오른쪽 여백 오류"), ("article_expr", "조 번호 오류")])
     def reject(route):
         field, message = next(errors)
@@ -319,7 +343,7 @@ def test_pending_preview_and_save_keep_distinct_margin_errors(desk):
     right = page.locator('[name="margins_mm"]').nth(1)
     for message in ("오른쪽 여백 오류", "조 번호 오류"):
         page.locator("#save-style").click()
-        expect(page.locator("#error")).to_have_text(message)
+        expect(page.locator("#settings-error")).to_have_text(message)
         expect(right).to_have_attribute("aria-invalid", "true")
     expect(page.locator("#article-expr")).to_have_attribute("aria-invalid", "true")
     desk.reply(0, {"field": "source", "message": "원고 오류"}, 422)
@@ -331,6 +355,7 @@ def test_pending_preview_and_save_keep_distinct_margin_errors(desk):
 def test_corrected_typography_ignores_late_save_error(desk):
     desk.ready()
     p = desk.page
+    open_settings(p)
     p.locator("#style summary").click()
     p.locator("#text-role").select_option("note")
     color = p.locator('[data-text="color"]')
@@ -340,7 +365,7 @@ def test_corrected_typography_ignores_late_save_error(desk):
     with p.expect_request_finished(lambda req: req == save.request):
         save.fulfill(status=422, json={"field": "text_styles.note.color", "message": "색상 오류"})
     p.evaluate("() => new Promise(requestAnimationFrame)")
-    expect(p.locator("#error")).to_be_empty()
+    expect(p.locator("#settings-error")).to_be_empty()
     expect(color).not_to_have_attribute("aria-invalid", "true")
 
 
@@ -348,6 +373,7 @@ def test_editor_saves_and_reopens_exact_paragraph_spacing(browser, server_url):
     with browser.new_context() as context:
         page = context.new_page()
         page.goto(server_url)
+        open_settings(page)
         page.locator("#style summary").click()
         layout = page.get_by_label("문단 배치 방식", exact=True)
 
@@ -381,6 +407,7 @@ def test_selecting_justification_after_opening_fixed_style(browser, server_url):
     with browser.new_context() as context:
         page = context.new_page()
         page.goto(server_url)
+        open_settings(page)
         layout = page.get_by_label("문단 배치 방식", exact=True)
         upload = page.locator("#style-file")
         with page.expect_response("**/api/style/open"):
@@ -395,7 +422,6 @@ def test_selecting_justification_after_opening_fixed_style(browser, server_url):
             return json.loads(output.value.path().read_bytes())
 
         assert save() == old
-        details.locator("summary").click()
         layout.select_option("justified")
         expect(page.locator("#tracking-lower")).to_be_visible()
         expect(page.locator("#tracking-lower")).to_have_value("-15")

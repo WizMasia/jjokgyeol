@@ -5,6 +5,7 @@ import pytest
 
 from playwright.sync_api import expect
 
+from settings_ui import close_settings, open_settings
 from test_running_heads_editor import apply, browser, desk, open_editor, own, server_url, target, trial
 from test_reference_editor import candidate, unit
 
@@ -127,7 +128,9 @@ def test_rebind_and_validation_focus_keep_face(desk):
         p.locator("#running-face").select_option(side)
         own(p, "left", side)
     d.targets = [{"path": ["새 제목"], "count": 1}]
+    close_settings(p)
     d.source.fill("# 새 제목")
+    open_settings(p)
     bindings = p.locator("#reference-bindings")
     for label in ("홀수 쪽", "짝수 쪽"):
         bindings.locator(".reference-row").filter(has_text=label).get_by_label("다시 연결할 대상").select_option(label="새 제목")

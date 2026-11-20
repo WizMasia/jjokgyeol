@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from settings_ui import open_settings, close_settings
 from app.article_edit import toggle_pin
 from app.articles import number_articles
 from app.document import Inline, InputError, parse_md
@@ -116,14 +117,18 @@ def test_reopen_and_reflow(editor, tmp_path):
     editor.locator("#source").fill("임시 원고")
     control.set_input_files({"name": "다시.md", "mimeType": "text/markdown", "buffer": saved})
     expect(editor.locator("#source")).to_have_value(original.decode().replace("\r\n", "\n"))
+    open_settings(editor)
     editor.locator("#style summary").click()
     editor.locator("input[name=page_mm]").nth(1).fill("70")
     for idx in (0, 2):
         editor.locator("input[name=margins_mm]").nth(idx).fill("15")
     placements = []
     for size, leading in ((11, 17), (16, 24)):
+        if size != 11:
+            open_settings(editor)
         editor.locator("#body_pt").fill(str(size))
         editor.locator("#leading_pt").fill(str(leading))
+        close_settings(editor)
         pages = read_pages(download_proof(editor, tmp_path / f"annotations-{size}.pdf"))
         rows = [(i, "".join(line.text.split())) for i, p in enumerate(pages) for line in p.lines]
         ref, = [i for i, row in rows if "강변기록" in row]

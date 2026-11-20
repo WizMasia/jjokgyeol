@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import expect
+
+from settings_ui import open_settings, close_settings
 from pypdf import PdfReader
 
 from test_editor import browser, desk
@@ -39,7 +41,9 @@ def test_import_picker_save_and_render(browser, server_url, name, phrase):
         page = context.new_page()
         page.goto(os.environ.get("JJOKGYEOL_IMPORT_URL", server_url))
         page.wait_for_function("document.querySelector('#status').textContent === '최신 버전'", timeout=45000)
+        open_settings(page)
         page.locator("#body_pt").fill("12")
+        close_settings(page)
         with page.expect_response(lambda r: "/api/import?" in r.url) as imported:
             select_import(page, sample)
         response = imported.value
@@ -55,7 +59,9 @@ def test_import_picker_save_and_render(browser, server_url, name, phrase):
         expect(page.locator("#source")).to_have_value(data["markdown"])
         assert phrase in data["markdown"]
         assert page.locator("#import-warnings li").all_text_contents() == data["warnings"]
+        open_settings(page)
         expect(page.locator("#body_pt")).to_have_value("12")
+        close_settings(page)
         assert saved_manuscript(page) == (sample.stem + ".md", data["markdown"].encode())
         with page.expect_download(timeout=45000) as pdf:
             page.locator("#export").click()

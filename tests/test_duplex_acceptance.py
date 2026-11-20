@@ -5,13 +5,12 @@ import json
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
 from pdf_metrics import read_pages
-from test_article_acceptance import save
-from test_list_acceptance import download_proof
-from test_reference_acceptance import blob_hash, commit_pdf, editor, only_unit, trial, upload, url
+from test_reference_acceptance import (save, download_proof, blob_hash, commit_pdf, editor, only_unit, trial, upload, url)
 from test_running_heads_acceptance import (
     BASE, PROOF as LEGACY, STYLE, area, check_book, compact, glyphs, open_style,
-    regions, rule, set_text, setup_book,
+    regions, rule, set_text, setup_book as _setup_book,
 )
 from test_slice import render
 
@@ -105,7 +104,15 @@ def test_nested_first_faces_follow_first_body_lines_across_siblings(url):
     assert [compact(regions(p)[1]) for p in pages] == ["홀수", "포구첫면자료첫면", "홀수", "짝수", "홀수자료첫면", "짝수"]
 
 
+def setup_book(page, url, version):
+    result = _setup_book(page, url, version)
+    if page.locator("#style details").first.get_attribute("open") is None:
+        page.locator("#style summary").click()
+    return result
+
+
 def write_rules(page, rules):
+    open_settings(page)
     page.locator("#open-running").click()
     expect(page.locator("#running-face")).to_be_visible()
     for entry in rules:
@@ -123,6 +130,10 @@ def write_json(path, data):
 
 
 def reopen_file(page, path):
+    open_settings(page)
+    details = page.locator("#style details").first
+    if details.get_attribute("open") is None:
+        details.locator("summary").click()
     with page.expect_file_chooser() as chooser:
         page.locator("#open-style").click()
     with page.expect_response(lambda r: r.url.endswith("/api/style/open")) as response:
@@ -166,6 +177,7 @@ def test_browser_authors_duplex_spreads_and_reopens_saved_style(editor, url, tmp
 
 def test_collision_only_on_two_digit_even_side_keeps_download(editor, url, tmp_path):
     source, _ = setup_book(editor, url, "before")
+    close_settings(editor)
     editor.locator("#source").fill(source.split("추적문장", 1)[0])
     write_rules(editor, [
         rule([], "footer", visible=True, font_pt=10, offset_mm=6),
@@ -178,7 +190,9 @@ def test_collision_only_on_two_digit_even_side_keeps_download(editor, url, tmp_p
     assert compact(regions(pages[7])[2]) == "8" + "나" * 29
     assert compact(regions(pages[8])[2]) == "9"
     saved = save(editor, "#save-style")
+    close_settings(editor)
     editor.locator("#source").fill(source)
+    open_settings(editor)
     editor.locator("#open-running").click()
     with editor.expect_response(lambda r: r.url.endswith("/api/render")) as failed:
         editor.locator("#reference-trial").click()
@@ -190,6 +204,7 @@ def test_collision_only_on_two_digit_even_side_keeps_download(editor, url, tmp_p
     assert blob_hash(editor.locator("#preview"), "src") == hashlib.sha256(valid).hexdigest()
     editor.locator("#reference-cancel").click()
     assert save(editor, "#save-style") == saved
+    close_settings(editor)
     editor.locator("#source").fill(source.split("추적문장", 1)[0])
     restored = download_proof(editor, tmp_path / "restored.pdf")
     assert read_pages(restored) == pages
@@ -241,6 +256,7 @@ def test_docx_empty_cover_and_two_headers_applied_together(editor, url, tmp_path
     assert (number[0].x0 + number[-1].x1) / 2 == pytest.approx(initial[0].width / 2, abs=.04)
     origin = PROOF / "banks.docx"
     raw = origin.read_bytes()
+    open_settings(editor)
     result = upload(editor, origin.name, directory=PROOF)
     assert not result["warnings"]
     only_unit(editor, 0)
@@ -266,6 +282,7 @@ def test_hwpx_both_outside_controls_keep_distinct_faces(editor, url, tmp_path):
     setup_book(editor, url, "before")
     origin = PROOF / "outer.hwpx"
     raw = origin.read_bytes()
+    open_settings(editor)
     result = upload(editor, origin.name, directory=PROOF)
     assert not result["warnings"]
     only_unit(editor, 0)
@@ -286,6 +303,7 @@ def test_text_pdf_reassigns_face_and_keeps_edit_through_retry(editor, url, tmp_p
     setup_book(editor, url, "before")
     origin = PROOF / "banks.pdf"
     raw = origin.read_bytes()
+    open_settings(editor)
     result = upload(editor, origin.name, directory=PROOF)
     assert not result["warnings"] and len(result["units"]) == 6
     only_unit(editor, 0)
@@ -313,6 +331,7 @@ def test_real_scan_requires_separate_face_and_number_choices(editor, url, tmp_pa
     setup_book(editor, url, "before")
     origin = LEGACY / "scan.png"
     raw = origin.read_bytes()
+    open_settings(editor)
     result = upload(editor, origin.name, directory=LEGACY)
     assert not result["warnings"]
     expect(editor.locator("#reference-model")).to_contain_text("google/gemma-4-e2b")

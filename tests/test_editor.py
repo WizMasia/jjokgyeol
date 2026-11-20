@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 from app import server, style
 from playwright.sync_api import expect, sync_playwright
+
+from settings_ui import close_settings, open_settings
 from test_slice import server_url
 
 
@@ -121,7 +123,9 @@ def test_export_dirty(desk):
     desk.ready()
     revised = "# 바뀐 제목\n\n글과 **emphasis**.\n"
     desk.source.fill(revised)
+    open_settings(desk.page)
     desk.page.get_by_label("본문 크기").fill("16")
+    close_settings(desk.page)
     desk.submit(desk.export)
     desk.refresh.click()
     assert len(desk.requests) == 2
@@ -142,12 +146,16 @@ def test_out_of_order(desk, late_status):
     desk.ready()
     downloads = []
     desk.page.on("download", lambda item: downloads.append(item))
-    desk.page.locator("summary").first.click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     tracking = desk.page.get_by_label("한글 자간")
     tracking.fill("-1.111")
+    close_settings(desk.page)
     desk.source.fill("이전 교정")
     desk.submit(desk.export)
+    open_settings(desk.page)
     tracking.fill("-2.2250")
+    close_settings(desk.page)
     desk.source.fill("최종 교정")
     desk.submit(desk.refresh)
     desk.reply(1, desk.pdf + b"\n% current\n")
@@ -206,7 +214,8 @@ def test_markdown_round_trip(desk):
 ])
 def test_decimal_style_and_indents(desk, typed, applied):
     desk.ready()
-    desk.page.locator("summary").first.click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     first = desk.page.get_by_label("첫 줄 들여쓰기")
     rest = desk.page.get_by_label("이후 줄 들여쓰기")
     expect(first).to_have_value("0")
@@ -216,6 +225,7 @@ def test_decimal_style_and_indents(desk, typed, applied):
     desk.page.get_by_label("한글 자간").fill(typed)
     desk.page.get_by_label("최소", exact=True).fill("70.005")
     desk.page.get_by_label("최대", exact=True).fill("129.9949999999999999999999")
+    close_settings(desk.page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"] == {
         **DEFAULTS, "first_indent_mm": "+03.2500", "rest_indent_mm": "+0.7500",
@@ -230,11 +240,13 @@ def test_decimal_style_and_indents(desk, typed, applied):
 
 def test_rejected_style_keeps_draft_and_applied_values(desk):
     desk.ready()
-    desk.page.locator("summary").first.click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     caption = desk.page.locator("#applied-ratios")
     previous = caption.inner_text()
     control = desk.page.get_by_label("최대", exact=True)
     control.fill("130.00000000000000001")
+    close_settings(desk.page)
     desk.submit(desk.export)
     assert desk.requests[-1]["style"]["space_pct"][1] == "130.00000000000000001"
     desk.reply(0, {"field": "space_pct", "message": "공백 범위를 확인하세요."}, 422)
@@ -264,6 +276,7 @@ def test_changed_bootstrap_precedes_sample(desk, monkeypatch):
     samples = []
     desk.page.route(ORIGIN + "/sample.md", lambda route: samples.append(route))
     desk.page.reload(wait_until="domcontentloaded")
+    open_settings(desk.page)
     size = desk.page.get_by_label("본문 크기")
     expect(size).to_have_value("13.125")
     for font in ["body_font", "heading_font"]:
@@ -279,10 +292,15 @@ def test_changed_bootstrap_precedes_sample(desk, monkeypatch):
 def test_file_downloads_keep_visible_pdf_url(desk):
     desk.ready()
     page = desk.page
-    page.locator("summary").click()
+    open_settings(page)
+    page.locator("#style summary").click()
     page.route(ORIGIN + "/api/style/export", lambda route: route.fulfill(json={"body_sp": 720896}))
     current = desk.frame.get_attribute("src")
     for label in ["원고 저장", "양식 저장", "PDF 다운로드"]:
+        if label == "양식 저장":
+            open_settings(page)
+        else:
+            close_settings(page)
         button = page.get_by_role("button", name=label, exact=True)
         button.scroll_into_view_if_needed()
         with page.expect_download() as saved:
@@ -318,7 +336,8 @@ LIST_PRESETS = {
 def test_list_presets_and_custom_levels(desk):
     desk.ready()
     page = desk.page
-    page.locator("summary").click()
+    open_settings(page)
+    page.locator("#style summary").click()
     preset = page.get_by_label("목록 양식", exact=True)
     expect(preset).to_be_visible(timeout=1500)
     expect(preset.locator("option:checked")).to_contain_text("보고서형")
@@ -330,6 +349,7 @@ def test_list_presets_and_custom_levels(desk):
     expect(first.get_by_role("button", name="단계 삭제")).to_be_disabled()
     preset.select_option(label="보고서형")
     manuscript = "\n".join("  " * n + "- 항목" for n in range(5))
+    close_settings(page)
     desk.source.fill(manuscript)
     desk.submit(desk.export)
     assert desk.requests[-1] == {"source": manuscript, "style": {**DEFAULTS, "list_levels": LIST_PRESETS["report"]}}
@@ -337,6 +357,7 @@ def test_list_presets_and_custom_levels(desk):
         desk.reply(0, desk.pdf)
     assert saved.value.url == desk.frame.get_attribute("src")
 
+    open_settings(page)
     page.get_by_role("button", name="단계 추가").click()
     row = page.get_by_role("group", name="4단계", exact=True)
     expect(row.get_by_label("표지 표현식")).to_have_value("-")
@@ -346,13 +367,16 @@ def test_list_presets_and_custom_levels(desk):
     row.get_by_label("표지 뒤 간격 (mm)").fill("0.500")
     page.get_by_role("group", name="2단계", exact=True).get_by_role("button", name="단계 삭제").click()
     expect(preset.locator("option:checked")).to_have_text("사용자 지정")
+    close_settings(page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"]["list_levels"] == [
         LIST_PRESETS["report"][0], LIST_PRESETS["report"][2],
         {"expr": expr, "indent_mm": "+04.2500", "gap_mm": "0.500"},
     ]
     desk.reply(1, desk.pdf)
+    open_settings(page)
     preset.select_option(index=0)
+    close_settings(page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"] == DEFAULTS
     desk.reply(2, desk.pdf)
@@ -367,7 +391,8 @@ CUSTOM_DEFAULTS = {**DEFAULTS, "list_levels": [
                                    "default_list_preset": "legal"}], indirect=True)
 def test_explicit_default_list_keeps_literal_whitespace(desk):
     desk.ready(CUSTOM_DEFAULTS)
-    desk.page.locator("summary").click()
+    open_settings(desk.page)
+    desk.page.locator("#style summary").click()
     row = desk.page.get_by_role("group", name="1단계", exact=True)
     expr = row.get_by_label("표지 표현식")
     expect(expr).to_have_value("  {{붙임}}　{숫자} 호 ")
@@ -378,6 +403,7 @@ def test_explicit_default_list_keeps_literal_whitespace(desk):
 def test_article_numbering_style_and_errors(desk):
     desk.ready()
     page = desk.page
+    open_settings(page)
     page.locator("#legal-options").click()
     enabled = page.get_by_label("조 제목 자동 번호", exact=True)
     expr = page.get_by_label("조 번호 표현식", exact=True)
@@ -387,17 +413,22 @@ def test_article_numbering_style_and_errors(desk):
     enabled.check()
     expect(expr).to_have_value("조 {숫자}")
     expr.fill("  {{법}} {한글}  ")
+    close_settings(page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"] == {**DEFAULTS, "article_expr": "  {{법}} {한글}  "}
     desk.reply(0, desk.pdf)
     previous = desk.frame.get_attribute("src")
+    open_settings(page)
     expr.fill("{미정}")
+    close_settings(page)
     desk.submit(desk.export)
     desk.reply(1, {"field": "article_expr", "message": "조 번호 표현식을 확인하세요."}, 422)
     expect(expr).to_have_attribute("aria-invalid", "true")
     expect(expr).to_have_value("{미정}")
     assert desk.frame.get_attribute("src") == previous
+    open_settings(page)
     enabled.uncheck()
+    close_settings(page)
     desk.submit(desk.refresh)
     assert desk.requests[-1]["style"] == DEFAULTS
     desk.reply(2, desk.pdf)
@@ -405,7 +436,9 @@ def test_article_numbering_style_and_errors(desk):
 
 @pytest.fixture
 def toggle_heading(desk, server_url):
+    open_settings(desk.page)
     desk.page.locator("#legal-options").click()
+    close_settings(desk.page)
     path = "/api/article/pin"
     desk.page.route(ORIGIN + path, lambda route: route.fulfill(response=route.fetch(url=server_url + path)))
     button = desk.page.get_by_role("button", name="번호 고정/해제", exact=True)
@@ -500,7 +533,9 @@ def test_pin_article_markdown_boundaries(desk, toggle_heading, heading, token, r
 @pytest.mark.parametrize("replacement", ["edit back", "open", "new pin"])
 def test_slow_pin_cannot_change_replaced_source(desk, replacement):
     desk.ready()
+    open_settings(desk.page)
     desk.page.locator("#legal-options").click()
+    close_settings(desk.page)
     source = "# 제8조 옛 제목"
     desk.source.fill(source)
     page = desk.page
@@ -540,7 +575,9 @@ def test_slow_pin_cannot_change_replaced_source(desk, replacement):
 def test_pin_submits_selected_lines_and_preserves_file_endings(desk):
     desk.ready()
     page = desk.page
+    open_settings(page)
     page.locator("#legal-options").click()
+    close_settings(page)
     text = "제1조 이전\r\n\r목적\n===\r\n본문\n"
     page.locator("#file").set_input_files({
         "name": "조문.md", "mimeType": "text/markdown", "buffer": b"\xef\xbb\xbf" + text.encode(),
@@ -571,12 +608,15 @@ def test_article_style_file_round_trip(browser, server_url):
     with browser.new_context() as context:
         page = context.new_page()
         page.goto(server_url)
-        page.locator("summary").click()
+        open_settings(page)
+        page.locator("#style summary").click()
         enabled = page.get_by_label("조 제목 자동 번호", exact=True)
         expr = page.get_by_label("조 번호 표현식", exact=True)
         expect(enabled).to_be_hidden(timeout=1200)
         manuscript = "# 제7조(가지) {번호고정}\n\n본문 제7조\n"
+        close_settings(page)
         page.locator("#source").fill(manuscript)
+        open_settings(page)
 
         def save():
             with page.expect_download() as saved:
@@ -615,6 +655,7 @@ def test_article_style_file_round_trip(browser, server_url):
 def test_role_edits_and_optional_tracking_bounds(desk):
     page = desk.page
     expect(desk.frame).to_have_attribute("src", BLOB)
+    open_settings(page)
     page.locator("#style summary").click()
     role = page.get_by_label("글자 모양 대상", exact=True)
     role.select_option("heading1")
@@ -629,6 +670,7 @@ def test_role_edits_and_optional_tracking_bounds(desk):
     page.get_by_label("최종 자간 한계 지정", exact=True).check()
     page.get_by_label("최종 자간 하한", exact=True).fill("-7")
     page.get_by_label("최종 자간 상한", exact=True).fill("0")
+    close_settings(page)
     desk.submit(desk.refresh)
     received = desk.requests[-1]["style"]
     assert received["body_pt"] == "16" and received["text_styles"]["heading1"] == {"font_pt": "18"}
@@ -636,6 +678,7 @@ def test_role_edits_and_optional_tracking_bounds(desk):
     desk.reply(0, {"field": "ko_tracking_bounds_pct", "message": "자간 한계를 확인하세요."}, 422)
     expect(page.get_by_label("최종 자간 하한", exact=True)).to_have_attribute("aria-invalid", "true")
     expect(desk.frame).to_have_attribute("src", BLOB)
+    open_settings(page)
     page.get_by_label("최종 자간 한계 지정", exact=True).uncheck()
     assert page.evaluate("styleForm.get().ko_tracking_bounds_pct") is None
 
@@ -643,6 +686,7 @@ def test_role_edits_and_optional_tracking_bounds(desk):
 def test_new_paragraph_mode_survives_save_without_upgrading_an_opened_style(desk):
     page = desk.page
     expect(desk.frame).to_have_attribute("src", BLOB)
+    open_settings(page)
     page.locator("#style summary").click()
     control = page.get_by_label("문단 배치 방식", exact=True)
     expect(control).to_have_value("justified")
@@ -667,6 +711,7 @@ def test_new_paragraph_mode_survives_save_without_upgrading_an_opened_style(desk
 def test_preview_caption_describes_justified_settings_used_for_displayed_pdf(desk):
     desk.ready()
     page = desk.page
+    open_settings(page)
     page.locator("#style summary").click()
     caption = page.locator("#applied-ratios")
     expect(caption).to_have_text("표시 중인 PDF의 양끝맞춤 설정 · 기본 한글 자간 0% · "
@@ -674,16 +719,21 @@ def test_preview_caption_describes_justified_settings_used_for_displayed_pdf(des
     page.get_by_label("한글 자간").fill("-3")
     page.get_by_label("최종 자간 하한", exact=True).fill("-7")
     page.get_by_label("최소", exact=True).fill("90")
+    close_settings(page)
     expect(caption).to_contain_text("기본 한글 자간 0%")
     desk.submit(desk.refresh)
     desk.reply(0, desk.pdf)
     expect(caption).to_have_text("표시 중인 PDF의 양끝맞춤 설정 · 기본 한글 자간 -3% · "
                                  "줄별 최종 자간 허용 범위 -7% ~ 15% · 어절 공백 90% ~ 130% 허용")
+    open_settings(page)
     page.get_by_label("최종 자간 한계 지정", exact=True).uncheck()
+    close_settings(page)
     desk.submit(desk.refresh)
     desk.reply(1, desk.pdf)
     expect(caption).to_contain_text("줄별 자간 보정 끔")
+    open_settings(page)
     page.get_by_label("문단 배치 방식", exact=True).select_option("balanced")
+    close_settings(page)
     desk.submit(desk.refresh)
     desk.reply(2, desk.pdf)
     expect(caption).to_have_text("표시 중인 PDF 적용값 · 한글 자간 -3% · 어절 공백 90% ~ 130%")
@@ -707,6 +757,7 @@ def test_layout_choice_preserves_manual_spacing(desk, base, bounds, spaces, type
     else:
         values["ko_tracking_bounds_pct"] = bounds
     page.evaluate("v => styleForm.set(v)", values)
+    open_settings(page)
     if typed:
         page.locator("#style summary").click()
         low = page.get_by_label("최소", exact=True)
@@ -726,6 +777,7 @@ def test_layout_choice_preserves_manual_spacing(desk, base, bounds, spaces, type
 def test_manual_mode_choice_uses_installed_justified_preset(desk):
     page = desk.page
     expect(desk.frame).to_have_attribute("src", BLOB)
+    open_settings(page)
     layout = page.get_by_label("문단 배치 방식", exact=True)
     expect(layout).to_have_value("balanced")
     layout.select_option("justified")

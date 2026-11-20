@@ -15,6 +15,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 
 from proof_response import selected_pdf
+from settings_ui import open_settings, close_settings
 from pdf_metrics import read_pages
 from test_slice import render
 
@@ -151,7 +152,9 @@ def check_defaults(url, size_pt, folder):
         }""", first_get.text())
         assert settings, "first HTML response must include publication defaults"
         assert str(json.loads(settings)["defaults"]["body_pt"]) == str(size_pt)
+        open_settings(tab)
         expect(tab.locator("#body_pt")).to_have_value(str(size_pt))
+        close_settings(tab)
         frame = tab.locator("#preview")
         expect(frame).to_have_attribute("src", re.compile(r"^blob:"))
         with tab.expect_download() as download:
@@ -206,6 +209,7 @@ def test_running_size_from_one_installed_setting(stock, image_id, tmp_path):
         with sync_playwright() as playwright, playwright.chromium.launch() as browser:
             tab = browser.new_page()
             tab.goto(url)
+            open_settings(tab)
             tab.get_by_role("button", name="머리글·바닥글 편집", exact=True).click()
             expect(tab.locator("#running-font_pt")).to_have_value("12.5")
         saved = style_request(url, "export", {"section_rules": rules})

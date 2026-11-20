@@ -5,6 +5,8 @@ import os
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from app.style import Style, apply_style
 from pdf_metrics import read_pages
 from test_editor import browser
@@ -26,14 +28,17 @@ def page(browser, server_url):
         expect(p.locator("#filename")).to_have_text("비교 원고.md")
         p.locator("#source").fill(SOURCE)
         expect(p.locator("#source")).to_have_value(SOURCE)
+        open_settings(p)
         p.get_by_text("AI 양식 제안", exact=True).click()
         yield p
 
 
 def pdf(page, destination):
+    close_settings(page)
     with page.expect_download(timeout=45000) as download:
         page.get_by_role("button", name="PDF 다운로드").click()
     download.value.save_as(destination)
+    open_settings(page)
     result, = read_pages(destination.read_bytes())
     return result
 
@@ -69,6 +74,7 @@ def open_saved_style(page):
 def test_suggestions_reach_pdf(page, request, real, tmp_path):
     control = None if real else request.getfixturevalue("local_model")[0]
     open_saved_style(page)
+    open_settings(page)
     page.locator("#style summary").click()
     initial = measured(pdf(page, tmp_path / "before.pdf"), 11, False)
     for prompt, numbered in [(BOTH, True), (BODY, False)]:
@@ -148,7 +154,9 @@ def test_cancel_error_and_edits_while_waiting(page):
     expect(body).to_have_value("13")
 
     start()
+    close_settings(page)
     page.locator("#source").fill("직접 수정한 원고")
+    open_settings(page)
     propose()
     expect(apply).to_be_visible()
     body.fill("14")
@@ -170,7 +178,9 @@ def test_style_open_supersedes_review_and_source_edit_can_coexist(page):
     expect(page.locator("#suggestion-message")).to_contain_text("다시 요청")
     ask.click()
     expect(apply).to_be_visible()
+    close_settings(page)
     page.locator("#source").fill("검토 중 바꾼 원고")
+    open_settings(page)
     apply.click()
     expect(page.locator("#body_pt")).to_have_value("16")
     expect(page.locator("#source")).to_have_value("검토 중 바꾼 원고")

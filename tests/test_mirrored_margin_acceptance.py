@@ -5,11 +5,11 @@ import json
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from pdf_metrics import read_pages
-from test_article_acceptance import save
 from test_duplex_acceptance import LEGACY, PROOF as DUPLEX, reopen_file, source_candidate, write_json
-from test_list_acceptance import download_proof
-from test_reference_acceptance import blob_hash, candidate, commit_pdf, editor, only_unit, trial, upload, url
+from test_reference_acceptance import save, download_proof, blob_hash, candidate, commit_pdf, editor, only_unit, trial, upload, url
 from test_running_heads_acceptance import compact, glyphs, regions
 
 
@@ -23,6 +23,7 @@ LEGACY_STYLE = "2ab28f8de113c7281af37e0fe7986bba12f443d89e8529236ab45f261c6ac17f
 
 
 def open_manuscript(page, version):
+    close_settings(page)
     manuscript = LEGACY / f"{version}.md"
     with page.expect_file_chooser() as picker:
         page.locator("#open").click()
@@ -33,6 +34,7 @@ def open_manuscript(page, version):
 
 def open_book(page, version="before"):
     source = open_manuscript(page, version)
+    open_settings(page)
     page.locator("#style summary").click()
     path = DUPLEX / "style.json"
     assert hashlib.sha256(path.read_bytes()).hexdigest() == LEGACY_STYLE
@@ -175,10 +177,12 @@ def test_gutter_that_consumes_body_width_preserves_last_preview(editor, tmp_path
     valid_hash = hashlib.sha256(normal).hexdigest()
     gutter.fill("106")  # 128 mm sheet minus 12 mm inside and 10 mm outside
     for button, endpoint in (("#refresh", "render"), ("#save-style", "style/export"), ("#export", "render")):
+        (open_settings if button == "#save-style" else close_settings)(editor)
         with editor.expect_response(lambda r: r.url.endswith("/api/" + endpoint)) as denied:
             editor.locator(button).click()
         error = denied.value.json()
         assert denied.value.status == 422 and error["field"] == "gutter_mm", error
+        open_settings(editor)
         expect(gutter).to_have_attribute("aria-invalid", "true")
         expect(gutter).to_have_accessible_description(error["message"])
         assert blob_hash(shown, "src") == valid_hash

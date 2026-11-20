@@ -9,6 +9,7 @@ import pytest
 from playwright.sync_api import expect
 
 from app.style import Style
+from settings_ui import open_settings, close_settings
 from pdf_metrics import read_pages
 from test_list_acceptance import download_proof, rows, tab
 from test_refactor_acceptance import compact_json, image_id, stock
@@ -49,12 +50,14 @@ def check_sections(tab, path, headings):
 
 
 def enable_numbering(tab):
+    open_settings(tab)
     if tab.locator("#article-style").is_hidden():
         tab.locator("#legal-options").click()
     switch = tab.get_by_label("조 제목 자동 번호", exact=True)
     assert switch.count() == 1, "real editor must offer 조 제목 자동 번호"
     switch.check()
     expect(tab.get_by_label("조 번호 표현식", exact=True)).to_have_value("제{숫자}조")
+    close_settings(tab)
     return switch
 
 
@@ -122,7 +125,9 @@ def test_browser_unique_base_after_branches_and_pin_roundtrip(tab, tmp_path):
     check_sections(tab, tmp_path / "pinned.pdf", pinned)
     raw = save(tab, "#save")
     assert raw == expected.encode()
+    open_settings(tab)
     tab.get_by_label("조 제목 자동 번호", exact=True).uncheck()
+    close_settings(tab)
     off = printed_lines(download_proof(tab, tmp_path / "pinned-off.pdf"))
     assert off == [*FRONT_ROWS, "제8조의2(가지둘)", "⑦물길", "제8조의5가지다섯", "⑦산길",
                    "제2조시행", "⑦햇살", "제8조(목적)", "⑦솔바람", "1.안쪽기록", "⑧풀잎",
@@ -147,20 +152,26 @@ def test_browser_unique_base_after_branches_and_pin_roundtrip(tab, tmp_path):
 
 def test_custom_expression_error_and_disabled_geometry(tab, tmp_path):
     # This signature belongs to the fixed style shipped before article numbering.
+    open_settings(tab)
     with tab.expect_response(lambda reply: reply.url.endswith("/api/style/open")) as opened:
         tab.locator("#style-file").set_input_files({
             "name": "기존 양식.json", "mimeType": "application/json", "buffer": compact_json(Style().to_stored())})
     assert opened.value.ok
+    close_settings(tab)
     tab.locator("#source").fill(PLAIN)
     old = download_proof(tab, tmp_path / "disabled.pdf")
     assert printed_lines(old) == ["제8조(목적)", "⑦솔바람", "⑧푸른잎", "본문제8조의2를인용한다."]
     geometry = hashlib.sha256(compact_json([asdict(p) for p in read_pages(old)])).hexdigest()
     assert geometry == DISABLED_GEOMETRY
+    open_settings(tab)
     legacy = save(tab, "#save-style")
+    close_settings(tab)
     assert "article_expr" not in json.loads(legacy)
     switch = enable_numbering(tab)
+    open_settings(tab)
     expr = tab.get_by_label("조 번호 표현식", exact=True)
     expr.fill("[조 {한글}]")
+    close_settings(tab)
     custom = download_proof(tab, tmp_path / "custom.pdf")
     assert printed_lines(custom) == ["[조가](목적)", "①솔바람", "②푸른잎", "본문제8조의2를인용한다."]
     # Removing the italic span narrows the bounding boxes of these two glyphs.
@@ -168,15 +179,20 @@ def test_custom_expression_error_and_disabled_geometry(tab, tmp_path):
         title_chars = read_pages(pdf)[0].lines[0].chars
         assert [c.x1 - c.x0 for c in title_chars if c.text in "목적"] == pytest.approx(
             [19.989045, 19.989045], abs=0.001)
+    open_settings(tab)
     encoded = save(tab, "#save-style")
     assert json.loads(encoded) == {**json.loads(legacy), "article_expr": "[조 {한글}]"}
     expr.fill("")
+    close_settings(tab)
     empty = download_proof(tab, tmp_path / "empty-expression.pdf")
     assert printed_lines(empty) == ["(목적)", "①솔바람", "②푸른잎", "본문제8조의2를인용한다."]
+    open_settings(tab)
     assert json.loads(save(tab, "#save-style"))["article_expr"] == ""
     previous = tab.locator("#preview").get_attribute("src")
     expr.fill("{틀린표현식}")
+    close_settings(tab)
     tab.locator("#refresh").click()
+    open_settings(tab)
     expect(expr).to_have_attribute("aria-invalid", "true")
     expect(expr).to_have_accessible_description(re.compile("[가-힣]"))
     assert tab.locator("#preview").get_attribute("src") == previous
@@ -187,10 +203,13 @@ def test_custom_expression_error_and_disabled_geometry(tab, tmp_path):
         expect(switch).to_be_checked(checked=enabled)
         if enabled:
             expect(expr).to_have_value("[조 {한글}]")
+        close_settings(tab)
         reopened = download_proof(tab, tmp_path / f"style-reopen-{enabled}.pdf")
         assert read_pages(reopened) == read_pages(custom if enabled else old)
+        open_settings(tab)
         assert json.loads(save(tab, "#save-style")) == json.loads(raw)
     expr.fill("조")
+    close_settings(tab)
     tab.locator("#source").fill("# 제8조 단서\n\n# 제9조   단서")
     spaces = rows(download_proof(tab, tmp_path / "heading-spaces.pdf"))
     gaps = []

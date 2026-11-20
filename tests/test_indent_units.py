@@ -4,6 +4,8 @@ from decimal import Decimal
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import close_settings, open_settings
+
 from test_editor import browser
 from test_mirrored_margin_editor import controls, field, open_style, save_style, switch
 from test_reference_editor import review
@@ -25,10 +27,12 @@ def test_display_only_preserves_preview_drafts_and_opened_sp(review):
     unit.select_option("pt")
     expect(first).to_have_value("0")
     expect(p.get_by_role("status")).to_have_text("최신 버전")
+    close_settings(p)
     d.export.scroll_into_view_if_needed()
     with p.expect_download() as pdf:
         d.export.click()
     assert pdf.value.url == original and len(d.requests) == 1
+    open_settings(p)
     unit.select_option("mm")
     first.fill("+025.400")
     unit.select_option("pt")
@@ -42,11 +46,13 @@ def test_display_only_preserves_preview_drafts_and_opened_sp(review):
     expect(first).to_have_value("11.000")
     stored = save_style(p)
     assert (stored["first_indent_sp"], stored["rest_indent_sp"]) == (720896, 1)
+    close_settings(d.page)
     d.submit(d.refresh)
     payload = d.requests[-1]["style"]
     assert "first_indent_pt" not in payload and "indent_unit" not in payload
     assert p.request.post(d.service + "/api/style/export", data=payload).json() == stored
     d.reply(0, d.pdf)
+    open_settings(p)
     open_style(p, {**stored, "first_indent_sp": 131072, "rest_indent_sp": 1})
     expect(first).to_have_value("2")
     assert Decimal(rest.input_value()) == Decimal("0.0000152587890625")
@@ -70,10 +76,12 @@ def test_readable_units_keep_the_precise_metric_request(review):
     unit.select_option("mm")
     expect(first).to_have_value("3.866058")
     expect(rest).to_have_value("25.4")
+    close_settings(d.page)
     d.submit(d.refresh)
     mm = Decimal(d.requests[-1]["style"]["first_indent_mm"])
     assert abs(mm - Decimal(27940) / 7227) < Decimal("1e-18")
     d.reply(0, d.pdf)
+    open_settings(d.page)
     unit.select_option("pt")
     expect(first).to_have_value("11")
     stored = save_style(d.page)

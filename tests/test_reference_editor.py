@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from app import style
 from test_editor import Desk, ORIGIN, STATIC, browser
 from test_slice import server_url
@@ -53,6 +55,7 @@ class Review(Desk):
             super().route(route)
 
     def open(self):
+        open_settings(self.page)
         self.page.get_by_role("button", name="참고 문서 서식 가져오기").click(timeout=1200)
         expect(self.page.locator("#reference-model")).to_contain_text("검증 모델")
 
@@ -110,18 +113,22 @@ def test_selected_style_trial_cancel_commit_and_reopen(review):
     d.submit(trial)
     d.reply(1, d.pdf + b"\n% verified\n")
     p.locator("#reference-apply").click()
+    close_settings(p)
     with p.expect_download() as pdf:
         d.export.click()
     assert pdf.value.url == p.locator("#preview").get_attribute("src")
     assert pdf.value.path().read_bytes() == d.pdf + b"\n% verified\n"
-    p.locator("summary").click()
+    open_settings(p)
+    p.locator("#style summary").click()
     with p.expect_download() as saved:
         p.locator("#save-style").click()
     stored = saved.value.path().read_bytes()
     assert "참고 전용" not in stored.decode() and json.loads(stored)["section_rules"]
+    open_settings(p)
     p.locator("#style-file").set_input_files({"name": "서식.json", "mimeType": "application/json", "buffer": stored})
     expect(p.locator("#save-style")).to_be_enabled()
     d.targets = [{"path": ["새 제목"], "count": 1}]
+    close_settings(p)
     d.source.fill("# 새 제목\n\n원고")
     d.open()
     binding = p.locator("#reference-bindings").get_by_role("combobox")
@@ -181,7 +188,9 @@ def test_late_trial_after_edit_cannot_be_applied(review):
     }""")
     previous = p.locator("#preview").get_attribute("src")
     d.submit(p.locator("#reference-trial"))
+    close_settings(p)
     d.source.fill("# 새 원고")
+    open_settings(p)
     d.reply(0, d.pdf)
     expect(p.locator("#reference-apply")).to_be_disabled()
     assert p.locator("#preview").get_attribute("src") == previous
@@ -234,7 +243,9 @@ def test_current_values_follow_heading_level_override_and_list_origin(review):
         "section_rules": [{"path": ["서문"], "role": "heading", "values": {"font_pt": "14"}}],
     })
     assert file.ok, file.text()
+    open_settings(p)
     p.locator("#style-file").set_input_files({"name": "양식.json", "mimeType": "application/json", "buffer": file.body()})
+    p.locator("#style summary").click()
     expect(p.locator("#first_indent_mm")).to_have_value("4")
     d.open()
     p.locator("#reference-file").set_input_files({"name": "참고.docx", "mimeType": "application/octet-stream", "buffer": b"test"})
@@ -263,7 +274,9 @@ def test_current_values_follow_list_levels_and_section_rule(review):
         "section_rules": [{"path": ["서문"], "role": "list", "values": {"font_pt": "14"}}],
     })
     assert file.ok, file.text()
+    open_settings(p)
     p.locator("#style-file").set_input_files({"name": "목록.json", "mimeType": "application/json", "buffer": file.body()})
+    p.locator("#style summary").click()
     expect(p.locator("#list-preset")).to_have_value("custom")
     d.open()
     result = [unit(1, "서식", candidate("list", "font_pt", 15), candidate("list", "font", "nanum-myeongjo"))]
@@ -312,6 +325,7 @@ def test_bootstrap_with_section_rules_starts_sample(browser, monkeypatch, server
         d = Review(page, server_url)
         d.ready({**defaults, **settings["new_spacing"], "text_styles": settings["new_text_styles"],
                  "paragraph_layout": settings["new_paragraph_layout"]})
+        open_settings(page)
         expect(page.locator("#reference-notice")).to_contain_text("다시 연결")
 
 
@@ -349,6 +363,7 @@ def test_document_heading_current_values(review, targets, expected):
         "text_styles": {"heading1": row, "heading2": {**row, "font_pt": "14"}},
     })
     assert file.ok
+    open_settings(p)
     p.locator("#style-file").set_input_files({"name": "제목.json", "mimeType": "application/json", "buffer": file.body()})
     expect(p.locator("#save-style")).to_be_enabled()
     d.open()

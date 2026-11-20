@@ -6,6 +6,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from settings_ui import close_settings, open_settings
 from pdf_metrics import read_pages
 from test_slice import render, server_url
 
@@ -108,18 +109,22 @@ def test_editor_exports_applied_integer_layout(server_url):
         source = ("강가 바람 River Walk " * 10) + "물가표식[^강]\n\n[^강]: 지면 확인용 각주."
         editor = page.get_by_role("textbox", name="마크다운 원고")
         editor.fill(source)
-        page.locator("details summary").click()
+        open_settings(page)
+        page.locator("#style summary").click()
         page.get_by_label("한글 자간").fill("-7.245")
         page.get_by_label("첫 줄 들여쓰기").fill("6")
         page.get_by_label("이후 줄 들여쓰기").fill("0")
         maximum = page.get_by_label("최대", exact=True)
         maximum.fill("130.00000000000000001")
+        close_settings(page)
         with page.expect_response(lambda r: r.url.endswith("/api/render")) as rejected:
             page.get_by_role("button", name="미리보기 갱신").click()
         assert rejected.value.status == 422 and rejected.value.json()["field"] == "space_pct"
+        open_settings(page)
         expect(maximum).to_have_value("130.00000000000000001")
         page.get_by_label("최소", exact=True).fill("100.005")
         maximum.fill("100.005")
+        close_settings(page)
         with page.expect_download() as saved:
             with page.expect_response(lambda r: r.url.endswith("/api/render")) as result:
                 page.get_by_role("button", name="PDF 다운로드").click()

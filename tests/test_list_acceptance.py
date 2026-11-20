@@ -10,6 +10,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 
 from proof_response import selected_pdf
+from settings_ui import open_settings, close_settings
 from pdf_metrics import read_pages
 from test_refactor_acceptance import image_id, stock, style_request
 from test_slice import render
@@ -173,8 +174,10 @@ def tab(stock):
         page.set_default_timeout(45000)
         page.goto(url)
         expect(page.locator("#status")).to_have_text("최신 버전", timeout=45000)
+        open_settings(page)
         page.get_by_text("판형·여백 및 세부 양식", exact=True).click()
         assert page.get_by_label("목록 양식", exact=True).count() == 1
+        close_settings(page)
         yield page
 
 
@@ -206,10 +209,13 @@ def test_browser_presets_same_five_level_manuscript(tab, tmp_path):
     tab.locator("#file").set_input_files(PROOF)
     expect(tab.locator("#source")).to_have_value(source)
     for name, markers in (("legal", LEGAL), ("report", REPORT)):
+        open_settings(tab)
         tab.get_by_label("목록 양식", exact=True).select_option(name)
+        close_settings(tab)
         pdf = download_proof(tab, tmp_path / f"{name}.pdf")
         proof_geometry(pdf, markers)
         expect(tab.locator("#source")).to_have_value(source)
+    open_settings(tab)
     tab.get_by_role("button", name="단계 추가", exact=True).click()
     fourth = tab.locator("#list-levels").get_by_role("group", name="4단계", exact=True)
     fourth.get_by_label("표지 표현식").fill("[{숫자}]")
@@ -217,6 +223,7 @@ def test_browser_presets_same_five_level_manuscript(tab, tmp_path):
     fourth.get_by_label("표지 뒤 간격").fill("2.125")
     extended = REPORT.copy()
     extended[4:6] = ["[1]", "[1]"]
+    close_settings(tab)
     pdf = download_proof(tab, tmp_path / "report-fourth.pdf")
     proof_geometry(pdf, extended)
     lines = rows(pdf)
@@ -230,6 +237,7 @@ def test_browser_presets_same_five_level_manuscript(tab, tmp_path):
 def test_browser_custom_style_roundtrip_and_recovery(tab, tmp_path):
     source = "- 은행나무\n  - 어린잎\n- 자작나무"
     tab.locator("#source").fill(source)
+    open_settings(tab)
     tab.locator("#body_font").select_option("nanum-myeongjo")
     preset = tab.get_by_label("목록 양식", exact=True)
     preset.select_option("report")
@@ -243,11 +251,14 @@ def test_browser_custom_style_roundtrip_and_recovery(tab, tmp_path):
     expr.fill("[붙임 {숫자}호]")
     groups.first.get_by_label("들여쓰기").fill("4.125")
     groups.first.get_by_label("표지 뒤 간격").fill("2.125")
+    close_settings(tab)
     attachment = rows(download_proof(tab, tmp_path / "attachment.pdf"))
     for text, label in (("은행나무", "[붙임1호]"), ("자작나무", "[붙임2호]")):
         _, chars, _ = match_item(attachment, text)
         assert "".join(c.text for c in chars) == label
+    open_settings(tab)
     expr.fill("({한글})")
+    close_settings(tab)
     custom = rows(download_proof(tab, tmp_path / "hangul.pdf"))
     for text, label in (("은행나무", "(가)"), ("어린잎", "ㅇ"), ("자작나무", "(나)")):
         _, chars, _ = match_item(custom, text)
@@ -258,6 +269,7 @@ def test_browser_custom_style_roundtrip_and_recovery(tab, tmp_path):
             tab.locator("#save-style").click()
         return download.value.path().read_bytes()
 
+    open_settings(tab)
     file = tmp_path / "custom.json"
     file.write_bytes(save_style())
     stored = json.loads(file.read_bytes())
@@ -271,7 +283,7 @@ def test_browser_custom_style_roundtrip_and_recovery(tab, tmp_path):
     tab.locator("#style-file").set_input_files({
         "name": "invalid.json", "mimeType": "application/json", "buffer": json.dumps(stored).encode(),
     })
-    expect(tab.get_by_role("alert")).to_contain_text(re.compile(r"2\s*단계"))
+    expect(tab.locator("#settings-error")).to_contain_text(re.compile(r"2\s*단계"))
     assert tab.locator("#preview").get_attribute("src") == previous
     assert json.loads(save_style()) == json.loads(file.read_bytes())
     expect(tab.locator("#source")).to_have_value(source)

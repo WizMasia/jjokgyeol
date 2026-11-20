@@ -4,6 +4,8 @@ import json
 import pytest
 from playwright.sync_api import expect
 
+from settings_ui import open_settings, close_settings
+
 from test_editor import DEFAULTS, ORIGIN, SAMPLE, browser, desk
 from test_reference_editor import review, server_url
 
@@ -59,7 +61,9 @@ def test_model_first_switch_locally_and_keep_choice_on_next_export(desk):
     assert_download(desk, pair["rule"])
     assert model != rule and len(desk.requests) == 2
 
+    open_settings(desk.page)
     desk.page.get_by_label("본문 크기").fill("14")
+    close_settings(desk.page)
     desk.submit(desk.export)
     with desk.page.expect_download() as saved:
         updated = reply_pair(desk, 1, "mixed")
@@ -132,6 +136,7 @@ def test_opening_files_drops_pending_export_and_retains_choice(desk):
     desk.submit(desk.export)
     opening = []
     desk.page.route(ORIGIN + "/api/style/open", lambda route: opening.append(route))
+    open_settings(desk.page)
     with desk.page.expect_request(ORIGIN + "/api/style/open"):
         desk.page.locator("#style-file").set_input_files({"name": "서식.json", "mimeType": "application/json",
                                                          "buffer": b"{}"})
@@ -140,6 +145,7 @@ def test_opening_files_drops_pending_export_and_retains_choice(desk):
     assert desk.frame.get_attribute("src") == previous and not downloads
     opening[0].fulfill(json={**DEFAULTS, "body_pt": "12"})
     expect(desk.export).to_be_enabled()
+    close_settings(desk.page)
     desk.page.locator("#file").set_input_files({"name": "새.md", "mimeType": "text/markdown", "buffer": b"# New"})
     expect(desk.source).to_have_value("# New")
     expect(choice(desk)).to_have_value("rule")
@@ -164,6 +170,7 @@ def test_choice_during_export_stays_out_of_saved_files(review):
     with p.expect_download() as manuscript:
         p.locator("#save").click()
     assert manuscript.value.path().read_text(encoding="utf-8") == source
+    open_settings(p)
     p.locator("#style summary").click()
     with p.expect_request(ORIGIN + "/api/style/export") as request, p.expect_download() as saved:
         p.locator("#save-style").click()
@@ -188,10 +195,14 @@ def test_trial_switch_cancel_then_apply_transfers_both_proofs(review):
         assert d.pending[index].request.headers["accept"] == "multipart/form-data"
         pair = reply_pair(d, index, "mixed")
         expect(link).to_be_visible()
+        close_settings(p)
         select.select_option("model")
+        open_settings(p)
         expect(p.locator("#reference-proof")).to_contain_text("일부 문단")
         model = link.get_attribute("href")
+        close_settings(p)
         select.select_option("rule")
+        open_settings(p)
         expect(p.locator("#reference-proof")).to_contain_text("규칙 조판")
         rule = link.get_attribute("href")
         if p.evaluate("navigator.pdfViewerEnabled"):
@@ -200,13 +211,17 @@ def test_trial_switch_cancel_then_apply_transfers_both_proofs(review):
         if index == 0:
             p.locator("#reference-cancel").click()
             assert_revoked(p, model, rule)
+            close_settings(p)
             assert_download(d, d.pdf)
+    close_settings(p)
     d.submit(d.refresh)
     d.export.click()  # Joins the pending refresh of the style before apply.
     unwanted = []
     p.on("download", lambda item: unwanted.append(item))
+    open_settings(p)
     p.locator("#reference-apply").click()
     reply_pair(d, 2)
+    close_settings(p)
     assert not unwanted and main.get_attribute("src") == rule
     assert_download(d, pair["rule"])
     select.select_option("model")
