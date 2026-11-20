@@ -46,23 +46,43 @@ local function legal(left, right)
     and right ~= 0x2019 and right ~= 0x201D
 end
 
+local gloss_attribute = luatexbase.new_attribute("jjokgyeol.gloss")
+
 local function wordspace(n)
   if n.id ~= glue or n.subtype ~= 13 and n.subtype ~= 14 then return false end
+  if node.has_attribute(n, gloss_attribute) then return false end
   local left, right = n.prev, n.next
   return not (left and right and left.id == glyph and right.id == glyph)
     or legal(left.char, right.char)
 end
 
-local function chunks(first, stop)
+local function chunks(first, stop, max_width)
   local parts = {{first = first, gap = first}}
   local prev, gap, blocked, state
+  local in_term, keep_term, keep_opening
   local n = first
   while n ~= stop do
     if n.id == glyph then
       local c = n.char
+      local part = node.has_attribute(n, gloss_attribute)
+      if part == 1 and not in_term then
+        local after = n.next
+        while after ~= stop and (after.id ~= glyph or node.has_attribute(after, gloss_attribute) == 1) do
+          after = after.next
+        end
+        keep_term = measure(n, after, {}, false) <= max_width
+        -- If the word plus opening punctuation and the first gloss glyph cannot
+        -- fit a whole line, place the explanation on the following line.
+        local next_glyph = after ~= stop and after.next or stop
+        while next_glyph ~= stop and next_glyph.id ~= glyph do next_glyph = next_glyph.next end
+        keep_opening = keep_term and next_glyph ~= stop
+          and measure(n, next_glyph.next, {}, false) <= max_width
+      end
+      local protected = in_term and (keep_term and part == 1 or keep_opening and part == 2 and c == 40)
+      in_term = part == 1
       local new_cluster
       new_cluster, state = read_codepoint(c, state)
-      if prev and not blocked and new_cluster
+      if prev and not protected and not blocked and new_cluster
           and legal(prev, c) then
         parts[#parts + 1] = {first = n, gap = gap or n}
       end
@@ -122,7 +142,7 @@ local function apply(head, style, active, level)
     else
       -- Split an oversized word or use the available empty first line. Take
       -- clusters just once, including the inter-cluster glue only if retained.
-      local parts = chunks(first, stop)
+      local parts = chunks(first, stop, available(line + 1))
       parts[1].gap = gap
       for i, part in ipairs(parts) do
         local limit = parts[i + 1] and parts[i + 1].gap or stop
@@ -173,4 +193,4 @@ local function apply(head, style, active, level)
   return head
 end
 
-return {apply = apply, no_room = no_room}
+return {apply = apply, no_room = no_room, gloss_attribute = gloss_attribute}

@@ -14,7 +14,7 @@ from app.list_marks import format_mark
 from app.publication import FONT_DIR, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
-from app.style import RUNNING_DEFAULTS
+from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS
 
 if TYPE_CHECKING:
     from app.document import Document
@@ -51,6 +51,13 @@ def _running_sections(doc, style):
     return {"defaults": _running_fields(dict(RUNNING_DEFAULTS)), "scopes": settings}, [c[-1] for c in chains]
 
 
+def _omit_memos(spans):
+    spans[:] = [span for span in spans if span["kind"] != "memo_ref"]
+    for span in spans:
+        if span["children"]:
+            _omit_memos(span["children"])
+
+
 def _render(doc, style, workdir, candidate):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
@@ -60,6 +67,9 @@ def _render(doc, style, workdir, candidate):
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
+    if doc.memos:
+        for block in blocks:
+            _omit_memos(block["inlines"])
     box_ids = {}
     for block, values in zip(blocks, overrides, strict=True):
         if "running_id" in values:
@@ -89,6 +99,9 @@ def _render(doc, style, workdir, candidate):
     data = {"blocks": blocks,
             "footnotes": dict(doc.footnotes), "style": book_style,
             "policy": engine_policy(), "candidate": candidate}
+    if doc.endnotes:
+        data["endnotes"] = doc.endnotes
+    data["annotation_defaults"] = TEXT_DEFAULTS
     if settings:
         data["running_sections"] = settings
     (workdir / "input.json").write_text(
@@ -118,6 +131,8 @@ def _render(doc, style, workdir, candidate):
             level = reason.removeprefix(b"list_width:")
             if level.isdigit() and len(level) <= 6:
                 raise InputError({"list_levels": f"{int(level)}단계 목록 본문을 놓을 폭이 부족합니다."})
+        if reason == b"gloss_size":
+            raise InputError({"text_styles.gloss.font_pt": "풀이를 작게 표시할 수 있도록 대상 글자의 크기를 키워 주세요."})
         if reason == b"line_width":
             raise InputError({"style": "한 글자 또는 함께 놓을 묶음이 줄 폭을 넘습니다. 들여쓰기나 여백을 줄이거나 판형을 넓혀 주세요."})
         process.check_returncode()
