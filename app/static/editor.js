@@ -85,6 +85,10 @@ let marginSplit;
 const indentKeys = ["first_indent_mm", "rest_indent_mm"];
 const indents = indentEditor(settings.indent_units, indentKeys);
 const listStyle = listLevelEditor(settings, () => edited("style"));
+const lineNumbers = byId("line-numbers");
+lineNumbers.add(new Option("끔", "off"));
+lineNumbers.add(new Option("왼쪽", "left"));
+lineNumbers.add(new Option("오른쪽", "right"));
 const articleNumbering = byId("article-numbering");
 const articleExpr = byId("article-expr");
 const pinButton = byId("toggle-article-pin");
@@ -277,6 +281,7 @@ const styleForm = {
     ]));
     const levels = listStyle.get();
     if (levels !== undefined) values.list_levels = levels;
+    if (lineNumbers.value !== "off") values.line_numbers = lineNumbers.value;
     if (articleNumbering.checked) values.article_expr = articleExpr.value;
     if (sectionRules !== undefined) values.section_rules = structuredClone(sectionRules);
     if (!gutter.disabled) values.gutter_mm = gutter.value;
@@ -296,6 +301,7 @@ const styleForm = {
     sectionRules = structuredClone(values.section_rules);
     typography.set(values, preserveDraft);
     listStyle.set(values.list_levels);
+    lineNumbers.value = values.line_numbers ?? "off";
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;
     articleExpr.value = values.article_expr ?? inactiveArticleExpr;

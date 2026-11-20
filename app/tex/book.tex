@@ -8,8 +8,15 @@
 \tracinglostchars=3
 \newbox\BookListMark
 \newcommand\BookPar{\par}
+\newcommand\BookManuscriptPar{\BookPar}
+\newcommand\BookEnableLineNumbers[1]{%
+  {\normalfont\fontsize{#1}{\baselineskip}\selectfont
+   \directlua{book.numbers.font = font.current()}}%
+  \renewcommand\BookManuscriptPar{%
+    \directlua{book.numbers.in_par = true}\BookPar\directlua{book.numbers.in_par = false}}%
+  \AddToHook{shipout/before}{\directlua{book.numbers.place(tex.box.ShipoutBox)}}}
 \newcommand\bookheading[3]{%
-  {\sffamily\bfseries\fontsize{#1}{#2}\selectfont #3\BookPar}\nobreak}
+  {\sffamily\bfseries\fontsize{#1}{#2}\selectfont #3\BookManuscriptPar}\nobreak}
 \newsavebox\BookTitleFrame
 \newcommand\bookframedheading[3]{%
   \savenotes

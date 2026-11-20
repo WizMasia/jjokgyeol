@@ -192,3 +192,25 @@ assert "article_expr" not in json.loads(data)["defaults"]
     rewrite(install, path, lambda cfg: cfg.update(default_article_expr="{잘못}"))
     proc = start(install, "from app.style import Style")
     assert proc.returncode != 0 and "default_article_expr" in proc.stderr.splitlines()[-1]
+
+
+def test_prior_publication_policy_loads_with_numbering(tmp_path):
+    import shutil
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    shutil.copytree(root / "app", tmp_path / "app", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy(root / "runtime.lock", tmp_path)
+    path = tmp_path / "app/config/publication.json"
+    policy = json.loads(path.read_bytes())
+    policy.pop("line_number_gap_pt", None)
+    policy["list_presets"].pop("outline", None)
+    policy["default_list_preset"] = "report"
+    path.write_text(json.dumps(policy))
+    proc = start(tmp_path, """
+from app.style import editor_bootstrap
+settings = editor_bootstrap()
+assert settings['default_list_preset'] == 'report'
+assert settings['list_presets']['outline'][0]['expr'] == '{계층번호}.'
+""")
+    assert proc.returncode == 0, proc.stderr

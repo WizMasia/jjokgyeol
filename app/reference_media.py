@@ -155,7 +155,7 @@ def _limited_model_candidate(raw, unit, text_limit):
         return _candidate(role, key, family, "estimated" if known else "confirm", evidence, **extra)
     if level and level[1] == "expr" and isinstance(value, str) and len(value) <= 64:
         try:
-            format_mark(value, 1)
+            format_mark(value, 1, parents=())
         except ValueError:
             return None
         return _candidate(role, key, value, "estimated", evidence)

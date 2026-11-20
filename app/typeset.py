@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from app.articles import number_articles
 from app.document import InputError
-from app.list_marks import format_mark
-from app.publication import FONT_DIR, engine_policy
+from app.list_marks import format_mark, uses_hierarchy
+from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
 from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS
@@ -85,10 +85,24 @@ def _omit_memos(spans):
     return visible
 
 
+def _hierarchy_items(doc, style, levels):
+    overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
+    for i, (block, values) in enumerate(zip(doc.blocks, overrides, strict=True)):
+        if block.kind == "list_item" and block.first and i not in doc.fenced_blocks:
+            row = levels[min(block.level, len(levels)) - 1]
+            if uses_hierarchy(values.get(f"levels.{block.level}.expr", row.expr)):
+                yield i
+
+
 def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     levels = style.resolved_list_levels()
+    expressions = [row.expr for row in levels]
+    expressions.extend(value for rule in style.section_rules or () if rule.role == "list"
+                       for key, value in rule.values if key.endswith(".expr"))
+    if any(map(uses_hierarchy, expressions)):
+        doc = doc.hierarchy_layout(lambda view: _hierarchy_items(view, style, levels))
     overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
     role_styles = _role_styles(style)
     for index, block in enumerate(doc.blocks):
@@ -104,6 +118,7 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     blocks = [asdict(block) for block in doc.blocks]
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
     box_ids = {}
+    ordinals = []
     for block, values in zip(blocks, overrides, strict=True):
         if "running_id" in values:
             block["running_id"] = values.pop("running_id")
@@ -120,8 +135,10 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
         if row.indent_origin:
             block["indent_origin"] = row.indent_origin
         if block["first"]:
+            ordinals[depth - 1:] = [block["ordinal"]]
             try:
-                mark = format_mark(values.get(prefix + "expr", row.expr), block["ordinal"])
+                mark = format_mark(values.get(prefix + "expr", row.expr), block["ordinal"],
+                                   parents=tuple(ordinals[:-1]))
             except ValueError as error:
                 raise InputError({f"list_levels[{index}].expr": f"{index + 1}단계 표지를 만들 수 없습니다."}) from error
             if row.mark_weight:
@@ -149,6 +166,8 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     data = {"blocks": blocks,
             "footnotes": dict(doc.footnotes), "style": book_style,
             "policy": engine_policy(), "candidate": candidate}
+    if style.line_numbers:
+        data["policy"]["line_number_gap_pt"] = LINE_NUMBER_GAP_PT
     data["text_defaults"] = TEXT_DEFAULTS
     if doc.endnotes:
         data["endnotes"] = doc.endnotes
@@ -181,6 +200,8 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             role = parts[1].decode("ascii")
             name = "머리글" if role == "header" else "바닥글"
             raise InputError({role: f"{int(parts[2])}쪽 {name}의 칸이 겹치거나 여백을 벗어납니다."})
+        if len(parts) == 2 and parts[0] == b"line_numbers" and parts[1].isdigit() and len(parts[1]) <= 9:
+            raise InputError({"line_numbers": f"{int(parts[1])}쪽에 줄 번호를 놓을 여백이 부족합니다."})
         if reason.startswith(b"list_width:"):
             level = reason.removeprefix(b"list_width:")
             if level.isdigit() and len(level) <= 6:

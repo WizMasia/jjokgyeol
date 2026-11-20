@@ -149,7 +149,7 @@ def _list_levels(rows, *, stored, field="list_levels", base=None):
             if not isinstance(expr, str):
                 raise InputError({f"{path}.expr": f"{stage}의 표현식은 문자열이어야 합니다."})
             try:
-                format_mark(expr, 1)
+                format_mark(expr, 1, parents=())
             except ValueError as error:
                 raise InputError({f"{path}.expr": f"{stage} {error}"}) from None
             distances = []
@@ -289,7 +289,7 @@ def _rule_value(role, key, value, stored, context, base):
     else:
         level = _LEVEL_KEY.fullmatch(key) if role == "list" else None
         if level and level[1] == "expr":
-            format_mark(value, 1)
+            format_mark(value, 1, parents=())
             return key, value
         indent = role in ("body", "list") and key in (f"first_indent_{mm_unit}", f"rest_indent_{mm_unit}")
         if not (running or indent or level and level[1] in (f"indent_{mm_unit}", f"gap_{mm_unit}")):
@@ -510,9 +510,15 @@ def _load(current, patch, *, stored):
         units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout"}
+    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers"}
     if patch.keys() - units.keys() - set(FONTS) - optional_fields:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
+    if "line_numbers" in patch:
+        side = patch["line_numbers"]
+        if side not in ("off", "left", "right"):
+            errors["line_numbers"] = "줄 번호 위치는 끔, 왼쪽, 오른쪽 중에서 선택하세요."
+        else:
+            values["line_numbers"] = None if side == "off" else side
     if "paragraph_layout" in patch:
         if patch["paragraph_layout"] in publication.PARAGRAPH_LAYOUTS:
             values["paragraph_layout"] = patch["paragraph_layout"]
@@ -597,11 +603,15 @@ def _load(current, patch, *, stored):
     return values
 
 
+if publication.LINE_NUMBER_GAP_PT > MAX_DIMENSION_PT:
+    raise ValueError("numbering.json line_number_gap_pt exceeds the maximum TeX length")
+
 try:
     _LIST_PRESETS = {name: _list_levels(rows, stored=False, field=f"list_presets.{name}")
                      for name, rows in publication.LIST_PRESETS.items()}
 except InputError as error:
-    raise ValueError(f"publication.json {error.field}: {error.message}") from error
+    source = "numbering.json" if error.field.startswith("list_presets.outline") else "publication.json"
+    raise ValueError(f"{source} {error.field}: {error.message}") from error
 
 
 def _installed_page_presets(sizes):
@@ -658,6 +668,7 @@ class Style:
     text_styles: tuple[tuple[str, tuple[tuple[str, str | int], ...]], ...] | None = None
     ko_tracking_bounds_per_10000: tuple[int, int] | None = None
     paragraph_layout: str | None = None
+    line_numbers: str | None = None
 
     def resolved_list_levels(self) -> tuple[ListLevel, ...]:
         if self.list_levels is None:
@@ -687,6 +698,8 @@ class Style:
                 ]
             if self.paragraph_layout is not None:
                 values["paragraph_layout"] = self.paragraph_layout
+            if self.line_numbers is not None:
+                values["line_numbers"] = self.line_numbers
             if self.article_expr is not None:
                 values["article_expr"] = self.article_expr
             if self.list_levels is not None:

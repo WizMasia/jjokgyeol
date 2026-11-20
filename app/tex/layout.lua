@@ -97,6 +97,10 @@ function book.setup()
     book.running = require("running_heads")
     book.running.setup(data.running_sections, style, width, left_at_page)
   end
+  if style.line_numbers then
+    book.numbers = require("line_numbers")
+    book.numbers.setup(style, width, left_at_page, policy.line_number_gap_pt, defaults.note_sp)
+  end
   if has_color then
     emit("\\usepackage{xcolor}\\AddToHook{cmd/@makefntext/before}{\\normalcolor}")
   end
@@ -188,6 +192,7 @@ luatexbase.add_to_callback("post_linebreak_filter", function(head)
       end
     end
   end
+  if book.numbers and book.numbers.in_par then book.numbers.mark(start) end
   if book.running and book.running.in_par then book.running.lines(head) end
   return head
 end, "jjokgyeol.line_spacing")
@@ -316,7 +321,7 @@ function book.blocks()
       if math.max(first, rest) >= width then wordbreak.no_room(block.level) end
       emit(string.format("\\parshape 2 %s %s %s %s\\relax", sp(first), sp(width - first),
         sp(rest), sp(width - rest)))
-      emit("\\directlua{book.item(" .. index .. ")}\\BookPar\\directlua{book.item(0)}")
+      emit("\\directlua{book.item(" .. index .. ")}\\BookManuscriptPar\\directlua{book.item(0)}")
     else
       assert(block.kind == "paragraph")
       inlines(block.inlines, measured)
@@ -325,11 +330,11 @@ function book.blocks()
       emit(string.format("\\parshape 2 %s %s %s %s\\relax",
         sp(first), sp(width - first), sp(rest), sp(width - rest)))
       if data.candidate and index == data.candidate.block then
-        emit("\\directlua{book.candidate(true)}\\BookPar\\directlua{book.candidate(false)}")
+        emit("\\directlua{book.candidate(true)}\\BookManuscriptPar\\directlua{book.candidate(false)}")
       elseif measured then
-        emit("\\directlua{book.paragraph(" .. index .. ")}\\BookPar\\directlua{book.paragraph(nil)}")
+        emit("\\directlua{book.paragraph(" .. index .. ")}\\BookManuscriptPar\\directlua{book.paragraph(nil)}")
       else
-        emit("\\BookPar")
+        emit("\\BookManuscriptPar")
       end
     end
     if grouped then emit("\\endgroup") end

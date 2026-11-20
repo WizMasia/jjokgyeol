@@ -10,6 +10,7 @@
 !app/**/*.py
 !app/config/
 !app/config/publication.json
+!app/config/numbering.json
 !app/config/operations.json
 !app/config/decision.json
 !app/config/reference.json

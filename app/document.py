@@ -1,11 +1,13 @@
 """Parse the editor's Markdown subset into data for the typesetter."""
 
 import re
-from dataclasses import dataclass, field
+from bisect import bisect_left
+from dataclasses import dataclass, field, replace
 
 from app.manuscript_markup import read_escape
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_block import fence
 from markdown_it.token import Token
 
 from app.annotations import DEFINITION, NoteDefinitions, read_annotation
@@ -63,6 +65,9 @@ class _FenceLayout:
     # A row maps to None for an ordinary title, False/True for an unpinned/pinned article.
     starts: dict[int, bool | None]
     block_rows: list[int]
+    # Fence opening row -> source range of the real top-level list it touches.
+    fence_groups: dict[int, list[int]]
+    list_fences: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -75,13 +80,39 @@ class Document:
     endnotes: dict[str, str] = field(default_factory=dict)
     memos: dict[str, str] = field(default_factory=dict)
 
+    def hierarchy_layout(self, selected_items):
+        """Find selected lists in the fence-aware view, including items the legacy parser joined to an example."""
+        layout = self._fence_layout
+        if layout is None or not layout.fence_groups:
+            return self
+        notes = NoteDefinitions(self.footnotes, self.endnotes, self.memos)
+
+        def parse(fences):
+            rows = []
+            view = _document(layout.lines, notes, layout.fenced_lines, layout.starts, rows, list_fences=fences)
+            view._fence_layout = replace(layout, block_rows=rows, list_fences=fences)
+            return view
+
+        fences = frozenset(layout.fence_groups)
+        view = parse(fences)
+        rows = [view._fence_layout.block_rows[i] for i in selected_items(view)]
+
+        def selected(start, end):
+            index = bisect_left(rows, start)
+            return index < len(rows) and rows[index] < end
+
+        active = frozenset(row for row, span in layout.fence_groups.items() if selected(*span))
+        if not active:
+            return self
+        return view if active == fences else parse(active)
+
     def render_layout(self, overrides, *, number_articles, running_ids=()):
         """Keep the printed fence/title join unless this title needs its own heading."""
         layout = self._fence_layout
         if running_ids:
             overrides = [dict(values, running_id=section) for values, section in
                          zip(overrides, running_ids, strict=True)]
-        if layout is None:
+        if layout is None or not layout.starts:
             return self, overrides
         # Resolve rules against the full outline first. Body and list rules can
         # follow that outline even when the old heading remains joined in print.
@@ -96,7 +127,8 @@ class Document:
         sections = dict(zip(layout.block_rows, running_ids)) if running_ids else {}
         switches = {row: sections[row] for row in layout.starts.keys() - set(split)} if sections else {}
         notes = NoteDefinitions(self.footnotes, self.endnotes, self.memos)
-        view = _document(layout.lines, notes, layout.fenced_lines, split, rows, switches)
+        view = _document(layout.lines, notes, layout.fenced_lines, split, rows, switches,
+                         list_fences=layout.list_fences)
         mapped = []
         for row, block in zip(rows, view.blocks, strict=True):
             values = by_source.get((row, block.kind), {})
@@ -117,30 +149,60 @@ _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])
 _MD.inline.ruler.before("text", "manuscript_escape", read_escape)
 
 
+def _list_fence(state, start, end, silent):
+    if start + state.env.get("row_offset", 0) not in state.env.get("list_fences", ()):
+        return False
+    if not fence(state, start, end, silent):
+        return False
+    if not silent:
+        state.tokens.pop()
+        # Print the example with the legacy parser, confined to the actual fence.
+        example = state.getLines(start, state.line, state.blkIndent, False)
+        tokens = []
+        _MD.block.parse(example, _MD, {}, tokens)
+        for token in tokens:
+            token.level += state.level
+            if token.map:
+                token.map = [row + start for row in token.map]
+        state.tokens.extend(tokens)
+    return True
+
+
+_MD.block.ruler.before("list", "list_fence", _list_fence, {"alt": ["paragraph", "list"]})
+
+
 def _fence_context(source, notes):
     if "```" not in source and "~~~" not in source:
-        return set(), {}
+        return set(), {}, {}
 
     tokens = []
     _FENCES.block.parse(source, _FENCES, {}, tokens)
     fenced = {line for t in tokens if t.type == "fence" for line in range(*t.map)}
     starts = {}
+    fence_groups = {}
     for index, t in enumerate(tokens):
+        if t.type in ("ordered_list_open", "bullet_list_open") and t.level == 0:
+            group = t.map
+            if index and tokens[index - 1].type == "fence":
+                fence_groups[tokens[index - 1].map[0]] = group
+        elif t.type == "fence" and t.level:
+            fence_groups[t.map[0]] = group
         if (t.type == "heading_open" and t.level == 0 and t.markup in ("=", "-")
                 and t.map[0] - 1 in fenced):
             inline, = _MD.parseInline(tokens[index + 1].content, {"notes": notes})
             match = heading_title(inline).article()
             starts[t.map[0]] = match[1] is not None if match else None
-    return fenced, starts
+    return fenced, starts, fence_groups
 
 
-def _tokens(lines, starts, notes):
+def _tokens(lines, starts, notes, list_fences=()):
     # A closing fence can run into a Setext title in the legacy zero preset.
     # Parse at each requested title boundary and keep maps in original source rows.
     tokens = []
     start = 0
     for end in [*starts, len(lines)]:
-        part = _MD.parse("\n".join(lines[start:end]), {"notes": notes})
+        part = _MD.parse("\n".join(lines[start:end]), {"notes": notes, "list_fences": list_fences,
+                                                       "row_offset": start})
         if start:
             for token in part:
                 if token.map:
@@ -203,13 +265,12 @@ def _manuscript(source: str):
                 raise InputError({"source": f"{kind} 정의가 중복되었습니다."})
             lines[index] = ""
 
-    fenced, starts = _fence_context("\n".join(lines), notes)
-    return lines, notes, fenced, starts
+    return lines, notes, *_fence_context("\n".join(lines), notes)
 
 
 def heading_tokens(source: str):
     """Yield top-level Markdown (opening, inline) tokens with original source line maps."""
-    lines, notes, fenced_lines, starts = _manuscript(source)
+    lines, notes, fenced_lines, starts, _ = _manuscript(source)
     tokens = _tokens(lines, starts, notes)
     for index, token in enumerate(tokens):
         if token.type == "heading_open" and token.level == 0 and token.map[0] not in fenced_lines:
@@ -228,20 +289,21 @@ def heading_text(inline: Token) -> str:
 
 
 def parse_md(source: str) -> Document:
-    lines, notes, fenced_lines, starts = _manuscript(source)
-    rows = [] if starts else None
+    lines, notes, fenced_lines, starts, fence_groups = _manuscript(source)
+    rows = [] if starts or fence_groups else None
     doc = _document(lines, notes, fenced_lines, starts, rows)
-    if starts:
-        doc._fence_layout = _FenceLayout(lines, fenced_lines, starts, rows)
+    if rows is not None:
+        doc._fence_layout = _FenceLayout(lines, fenced_lines, starts, rows, fence_groups)
     return doc
 
 
-def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
-    tokens = _tokens(lines, starts, notes)
+def _document(lines, notes, fenced_lines, starts, rows=None, switches=None, *, list_fences=()):
+    tokens = _tokens(lines, starts, notes, list_fences)
     blocks = []
     groups: list[_Siblings] = []
     group_id = 0
     fenced_blocks = set()
+    fence_parents = set()
     for index, token in enumerate(tokens):
         if token.type in ("ordered_list_open", "bullet_list_open"):
             group_id += 1
@@ -256,6 +318,8 @@ def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
                 raise InputError({"source": "목록 중첩이 너무 깊습니다."})
             groups[-1].ordinal += 1
             blocks.append(groups[-1].paragraph(len(groups), first=True))
+            if token.map[0] in list_fences:
+                fence_parents.add(len(blocks) - 1)  # A real list marker can introduce the fence itself.
         elif token.type in ("paragraph_open", "heading_open"):
             if groups:
                 if tokens[index - 1].type != "list_item_open":
@@ -281,6 +345,7 @@ def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
                             block.inlines.insert(0, Inline("text", text=indent[0]))
         if rows is not None and len(rows) < len(blocks):
             rows.append(token.map[0])
-        if token.type in ("inline", "list_item_open") and token.map[0] in fenced_lines:
+        if (token.type in ("inline", "list_item_open") and token.map[0] in fenced_lines
+                and len(blocks) - 1 not in fence_parents):
             fenced_blocks.add(len(blocks) - 1)
     return Document(blocks, notes.footnotes, fenced_blocks, endnotes=notes.endnotes, memos=notes.memos)

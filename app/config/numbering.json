@@ -1,0 +1,7 @@
+{
+  "line_number_gap_pt": 6,
+  "outline_levels": [
+    {"expr": "{계층번호}.", "indent_mm": 0, "gap_mm": 2},
+    {"expr": "{계층번호}.", "indent_mm": 2, "gap_mm": 2}
+  ]
+}

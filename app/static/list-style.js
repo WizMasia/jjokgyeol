@@ -8,7 +8,7 @@ function listLevelEditor(settings, onEdit) {
   const loadedRows = new WeakMap();
   const presets = settings.list_presets || {};
   const defaultPreset = settings.default_list_preset;
-  const labels = {legal: "법령형", report: "보고서형"};
+  const labels = {legal: "법령형", report: "보고서형", outline: "계층 번호형"};
   const defaultLabel = labels[defaultPreset];
   preset.add(new Option(defaultLabel ? `기본값 (${defaultLabel})` : "기본값", ""));
   for (const key of Object.keys(presets)) preset.add(new Option(labels[key] || key, key));

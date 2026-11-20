@@ -6,7 +6,11 @@ _HANGUL = "가나다라마바사아자차카타파하"
 # Both locked Nanum families have these twenty circled digits. Use readable
 # decimal parentheses beyond them so changing the body font cannot lose a mark.
 _CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
-_TOKENS = re.compile(r"{{|}}|\{숫자\}|\{한글\}|\{원숫자\}|[{}]")
+_TOKENS = re.compile(r"{{|}}|\{숫자\}|\{한글\}|\{원숫자\}|\{계층번호\}|[{}]")
+
+
+def uses_hierarchy(expr: str) -> bool:
+    return any(match[0] == "{계층번호}" for match in _TOKENS.finditer(expr))
 
 
 def _hangul(ordinal: int) -> str:
@@ -18,7 +22,7 @@ def _hangul(ordinal: int) -> str:
     return "".join(reversed(letters))
 
 
-def format_mark(expr: str, ordinal: int) -> str:
+def format_mark(expr: str, ordinal: int, *, parents: tuple[int, ...] | None = None) -> str:
     """Return one label; the style validator associates errors with its level."""
     if not isinstance(expr, str) or re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]", expr):
         raise ValueError("표지 표현식에 조판할 수 없는 문자가 있습니다.")
@@ -29,6 +33,8 @@ def format_mark(expr: str, ordinal: int) -> str:
         token = match[0]
         if token in ("{{", "}}"):
             return token[0]
+        if token == "{계층번호}" and parents is not None:
+            return ".".join(map(str, (*parents, ordinal)))
         if token == "{숫자}":
             return str(ordinal)
         if token == "{한글}":

@@ -101,6 +101,14 @@ except ValueError as error:
 LIST_PRESETS = _policy["list_presets"]
 if not isinstance(LIST_PRESETS, dict) or LIST_PRESETS.keys() != {"legal", "report"}:
     raise ValueError("publication.json list_presets requires legal and report")
+# Installations may mount their own publication.json. New numbering defaults ship separately.
+_numbering = read_config(CONFIG_DIR / "numbering.json", parse_float=Decimal)
+if not isinstance(_numbering, dict) or _numbering.keys() != {"line_number_gap_pt", "outline_levels"}:
+    raise ValueError("numbering.json requires line_number_gap_pt and outline_levels")
+LINE_NUMBER_GAP_PT = _numbering["line_number_gap_pt"]
+if type(LINE_NUMBER_GAP_PT) is not int or LINE_NUMBER_GAP_PT <= 0:
+    raise ValueError("numbering.json line_number_gap_pt must be a positive integer")
+LIST_PRESETS = {**LIST_PRESETS, "outline": _numbering["outline_levels"]}
 DEFAULT_LIST_PRESET = _policy["default_list_preset"]
 if not isinstance(DEFAULT_LIST_PRESET, str) or DEFAULT_LIST_PRESET not in LIST_PRESETS:
     raise ValueError("publication.json default_list_preset must name a list preset")
