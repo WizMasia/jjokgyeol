@@ -139,7 +139,8 @@ end
 -- Space nodes are measured after shaping. TeX still builds the lines and moves
 -- insertions (including footnotes) through its normal page builder.
 local active, item, paragraph_index = false, nil, nil
-local measured = style.paragraph_layout == "balanced"
+local justified = style.paragraph_layout == "justified"
+local measured = justified or style.paragraph_layout == "balanced"
   or style.ko_tracking_bounds_per_10000 ~= nil or data.paragraphs ~= nil
 local paragraph = measured and require("paragraph")
 local skipped_first
@@ -150,7 +151,7 @@ luatexbase.add_to_callback("pre_linebreak_filter", function(head)
   local candidate = active and data.candidate
   head = fixed.prepare(head, style, candidate)
   if paragraph_index and not active then
-    head, skipped_first = paragraph.apply(head, style, paragraph_index, data.paragraphs)
+    head, skipped_first = paragraph.apply(head, style, paragraph_index, data.paragraphs, item and item.level)
   else
     head, skipped_first = wordbreak.apply(head, false, active, item and item.level)
   end
@@ -170,6 +171,23 @@ luatexbase.add_to_callback("post_linebreak_filter", function(head)
     end
   end
   if item and item.first then lists.attach(start, item) end
+  if justified then
+    local em = font.getfont(font.current()).size
+    if em > style.body_sp then
+      -- Larger headings and scoped type can themselves open a page. Give
+      -- their lines an em of ascent; keep existing interline baselines where
+      -- the preceding baseline glue already provides that clearance.
+      for line in node.traverse_id(node.id("hlist"), head) do
+        if line.height < em then
+          local prev = line.prev
+          if prev and prev.id == node.id("glue") and prev.subtype == 2 then
+            prev.width = math.max(0, prev.width - (em-line.height))
+          end
+          line.height = em
+        end
+      end
+    end
+  end
   if book.running and book.running.in_par then book.running.lines(head) end
   return head
 end, "jjokgyeol.line_spacing")
@@ -250,6 +268,11 @@ function book.document()
     assert(io.open("paragraph-candidates.jsonl", "w")):close()
   end
   if book.running then book.running.begin(literal, body_appearance) end
+  -- TeX's stock first baseline is sized for 10pt. Reserve the publication
+  -- body's em before the first baseline on every page, including continuations.
+  if justified and tex.topskip.width < style.body_sp then
+    emit("\\topskip=" .. sp(style.body_sp) .. "\\relax")
+  end
   emit("\\fontsize{" .. sp(style.body_sp) .. "}{" .. sp(style.leading_sp) .. "}\\selectfont")
   lists.measure(data.blocks, literal, body_appearance)
   emit("\\directlua{book.blocks()}")
@@ -261,6 +284,7 @@ end
 
 function book.item(index)
   item = data.blocks[index]
+  if justified then paragraph_index = item and index end
 end
 
 function book.blocks()
@@ -285,7 +309,7 @@ function book.blocks()
       emit("}")
     elseif block.kind == "list_item" then
       if #block.inlines == 0 then emit("\\noindent\\strut") end
-      inlines(block.inlines)
+      inlines(block.inlines, justified)
       local origin = lists.origin(block.group)
       local rest = origin + (values.rest_indent_sp or 0)
       local first = block.first and origin + (values.first_indent_sp or 0) or rest
