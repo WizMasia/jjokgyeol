@@ -4,12 +4,14 @@
 !requirements.lock
 !packaging/
 !packaging/check_runtime.py
+!packaging/decision_bundle.py
 !packaging/requirements-test.lock
 !app/
 !app/**/*.py
 !app/config/
 !app/config/publication.json
 !app/config/operations.json
+!app/config/decision.json
 !app/config/reference.json
 !app/config/style-suggestion.json
 !app/ai/
@@ -25,6 +27,7 @@
 !tests/fixtures/
 !tests/fixtures/layout-cases.json
 !tests/fixtures/page-edge.md
+!tests/fixtures/decision-dew.md
 !proofs/
 !proofs/engine-comparison/
 !proofs/engine-comparison/manuscript.md

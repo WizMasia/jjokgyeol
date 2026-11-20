@@ -8,7 +8,7 @@ APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = APP_DIR / "config"
 
 
-def _unique_fields(pairs):
+def unique_fields(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
@@ -20,6 +20,6 @@ def _unique_fields(pairs):
 def read_config(path: Path, *, parse_float=float):
     try:
         with path.open(encoding="utf-8") as stream:
-            return json.load(stream, parse_float=parse_float, object_pairs_hook=_unique_fields)
+            return json.load(stream, parse_float=parse_float, object_pairs_hook=unique_fields)
     except (OSError, ValueError, InvalidOperation) as error:
         raise ValueError(f"{path}: {error}") from error

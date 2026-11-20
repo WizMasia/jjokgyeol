@@ -40,6 +40,7 @@ EXPOSE 8000
 CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM test-tools AS test
+COPY packaging/decision_bundle.py packaging/
 COPY --from=service /opt/jjokgyeol/ ./
 COPY --from=hwp-deps /opt/hwp/ /usr/local/lib/python3.12/site-packages/
 COPY tests/ tests/

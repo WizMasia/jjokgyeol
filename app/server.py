@@ -140,8 +140,9 @@ class DocumentJob:
     async def result(self, request, worker_deadline):
         if self.action == "render":
             body = await read_body(request)
-            result = await while_connected(jobs.render(body), request.receive)
-            return Response(result, media_type="application/pdf", headers=NO_STORE)
+            result, status = await while_connected(jobs.render(body, worker_deadline), request.receive)
+            return Response(result, media_type="application/pdf",
+                            headers={**NO_STORE, "X-Jjokgyeol-Decision": status})
         if self.action == "import":
             name = request.query_params.get("name", "")
             if not name or "\x00" in name:
