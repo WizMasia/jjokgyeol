@@ -171,9 +171,11 @@ JJOKGYEOL_REFERENCE_URL=http://127.0.0.1:8765 JJOKGYEOL_TEST_IMAGE=jjokgyeol:loc
 
 [제품 스펙](SPEC.md) · [개발 계획](docs/superpowers/plans/2026-11-19-jjokgyeol-development.md) · [엔진 비교 PDF](proofs/engine-comparison/side-by-side.pdf)
 
-### 실험용 문단 선택과 판독 쌍
+### 모델·규칙 조판 선택
 
-미리보기와 다운로드는 T11의 규칙을 사용합니다. T14 판독용 클라이언트는 같은 `POST /api/render`에 같은 `source`, `style`을 넣고 `decision`만 `"rule"`과 `"model"`로 바꿉니다. 운영자의 로컬 모델 연결도 필요합니다. 응답의 `X-Jjokgyeol-Decision`이 각각 `rule`, `model`인 쌍을 채점에 사용합니다. `mixed`는 선택 가능한 문단 일부에 규칙 복귀가 있었음을 뜻합니다. 모델이 규칙과 같은 ID를 골라도 `model`이므로 두 지면의 실제 줄 끝을 비교해 기록합니다.
+미리보기를 갱신하면 쪽결은 같은 원고와 양식으로 규칙 지면을 만들고, 연결된 로컬 모델로 문단 배치를 선택한 지면도 만듭니다. 처음에는 모델 지면이 열립니다. 미리보기에서 **규칙 조판** 또는 **모델 조판**을 고르면 다시 조판할 필요 없이 지면이 바뀝니다. **PDF 다운로드**로 현재 고른 지면을 저장합니다. 일부 문단에 규칙을 적용했거나 규칙 지면만 준비된 경우에는 그 상태를 표시합니다.
+
+T14 판독용 클라이언트는 같은 `POST /api/render`에 같은 `source`, `style`을 넣고 `decision`만 `"rule"`과 `"model"`로 바꿉니다. 운영자의 로컬 모델 연결도 필요합니다. 응답의 `X-Jjokgyeol-Decision`이 각각 `rule`, `model`인 쌍을 채점에 사용합니다. `mixed`는 선택 가능한 문단 일부에 규칙 복귀가 있었음을 뜻합니다. 모델이 규칙과 같은 ID를 골라도 `model`이므로 두 지면의 실제 줄 끝을 비교해 기록합니다.
 
 두 배포 모드에서 같은 운영자의 Docker Desktop과 LM Studio를 쓸 때는 아래처럼 실행합니다. LM Studio 로컬 서버에 이미 로드한 모델을 사용합니다. `lms ls google/gemma-4-e2b --json`의 4bit 행에서 `indexedModelIdentifier`의 @ 뒤 폴더를 확인합니다. `lms runtime ls`에서 선택된 MLX 엔진과 응답이 보고하는 실제 엔진은 배포 핀과 일치해야 합니다.
 

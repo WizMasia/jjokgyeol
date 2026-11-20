@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**진행 상태** — 원고 편집, 출판 양식, 주석, 다섯 형식 가져오기, 문단 조판과 두 로컬 모델을 통합했다. 기본 출력에는 규칙 조판을 사용한다. T14는 어절을 보존한 양끝맞춤 출력으로 편집자 기준 지면·익명 판독·갱신 시간 수용을 평가한다. [출판 지면 인수](2026-11-20-justified-publication.md) [첫 편집기 인수](../t1-t6-status.md) · [주석 인수](2026-11-20-annotations.md) · [실모델 검증](../decision-acceptance.md) · [사람 판독 절차](../../../evaluation/README.md)
+**진행 상태** — 원고 편집, 출판 양식, 주석, 다섯 형식 가져오기, 문단 조판과 두 로컬 모델을 통합했다. 미리보기에서 모델 조판을 우선 표시하고 규칙 지면도 선택할 수 있다. [지면 선택 인수](2026-11-20-proof-choice.md) T14는 어절을 보존한 양끝맞춤 출력으로 편집자 기준 지면·익명 판독·갱신 시간 수용을 평가한다. [출판 지면 인수](2026-11-20-justified-publication.md) [첫 편집기 인수](../t1-t6-status.md) · [주석 인수](2026-11-20-annotations.md) · [실모델 검증](../decision-acceptance.md) · [사람 판독 절차](../../../evaluation/README.md)
 
 **Goal:** 저자가 한영 혼합 마크다운과 출판 양식을 편집하고, 실제로 조판한 한 PDF를 옆 창에서 읽고 내려받을 수 있게 한다.
 
@@ -161,4 +161,4 @@ T10의 DOCX·HWPX 입력은 저장소의 `proofs/`에서 각 3종을 확인했�
 | 고정 평가 원고 두 편 | 두 원고의 규칙·모델 응답 네 개에서 제약 위반·줄 끝 불일치 0건. 보관된 영수증·PDF를 최종 test 이미지에서 재검증했다. [문단 선택 기록](../decision-acceptance.md) |
 | 예제 출력 | 보고서 11pt·16pt PDF, 주석 11pt·16pt PDF 네 개의 글자·좌표가 저장소의 견본과 일치했다. [보고서](../../../proofs/publication-typography) · [주석](../../../proofs/annotations) |
 
-T14의 자간 판독용 익명 PDF 12개와 입력 양식은 준비됐다. 편집자가 확정한 같은 조건의 기준 지면 두 개, 자간과 규칙·모델의 실제 판독표, 사용자의 갱신 시간 수용 판정은 대기 중이다. 제품의 기본 문단 선택은 규칙이다. [판독 안내](../../../evaluation/reader-guide.md) · [운영자용 인수 기록](../../../evaluation/acceptance.md)
+T14의 자간 판독용 익명 PDF 12개와 입력 양식은 준비됐다. 편집자가 확정한 같은 조건의 기준 지면 두 개, 자간과 규칙·모델의 실제 판독표, 사용자의 갱신 시간 수용 판정은 대기 중이다. 이후 사용자가 모델 우선 표시와 두 지면 선택을 요청했다. [지면 선택 계획](2026-11-20-proof-choice.md) [판독 안내](../../../evaluation/reader-guide.md) · [운영자용 인수 기록](../../../evaluation/acceptance.md)
