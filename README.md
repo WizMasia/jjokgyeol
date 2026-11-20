@@ -33,7 +33,7 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 
 같은 A5 원고를 나눔명조 16pt로 조판한 파일에서 전각 들여쓰기와 자간에 따른 줄바꿈을 비교할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [자간 0% PDF](proofs/web-editor/tracking-0.pdf) · [자간 −7% PDF](proofs/web-editor/tracking-minus-7.pdf)
 
-새 원고는 A5, 나눔명조 11pt, 행간 17pt의 **양끝맞춤**으로 시작합니다. 조판기는 한글 어절과 영문 단어 경계에서 줄을 나누고, 문단의 마지막 줄을 제외한 각 줄이 본문 오른쪽 경계에 닿도록 한글 자간과 어절 사이 공백을 조정합니다. 문단의 마지막 줄은 자연스러운 길이를 유지합니다. [같은 원고](proofs/justified-publication/manuscript.md) · [종전 PDF](proofs/justified-publication/before.pdf) · [양끝맞춤 PDF](proofs/justified-publication/after.pdf)
+새 원고는 A5, 나눔명조 11pt, 행간 17pt의 **양끝맞춤**으로 시작합니다. 조판기는 한글 어절과 영문 단어 경계에서 줄을 나누고, 문단의 마지막 줄을 제외한 각 줄이 본문 오른쪽 경계에 닿도록 한글 자간과 어절 사이 공백을 조정합니다. 문단의 마지막 줄은 자연스러운 길이를 유지합니다. [오른쪽 기준선을 표시한 전후 비교](proofs/justified-publication/comparison.png) · [같은 원고](proofs/justified-publication/manuscript.md) · [종전 PDF](proofs/justified-publication/before.pdf) · [양끝맞춤 PDF](proofs/justified-publication/after.pdf)
 
 **판형·여백 및 세부 양식**에서 줄별 최종 자간과 어절 공백의 하한·상한을 정할 수 있습니다. 간격을 좁게 고정하거나 본문 폭에 비해 단어가 긴 경우에는 어절 보존과 허용 범위를 지키면서 가능한 만큼 맞춥니다. [출판용 양끝맞춤 설계](docs/superpowers/specs/2026-11-20-justified-publication.md)
 
