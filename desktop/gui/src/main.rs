@@ -103,8 +103,9 @@ async fn open_settings_window(
     .parent(&window)
     .map_err(|e| e.to_string())?
     .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    .map_err(|e| e.to_string())?
+    .set_focus()
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
