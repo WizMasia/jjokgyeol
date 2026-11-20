@@ -43,7 +43,7 @@ local function boundaries(head, shapes, low_tracking, low_space)
     local after, left, right = scan(first, stop, before)
     local start = #parts + 1
     if width(before, after, low_tracking, low_space) > math.min(shapes[1].width, shapes[2].width) then
-      local chunks = breaks.chunks(first, stop, shapes[2].width)
+      local chunks = breaks.chunks(first, stop)
       for i, chunk in ipairs(chunks) do
         local limit = chunks[i+1] and chunks[i+1].gap or stop
         if i > 1 then before = scan(chunk.gap, chunk.first, total) end
@@ -60,6 +60,7 @@ local function boundaries(head, shapes, low_tracking, low_space)
   end
   local gap, first = head, nil
   for n in node.traverse(head) do
+    if n.id == glyph and node.has_attribute(n, breaks.gloss_attribute) then return end
     if n.id == penalty and n.penalty <= -10000 then return end
     if breaks.wordspace(n) or n.id == glue and n.subtype == 15 then
       if first then

@@ -78,40 +78,34 @@ local function wordspace(n)
   return allowed
 end
 
-local function chunks(first, stop, max_width)
+local whatsit, colorstack = node.id("whatsit"), node.subtype("pdf_colorstack")
+
+local function chunks(first, stop, annotated)
   local parts = {{first = first, gap = first}}
   local prev, gap, blocked, state
-  local in_term, keep_term, keep_opening
   local n = first
   while n ~= stop do
     if n.id == glyph then
       local c = n.char
-      local part = node.has_attribute(n, gloss_attribute)
-      if part == 1 and not in_term then
-        local after = n.next
-        while after ~= stop and (after.id ~= glyph or node.has_attribute(after, gloss_attribute) == 1) do
-          after = after.next
-        end
-        keep_term = measure(n, after, {}, false) <= max_width
-        -- If the word plus opening punctuation and the first gloss glyph cannot
-        -- fit a whole line, place the explanation on the following line.
-        local next_glyph = after ~= stop and after.next or stop
-        while next_glyph ~= stop and next_glyph.id ~= glyph do next_glyph = next_glyph.next end
-        keep_opening = keep_term and next_glyph ~= stop
-          and measure(n, next_glyph.next, {}, false) <= max_width
-      end
-      local protected = in_term and (keep_term and part == 1 or keep_opening and part == 2 and c == 40)
-      in_term = part == 1
       local new_cluster
       new_cluster, state = read_codepoint(c, state)
-      if prev and not protected and not blocked and new_cluster
+      if prev and not blocked and new_cluster
           and legal(prev, c) then
         parts[#parts + 1] = {first = n, gap = gap or n}
+      end
+      local mark = node.has_attribute(n, gloss_attribute)
+      if mark then
+        local part = parts[#parts]
+        part.group = mark // 2
+        part.term = part.term or mark % 2 == 0
       end
       prev, gap, blocked = c, nil, false
     elseif n.id == penalty or n.id == glue or n.id == kern then
       gap = gap or n
       blocked = blocked or n.id == penalty and n.penalty >= 10000
+    elseif annotated and n.id == whatsit and n.subtype == colorstack then
+      -- The color operation stays in the list and has no glyph or width.
+      gap = nil
     elseif n.id == disc then
       -- A literal hyphen can be represented by a discretionary replacement.
       -- Keep its printed glyph with the preceding cluster.
@@ -150,6 +144,7 @@ end
 local function apply(head, style, active, level)
   if active then return head end
   local shape = tex.parshape
+  local skipped_first = false
   local line, used, state, occupied = 1, 0, {}, false
   local function available(i)
     local width = shape and shape[math.min(i, #shape)][2] or tex.hsize
@@ -170,40 +165,64 @@ local function apply(head, style, active, level)
     used = used + measure(first, stop, state, true)
     occupied = true
   end
-  local function place(gap, first, stop)
+  local function try_place(gap, first, stop, can_move)
     if fits(gap, stop) then
       keep(gap, stop)
-    elseif occupied and measure(first, stop, {}, false) <= available(line + 1) then
+      return true
+    end
+    if can_move and measure(first, stop, {}, false) <= available(line + 1) then
+      if not occupied then
+        -- Keep the paragraph start and its indentation box on the short first line.
+        skipped_first = true
+        gap = head.next
+        if gap and gap.id == hlist and gap.subtype == 3 then gap = gap.next end
+      end
       newline(gap)
       keep(first, stop)
-    else
-      -- Split an oversized word or use the available empty first line. Take
-      -- clusters just once, including the inter-cluster glue only if retained.
-      local parts = chunks(first, stop, available(line + 1))
-      parts[1].gap = gap
-      for i, part in ipairs(parts) do
-        local limit = parts[i + 1] and parts[i + 1].gap or stop
-        local begin = part.gap
-        if not fits(begin, limit) then
-          if occupied then
-            newline(begin)
-            begin = part.first
-          end
-          if not fits(begin, limit) then
-            no_room(level)
-          end
+      return true
+    end
+    return false
+  end
+
+  local function place(gap, first, stop, annotated)
+    if try_place(gap, first, stop, occupied and not annotated) then return end
+    local parts = chunks(first, stop, annotated)
+    parts[1].gap = gap
+    local function take(i, last)
+      local limit = parts[last + 1] and parts[last + 1].gap or stop
+      local wider_next = parts[i].group and line == 1 and available(2) > available(1)
+      return try_place(parts[i].gap, parts[i].first, limit, occupied or wider_next)
+    end
+
+    local i = 1
+    while i <= #parts do
+      local group, last = parts[i].group, i
+      while parts[last + 1] and parts[last + 1].group == group do last = last + 1 end
+      -- A legal chunk may include punctuation on either side of the marked glyphs.
+      if annotated and take(i, last) then i = last + 1 end
+      if group and i <= last and parts[i].term then
+        local term = i
+        while term < last and parts[term + 1].term do term = term + 1 end
+        if term < last and take(i, term + 1) then
+          i = term + 2
+        elseif take(i, term) then
+          i = term + 1
         end
-        keep(begin, limit)
+      end
+      while i <= last do
+        if not take(i, i) then no_room(level) end
+        i = i + 1
       end
     end
   end
 
-  local gap, first
+  local gap, first, annotated
   local n = head
   while n do
     local forced = n.id == penalty and n.penalty <= -10000
     if wordspace(n) or forced or n.id == glue and n.subtype == 15 then
-      if first then place(gap, first, n) end
+      if first then place(gap, first, n, annotated) end
+      annotated = nil
       gap, first = first and n or gap or n, nil
       if forced then
         line, used, state, occupied = line + 1, 0, {}, false
@@ -211,12 +230,13 @@ local function apply(head, style, active, level)
       end
     else
       first, gap = first or n, gap or n
+      if n.id == glyph then annotated = annotated or node.has_attribute(n, gloss_attribute) end
     end
     n = n.next
   end
-  if first then place(gap, first, nil) end
+  if first then place(gap, first, nil, annotated) end
 
-  return lock(head)
+  return lock(head), skipped_first
 end
 
 return {apply = apply, no_room = no_room, wordspace = wordspace, chunks = chunks, lock = lock,
