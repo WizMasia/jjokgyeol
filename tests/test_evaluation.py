@@ -34,6 +34,10 @@ def test_split():
     ]:
         with pytest.raises(ValueError, match="overlap"):
             verify_split(heldout, [{"group": group, "source": source, "split": "train"}])
+    development = {"group": "other", "source": "새 문단", "split": "train"}
+    with pytest.raises(ValueError, match="overlap"):
+        verify_split(heldout, [development, {**development, "split": "dev"}])
+
 
 
 def test_blind_set(spacing_run):
@@ -154,7 +158,7 @@ def contract(tmp_path, monkeypatch, model_inputs, spacing_run):
         (folder / "paragraph-candidates.jsonl").write_bytes(log)
         elapsed = next(s["ms"] for s in samples if s["style"]["ko_tracking_pct"] == pct)
         save_json(folder / "measurement.json", {
-            "applied": mode, "source_sha256": digest(ms["source"].encode()), "style": model.MODEL_STYLE,
+            "applied": "rule" if mode == "rules" else "model", "source_sha256": digest(ms["source"].encode()), "style": model.MODEL_STYLE,
             "model_sha256": "a"*64 if mode == "model" else None, "elapsed_ms": elapsed,
             "pdf_sha256": digest(pdfs[pct]), "log_sha256": digest(log),
         })
@@ -200,7 +204,7 @@ def test_model_refuses(tmp_path, contract, fault):
         (folder / "render.pdf").write_bytes(out.getvalue())
         receipt["pdf_sha256"] = digest(out.getvalue())
     if fault in ("fallback", "wrong-model", "wrong-hash", "no-timing"):
-        field, value = {"fallback": ("applied", "rules"), "wrong-model": ("model_sha256", "b"*64),
+        field, value = {"fallback": ("applied", "mixed"), "wrong-model": ("model_sha256", "b"*64),
                         "wrong-hash": ("log_sha256", "b"*64), "no-timing": ("elapsed_ms", 0)}[fault]
         receipt[field] = value
     save_json(folder / "measurement.json", receipt)
@@ -259,3 +263,117 @@ def test_model_pair(tmp_path, contract):
         assert arm["ms"] == receipt["elapsed_ms"]
     assert "runtime" not in (dest / "reader/reading-sheet.csv").read_text()
 
+
+
+@pytest.mark.parametrize("dx,dy", [(90, 0), (0, 90)])
+def test_pdf_constraint_audit(model_inputs, dx, dy, tmp_path, monkeypatch):
+    from io import BytesIO
+    from pypdf import PdfWriter, Transformation
+    from evaluation import model
+    from evaluation.model import inspect_pdf
+
+    ms, pdfs = model_inputs
+    ends, problems = inspect_pdf(pdfs[-3], ms)
+    assert ends and problems == []
+    shifted = PdfWriter(clone_from=BytesIO(pdfs[-3]))
+    shifted.pages[0].add_transformation(Transformation().translate(tx=dx, ty=dy))
+    out = BytesIO()
+    shifted.write(out)
+    assert any("margin" in p for p in inspect_pdf(out.getvalue(), ms)[1])
+    monkeypatch.setattr(model, "corpus", lambda: [ms])
+    with pytest.raises(ValueError, match="margin"):
+        model.revision(tmp_path, ms["group"], out.getvalue(), "unit-test", "1", "fixture", True)
+
+
+def filled(run, select):
+    """Synthetic truth table for validation only, never saved to a real study."""
+    from io import StringIO
+    from evaluation.packet import HEADER
+
+    f = StringIO()
+    w = csv.DictWriter(f, HEADER)
+    w.writeheader()
+    with (run / "reader/reading-sheet.csv").open() as stream:
+        for r in csv.DictReader(stream):
+            w.writerow({**r, "preferred": str(int(select(r))), "crowding": "none", "paragraph": "none", "reason": "none"})
+    return f.getvalue()
+
+
+def test_validate_sheet(spacing_run):
+    from evaluation.packet import read_json
+    from evaluation.results import observations
+
+    key = read_json(spacing_run / "private/key.json")
+    good = filled(spacing_run, lambda r: True)
+    header, *rows = good.splitlines()
+    assert len(observations(key, good)) == 12
+    first = rows[0].split(",")
+    bad = ["\n".join([header, *rows[:-1]]), good + rows[0], good.replace(key["run"], "other"),
+           good.replace(",1,none,", ",0,none,"), good.replace(",1,", ",tie,"),
+           good.replace(",none,none,none", ",,none,none"), good.replace(",none,none,none", ",none,99,why"),
+           good.replace(",none,none,none", ",none,1,none"), good.replace(first[1], "other")]
+    for bad_sheet in bad:
+        with pytest.raises(ValueError):
+            observations(key, bad_sheet)
+
+
+def test_record_spacing(tmp_path, spacing_run):
+    import shutil
+    from evaluation.results import capture, score, timing
+
+    run = tmp_path / "unit"
+    shutil.copytree(spacing_run, run)
+    assert score(run)["status"] == "awaiting_reader"
+    assert timing(run)["all"]["n"] == 12
+    ballot = tmp_path / "fixture.csv"
+    ballot.write_text(filled(run, lambda r: True))
+    capture(run, ballot, "unit-test")
+    result = score(run)
+    assert result["status"] == "scored" and result["recommend_model"] is None
+    assert len(result["comparisons"]) == 4
+    assert all(sorted(row["preferred"]) == [-7, -3, 0] for row in result["comparisons"])
+    with pytest.raises(FileExistsError):
+        capture(run, ballot, "unit-test")
+    assert not (run / "reader/ballot.json").exists()
+
+
+@pytest.mark.parametrize(("picks", "timing_vote", "fault", "recommend"), [
+    ({"model"}, "accepted", None, True), ({"model"}, "rejected", None, False),
+    ({"model", "rules"}, "accepted", None, False), ({"rules"}, "accepted", None, False),
+    ({"model"}, "accepted", "constraint", False), ({"model"}, "accepted", "line", False),
+])
+def test_decision_gate(tmp_path, contract, picks, timing_vote, fault, recommend):
+    from evaluation.model import model_pairs
+    from evaluation.packet import read_json
+    from evaluation.results import capture, score, timing_decision
+
+    refs, bundle, ms = contract
+    if fault:
+        def change(rows):
+            lines = rows[0]["candidates"][1]["lines"]
+            if fault == "line":
+                lines.pop(0)
+            else:
+                lines[0]["space_per_10000"] = 6900
+        for mode in ("rules", "model"):
+            alter_log(bundle / ms["group"] / mode, change)
+    run = tmp_path / "trial"
+    model_pairs(run, refs, bundle)
+    group, = read_json(run / "private/key.json")["groups"].values()
+    ballot = tmp_path / "fixture.csv"
+    ballot.write_text(filled(run, lambda r: group["samples"][r["sample"]]["applied"] in picks))
+    capture(run, ballot, "unit-test")
+    assert score(run)["recommend_model"] is False
+    timing_decision(run, timing_vote, "unit-test")
+    report = score(run)
+    assert report["recommend_model"] is recommend
+    assert report["counts"][("tie" if len(picks) == 2 else next(iter(picks)))] == 1
+    assert report["timing"]["model"]["n"] == 1
+    assert len(report["observations"]) == 2
+
+
+def test_percentile():
+    from evaluation.results import distribution
+
+    sample = list(range(1, 21))
+    assert distribution(sample) == {"n": 20, "min_ms": 1, "median_ms": 10.5, "p95_ms": 19, "max_ms": 20}

@@ -17,17 +17,42 @@ MODEL_STYLE = {**PAGE, "body_font": "nanum-myeongjo", "body_pt": 11, "leading_pt
                "ko_tracking_pct": 0, "ko_tracking_bounds_pct": [-7, 0], "space_pct": [70, 130]}
 
 
-def pdf_ends(pdf, manuscript):
+def inspect_pdf(pdf, manuscript):
     if not isinstance(pdf, bytes) or not pdf.startswith(b"%PDF-"):
         raise ValueError("missing PDF")
     text = []
     ends = []
+    violations = []
     size = 0
-    for page in read_pages(pdf):
+    word_ends = set()
+    word_end = 0
+    for word in manuscript["source"].split():
+        word_end += len(compact(word))
+        word_ends.add(word_end)
+    for page_no, page in enumerate(read_pages(pdf), 1):
         mm = [value * 25.4 / 72 for value in (page.width, page.height)]
         if any(abs(a-b) > .03 for a, b in zip(mm, MODEL_STYLE["page_mm"], strict=True)):
             raise ValueError("wrong reference or candidate page size")
-        for line in page.lines:
+        top, right, bottom, left = (mm * 72 / 25.4 for mm in MODEL_STYLE["margins_mm"])
+        right_edge, top_edge = page.width - right, page.height - top
+        for line_no, line in enumerate(page.lines, 1):
+            chars = [c for c in line.chars if c.text.strip()]
+            location = f"PDF page {page_no}, line {line_no}"
+            if any(c.x0 < left - .05 or c.x0 + c.advance > right_edge + .05
+                   or c.y0 < bottom - .05 or c.y1 > top_edge + .05 for c in chars):
+                violations.append(location + ": margin")
+            index = size
+            for a, b in zip(chars, chars[1:]):
+                index += len(compact(a.text))
+                gap = b.x0 - a.x0 - a.advance
+                if index in word_ends:
+                    # Locked NanumMyeongjo space advance, independently calibrated in T3.
+                    natural = a.size * 307 / 1024
+                    if not natural * .70 - .05 <= gap <= natural * 1.30 + .05:
+                        violations.append(f"{location}, glyph {index}: space")
+                elif "가" <= a.text <= "힣" and "가" <= b.text <= "힣":
+                    if not -.07 * a.size - .05 <= gap <= .05:
+                        violations.append(f"{location}, glyph {index}: tracking")
             if any(c.font.split("+")[-1] != "NanumMyeongjo" or abs(c.size - 11 * 72 / 72.27) > .05
                    for c in line.chars if c.text.strip()):
                 raise ValueError("wrong reference or candidate typeface/size")
@@ -38,7 +63,7 @@ def pdf_ends(pdf, manuscript):
                 ends.append(size)
     if "".join(text) != compact(manuscript["source"]):
         raise ValueError("PDF text differs from manuscript source")
-    return ends
+    return ends, violations
 
 
 def paragraph_numbers(value, maximum):
@@ -55,7 +80,9 @@ def revision(root, name, pdf, editor, paragraph, reason, final):
         raise ValueError("reference needs a manuscript, editor and reason")
     if paragraph != "none":
         paragraph_numbers(paragraph, len(paragraphs(ms["source"])))
-    pdf_ends(pdf, ms)
+    _, violations = inspect_pdf(pdf, ms)
+    if any(v.endswith(": margin") for v in violations):
+        raise ValueError("reference text outside specified margins")
     folder = Path(root) / name
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (folder / ".lock").open("a") as lock:
@@ -141,7 +168,8 @@ def load_arm(folder, ms, mode, model_hash):
     receipt = read_json(folder / "measurement.json")
     pdf = (folder / "render.pdf").read_bytes()
     log = (folder / "paragraph-candidates.jsonl").read_bytes()
-    if (not isinstance(receipt, dict) or receipt.get("applied") != mode or receipt.get("style") != MODEL_STYLE
+    expected_path = "rule" if mode == "rules" else "model"
+    if (not isinstance(receipt, dict) or receipt.get("applied") != expected_path or receipt.get("style") != MODEL_STYLE
             or receipt.get("source_sha256") != digest(ms["source"].encode())
             or receipt.get("model_sha256") != (model_hash if mode == "model" else None)
             or receipt.get("pdf_sha256") != digest(pdf) or receipt.get("log_sha256") != digest(log)):
@@ -151,7 +179,8 @@ def load_arm(folder, ms, mode, model_hash):
         raise ValueError("missing positive measured elapsed_ms")
     rows = [json.loads(line) for line in log.decode("utf-8").splitlines()]
     catalog, evidence = selected_lines(rows, ms, mode)
-    found = pdf_ends(pdf, ms)
+    found, violations = inspect_pdf(pdf, ms)
+    evidence["constraint_violations"].extend(violations)
     selected = set(evidence["selected_ends"])
     evidence.update(applied=mode, style=MODEL_STYLE, ms=elapsed, pdf_ends=found,
                     end_mismatches=max(len(selected-set(found)), len(set(found)-selected)))
@@ -183,7 +212,9 @@ def model_pairs(dest, references, bundle):
             ref, group["reference"] = frozen[ms["group"]]
             ref_name = "ref-" + gid + ".pdf"
             (tmp / "private" / ref_name).write_bytes(ref)
-            (tmp / "reader" / ref_name).write_bytes(blind_pdf(ref))
+            blind_ref = blind_pdf(ref)
+            (tmp / "reader" / ref_name).write_bytes(blind_ref)
+            group["blind_reference_sha256"] = digest(blind_ref)
             pages, catalogs = set(), []
             for mode in RNG.sample(["rules", "model"], 2):
                 try:
@@ -200,4 +231,3 @@ def model_pairs(dest, references, bundle):
                 raise ValueError("T13 candidate sets or rule choices differ")
             if len(pages) != 2:
                 raise ValueError("identical rendered model and rules pages")
-

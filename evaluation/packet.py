@@ -45,7 +45,7 @@ def corpus():
 
 def verify_split(heldout, development):
     """Group IDs cover related rewrites. Text fingerprints catch relabelled copies."""
-    groups, texts = set(), set()
+    seen = {}
     for i, row in enumerate([*heldout, *development]):
         allowed = {"spacing", "model"} if i < len(heldout) else {"train", "dev"}
         if not isinstance(row, dict) or row.get("split") not in allowed:
@@ -54,11 +54,10 @@ def verify_split(heldout, development):
             raise ValueError("missing manuscript group or source")
         group = compact(row["group"]).casefold()
         hashes = {digest(compact(s).encode()) for s in [row["source"], *paragraphs(row["source"])]}
-        if group in groups or hashes & texts:
+        tokens = {("group", group)} | {("text", h) for h in hashes}
+        if any(t in seen and (i < len(heldout) or seen[t] != row["split"]) for t in tokens):
             raise ValueError("corpus overlap: " + row["group"])
-        if i < len(heldout):
-            groups.add(group)
-            texts.update(hashes)
+        seen.update(dict.fromkeys(tokens, row["split"]))
 
 
 def save_json(path, data):
@@ -173,4 +172,3 @@ def spacing(dest):
                 if response.headers["content-type"] != "application/pdf":
                     raise ValueError("render returned no PDF")
                 add_pdf(tmp, group, response.content, {"style": style, "ms": ms})
-
