@@ -417,6 +417,7 @@ function updateFileActions() {
 }
 
 function beginFileOpen(kind) {
+  if (kind === "style") document.dispatchEvent(new Event("style-suggestion-invalidate"));
   const token = Symbol();
   fileLoads[kind] = token;
   referenceStateChanged();
@@ -516,6 +517,7 @@ function importManuscript(file) {
 }
 
 function edited(kind) {
+  if (kind === "style") document.dispatchEvent(new Event("style-suggestion-invalidate"));
   fileLoads[kind] = null;
   initialPreviewNeeded = false;
   errorText.textContent = "";

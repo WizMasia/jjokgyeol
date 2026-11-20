@@ -16,6 +16,7 @@ from starlette.staticfiles import StaticFiles
 from app import jobs, publication
 from app import style as styles
 from app.configuration import CONFIG_DIR, read_config
+from app.ai.style import SETTINGS as SUGGESTION
 from app.document import InputError
 from app.operations import LIMITS
 from app.reference import load_settings
@@ -29,12 +30,14 @@ TARGET_SLOTS = BoundedSemaphore(LIMITS.render_slots)
 IMPORT_MAX_BYTES = read_config(CONFIG_DIR / "imports.json")["max_bytes"]
 REFERENCE = load_settings()
 REFERENCE_SLOTS = BoundedSemaphore(REFERENCE["slots"])
+SUGGESTION_SLOTS = BoundedSemaphore(SUGGESTION["slots"])
 NO_STORE = {"Cache-Control": "no-store"}
 ERRORS = {
     413: ("too_large", f"요청은 {MAX_BODY:,}바이트 이하여야 합니다."),
     422: ("invalid_input", "원고와 양식의 입력값을 확인하세요."),
     429: ("busy", f"조판 작업 {LIMITS.render_slots}건이 진행 중입니다. 잠시 뒤 다시 시도하세요."),
     500: ("engine_failed", "PDF를 만들 수 없습니다."),
+    502: ("model_failed", "양식 모델의 응답을 읽지 못했습니다. 모델 연결을 확인하세요."),
     504: ("timeout", "조판 제한 시간을 초과했습니다."),
 }
 
@@ -107,6 +110,16 @@ class DocumentJob:
         self.action = action
 
     def error(self, status, field=None, message=None):
+        if self.action == "suggest":
+            if status == 500:
+                status = 502
+            message = message or {
+                413: f'양식 제안 요청은 {self.byte_limit():,}바이트 이하여야 합니다.',
+                422: "요청과 현재 양식을 확인하세요.",
+                429: "다른 양식 제안을 처리 중입니다. 잠시 뒤 다시 시도하세요.",
+                504: "양식 제안 시간이 초과되었습니다.",
+            }.get(status)
+            return failure(status, field or "request", message)
         if self.action != "render" and not message:
             field = "reference" if self.action == "analyze" else "source"
             message = {
@@ -120,6 +133,8 @@ class DocumentJob:
     def byte_limit(self):
         if self.action == "import":
             return IMPORT_MAX_BYTES
+        if self.action == "suggest":
+            return SUGGESTION["max_request_bytes"]
         return REFERENCE["max_bytes"] if self.action == "analyze" else MAX_BODY
 
     async def result(self, request, worker_deadline):
@@ -133,6 +148,8 @@ class DocumentJob:
                 raise jobs.JobError(422, "source", "가져올 원고의 파일 이름을 확인하세요.")
             command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), name,
                        str(REFERENCE["worker_memory_bytes"]))
+        elif self.action == "suggest":
+            command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"))
         else:
             command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
         body = await read_body(request, self.byte_limit())
@@ -141,12 +158,15 @@ class DocumentJob:
         return Response(result, media_type="application/json", headers=NO_STORE)
 
     async def __call__(self, scope, receive, send):
-        slots = {"render": SLOTS, "import": SLOTS, "analyze": REFERENCE_SLOTS, "targets": TARGET_SLOTS}[self.action]
+        slots = {"render": SLOTS, "import": SLOTS, "analyze": REFERENCE_SLOTS,
+                 "targets": TARGET_SLOTS, "suggest": SUGGESTION_SLOTS}[self.action]
         if not slots.acquire(blocking=False):
             await self.error(429)(scope, receive, send)
             return
         try:
             timeout = REFERENCE["timeout_seconds"] if self.action == "analyze" else jobs.TIMEOUT
+            if self.action == "suggest":
+                timeout = SUGGESTION["timeout_seconds"]
             worker_deadline = monotonic() + timeout
             deadline = asyncio.get_running_loop().time() + timeout
             try:
@@ -171,6 +191,7 @@ class DocumentJob:
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
+app.add_route("/api/style-suggestion", DocumentJob("suggest"), methods=["POST"])
 app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
 app.add_route("/api/reference/analyze", DocumentJob("analyze"), methods=["POST"])
 app.add_route("/api/reference/targets", DocumentJob("targets"), methods=["POST"])
