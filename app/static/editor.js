@@ -24,6 +24,41 @@ let withBom = false;
 let newline = "\n";
 let mixedEndings = false;
 let editStart = Infinity;
+let manuscriptDirty = false;
+let styleDirty = false;
+let manuscriptRevision = 0;
+let styleRevision = 0;
+
+function markDirty(kind, dirty) {
+  const current = kind === "source" ? manuscriptDirty : styleDirty;
+  if (current === dirty) return;
+  if (kind === "source") manuscriptDirty = dirty;
+  else styleDirty = dirty;
+  if (nativeDesktop) {
+    const update = kind === "source" ? desktop.setDirty(dirty) : desktop.setStyleDirty(dirty);
+    update.catch(error => { errorText.textContent = error.message; });
+  }
+}
+
+async function confirmManuscriptReplacement() {
+  if (!nativeDesktop || !manuscriptDirty) return true;
+  try {
+    return await desktop.confirmDocumentReplacement();
+  } catch (error) {
+    errorText.textContent = error.message;
+    return false;
+  }
+}
+
+async function confirmStyleReplacement() {
+  if (!nativeDesktop || !styleDirty) return true;
+  try {
+    return await desktop.confirmStyleReplacement();
+  } catch (error) {
+    errorText.textContent = error.message;
+    return false;
+  }
+}
 
 function rememberSource(text) {
   original = text;
@@ -347,8 +382,10 @@ function download(url, name) {
 
 function saveBlob(blob, name) {
   if (nativeDesktop) {
-    desktop.save(blob, name).catch(error => { errorText.textContent = error.message; });
-    return;
+    return desktop.save(blob, name).catch(error => {
+      errorText.textContent = error.message;
+      return false;
+    });
   }
   const url = URL.createObjectURL(blob);
   try {
@@ -356,6 +393,7 @@ function saveBlob(blob, name) {
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  return true;
 }
 
 function bindFilePicker(buttonId, inputId, open) {
@@ -583,6 +621,8 @@ function applyManuscript(text, name, warnings = []) {
   const manuscript = withBom ? text.slice(1) : text;
   source.value = manuscript;
   rememberSource(manuscript);
+  manuscriptRevision++;
+  markDirty("source", false);
   byId("filename").textContent = name;
   const list = byId("import-warnings");
   list.replaceChildren();
@@ -594,7 +634,8 @@ function applyManuscript(text, name, warnings = []) {
   byId("import-notice").hidden = !warnings.length;
 }
 
-function openMarkdown(file) {
+async function openMarkdown(file) {
+  if (!await confirmManuscriptReplacement()) return;
   initialPreviewNeeded = false;
   return openFile("source", () => readMarkdown(file), text => {
     applyManuscript(text, file?.name || "비교 원고.md");
@@ -623,7 +664,8 @@ async function requestImport(file) {
   return data;
 }
 
-function importManuscript(file) {
+async function importManuscript(file) {
+  if (!await confirmManuscriptReplacement()) return;
   initialPreviewNeeded = false;
   return openFile("source", () => requestImport(file), ({markdown, warnings}) => {
     applyManuscript(markdown, file.name.replace(/\.[^.]*$/, "") + ".md", warnings);
@@ -633,6 +675,9 @@ function importManuscript(file) {
 }
 
 function edited(kind) {
+  if (kind === "source") manuscriptRevision++;
+  else styleRevision++;
+  markDirty(kind, true);
   if (kind === "style") {
     typography.clearError();
     document.dispatchEvent(new Event("style-suggestion-invalidate"));
@@ -665,6 +710,8 @@ function applyPinnedSource(text) {
   const {start, end, nextEnd} = editedRange(source.value, after);
   source.setRangeText(after.slice(start, nextEnd), start, end, "preserve");
   rememberSource(text);
+  manuscriptRevision++;
+  markDirty("source", true);
   if (document.activeElement === document.body || document.activeElement === pinButton) source.focus({preventScroll: true});
 }
 
@@ -740,8 +787,11 @@ bindFilePicker("open", "file", openMarkdown);
 bindFilePicker("import-source", "import-file", importManuscript);
 byId("refresh").addEventListener("click", () => requestPdf(false));
 byId("export").addEventListener("click", () => requestPdf(true));
-byId("save").addEventListener("click", () => {
+byId("save").addEventListener("click", async () => {
+  const revision = manuscriptRevision;
   const blob = new Blob([withBom ? "\uFEFF" : "", sourceText()], {type: "text/markdown;charset=utf-8"});
-  saveBlob(blob, byId("filename").textContent);
+  if (await saveBlob(blob, byId("filename").textContent) && revision === manuscriptRevision) {
+    markDirty("source", false);
+  }
 });
 openMarkdown(null);

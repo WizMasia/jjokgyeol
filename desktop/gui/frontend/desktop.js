@@ -24,7 +24,19 @@ const desktop = {
     return new Blob([new Uint8Array(result)], {type: "application/pdf"});
   },
   async save(blob, name) {
-    await this.invoke("save_bytes", {name, bytes: Array.from(new Uint8Array(await blob.arrayBuffer()))});
+    return this.invoke("save_bytes", {name, bytes: Array.from(new Uint8Array(await blob.arrayBuffer()))});
+  },
+  setDirty(dirty) {
+    return this.invoke("set_dirty", {dirty});
+  },
+  setStyleDirty(dirty) {
+    return this.invoke("set_style_dirty", {dirty});
+  },
+  confirmDocumentReplacement() {
+    return this.invoke("confirm_document_replacement");
+  },
+  confirmStyleReplacement() {
+    return this.invoke("confirm_style_replacement");
   },
   async pages(blob) {
     const pdfjs = await import("./pdf.min.mjs");
@@ -39,6 +51,7 @@ const desktop = {
         const page = await pdf.getPage(n);
         const viewport = page.getViewport({scale: 1.5});
         const canvas = document.createElement("canvas");
+        canvas.setAttribute("aria-label", n + "쪽");
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
         await page.render({canvasContext: canvas.getContext("2d"), viewport}).promise;

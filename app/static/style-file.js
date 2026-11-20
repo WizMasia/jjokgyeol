@@ -19,15 +19,21 @@ function showStyleError(error) {
   errorText.textContent = error.message || "양식을 처리할 수 없습니다.";
 }
 
-bindFilePicker("open-style", "style-file", file =>
-  openFile("style", () => requestStyle("open", file), styleForm.set, showStyleError)
-);
+bindFilePicker("open-style", "style-file", async file => {
+  if (!await confirmStyleReplacement()) return;
+  return openFile("style", () => requestStyle("open", file), values => {
+    styleForm.set(values);
+    styleRevision++;
+    markDirty("style", false);
+  }, showStyleError);
+});
 byId("save-style").addEventListener("click", async () => {
   const values = styleForm.get();
+  const revision = styleRevision;
   try {
     const result = await requestStyle("export", JSON.stringify(values));
     const blob = new Blob([JSON.stringify(result, null, 2) + "\n"], {type: "application/json"});
-    saveBlob(blob, "쪽결-양식.json");
+    if (await saveBlob(blob, "쪽결-양식.json") && revision === styleRevision) markDirty("style", false);
   } catch (error) {
     if (JSON.stringify(styleForm.get()) !== JSON.stringify(values)) return;
     showStyleFieldError(error.field, error.message);

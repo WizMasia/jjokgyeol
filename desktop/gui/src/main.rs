@@ -7,7 +7,10 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tauri::{Manager, State};
@@ -20,6 +23,47 @@ struct Limits {
     file: u64,
     timeout: Duration,
     slots: Arc<Semaphore>,
+}
+
+#[derive(Default)]
+struct DirtyState {
+    manuscript: AtomicBool,
+    style: AtomicBool,
+}
+
+impl DirtyState {
+    fn is_dirty(&self) -> bool {
+        self.manuscript.load(Ordering::Relaxed) || self.style.load(Ordering::Relaxed)
+    }
+}
+
+fn confirm_discard() -> bool {
+    rfd::MessageDialog::new()
+        .set_title("쪽결")
+        .set_description("저장하지 않은 변경 사항이 있습니다. 계속하시겠습니까?")
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+#[tauri::command]
+fn set_dirty(state: State<'_, DirtyState>, dirty: bool) {
+    state.manuscript.store(dirty, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_style_dirty(state: State<'_, DirtyState>, dirty: bool) {
+    state.style.store(dirty, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn confirm_document_replacement(state: State<'_, DirtyState>) -> bool {
+    !state.manuscript.load(Ordering::Relaxed) || confirm_discard()
+}
+
+#[tauri::command]
+fn confirm_style_replacement(state: State<'_, DirtyState>) -> bool {
+    !state.style.load(Ordering::Relaxed) || confirm_discard()
 }
 
 fn limits() -> Limits {
@@ -242,11 +286,23 @@ async fn save_bytes(
 fn main() {
     tauri::Builder::default()
         .manage(limits())
+        .manage(DirtyState::default())
         .invoke_handler(tauri::generate_handler![
             style_convert,
             render_proof,
-            save_bytes
+            save_bytes,
+            set_dirty,
+            set_style_dirty,
+            confirm_document_replacement,
+            confirm_style_replacement
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<DirtyState>().is_dirty() && !confirm_discard() {
+                    api.prevent_close();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("failed to run 쪽결");
 }
@@ -255,6 +311,18 @@ fn main() {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn manuscript_and_style_dirty_states_clear_independently() {
+        let state = DirtyState::default();
+        assert!(!state.is_dirty());
+        state.manuscript.store(true, Ordering::Relaxed);
+        state.style.store(true, Ordering::Relaxed);
+        state.manuscript.store(false, Ordering::Relaxed);
+        assert!(state.is_dirty());
+        state.style.store(false, Ordering::Relaxed);
+        assert!(!state.is_dirty());
+    }
 
     #[test]
     fn style_worker_receives_mode_and_input_and_returns_object() {
