@@ -757,7 +757,11 @@ marginMode.addEventListener("input", event => {
       edited("style");
     } else {
       marginMode.value = "fixed";
-      openFile("style", () => validatedMarginRestore(draft, geometry, gutter_sp), applyMarginGeometry, onError);
+      openFile("style", () => validatedMarginRestore(draft, geometry, gutter_sp), values => {
+        applyMarginGeometry(values);
+        styleRevision++;
+        markDirty("style", true);
+      }, onError);
     }
   } else if (!gutter.disabled) {
     marginMode.value = "mirrored";
@@ -770,7 +774,11 @@ marginMode.addEventListener("input", event => {
       edited("style");
       return;
     }
-    openFile("style", () => fixedMargins(geometry), apply, onError);
+    openFile("style", () => fixedMargins(geometry), values => {
+      apply(values);
+      styleRevision++;
+      markDirty("style", true);
+    }, onError);
   }
 });
 for (const control of [margins[1], margins[3]]) {
