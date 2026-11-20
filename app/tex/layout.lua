@@ -99,17 +99,28 @@ end
 -- Space nodes are measured after shaping. TeX still builds the lines and moves
 -- insertions (including footnotes) through its normal page builder.
 local active, item = false, nil
+local skipped_first
 local lists = require("list_layout")
 local wordbreak = require("wordbreak")
 local fixed = require("fixed")
 luatexbase.add_to_callback("pre_linebreak_filter", function(head)
   local candidate = active and data.candidate
   head = fixed.prepare(head, style, candidate)
-  return wordbreak.apply(head, style, active, item and item.level)
+  head, skipped_first = wordbreak.apply(head, style, active, item and item.level)
+  return head
 end, "jjokgyeol.wordspacing")
 luatexbase.add_to_callback("post_linebreak_filter", function(head)
   head = fixed.finish(head)
-  if item and item.first then lists.attach(head, item) end
+  if item and item.first then
+    local start = head
+    if skipped_first then
+      for line in node.traverse_id(node.id("hlist"), head) do
+        start = line.next
+        break
+      end
+    end
+    lists.attach(start, item)
+  end
   if book.running and book.running.in_par then book.running.lines(head) end
   return head
 end, "jjokgyeol.line_spacing")
@@ -140,6 +151,8 @@ function book.gloss()
 end
 
 local marks, count = {}, 0
+-- Each occurrence gets an even mark for its term and the next odd mark for its explanation.
+local gloss_mark = 0
 local end_indices, end_order = {}, {}
 local function inlines(items, preserve_spaces)
   for _, item in ipairs(items) do
@@ -148,9 +161,10 @@ local function inlines(items, preserve_spaces)
     elseif item.kind == "running_section" then
       emit("\\directlua{book.running.section(" .. assert(math.tointeger(item.id)) .. ")}")
     elseif item.kind == "gloss" then
-      emit("{\\attribute" .. wordbreak.gloss_attribute .. "=1\\relax ")
+      gloss_mark = gloss_mark + 2
+      emit("{\\attribute" .. wordbreak.gloss_attribute .. "=" .. gloss_mark .. "\\relax ")
       inlines(item.children, preserve_spaces)
-      emit("\\attribute" .. wordbreak.gloss_attribute .. "=2\\relax \\directlua{book.gloss()}")
+      emit("\\attribute" .. wordbreak.gloss_attribute .. "=" .. (gloss_mark + 1) .. "\\relax \\directlua{book.gloss()}")
       literal("(" .. item.text .. ")", preserve_spaces)
       emit("}")
     elseif item.kind == "endnote_ref" then

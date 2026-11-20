@@ -52,10 +52,16 @@ def _running_sections(doc, style):
 
 
 def _omit_memos(spans):
-    spans[:] = [span for span in spans if span["kind"] != "memo_ref"]
+    visible = []
     for span in spans:
+        if span["kind"] == "memo_ref":
+            continue
         if span["children"]:
-            _omit_memos(span["children"])
+            span["children"] = _omit_memos(span["children"])
+            if not span["children"]:
+                continue
+        visible.append(span)
+    return visible
 
 
 def _render(doc, style, workdir, candidate):
@@ -67,9 +73,6 @@ def _render(doc, style, workdir, candidate):
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
-    if doc.memos:
-        for block in blocks:
-            _omit_memos(block["inlines"])
     box_ids = {}
     for block, values in zip(blocks, overrides, strict=True):
         if "running_id" in values:
@@ -93,6 +96,18 @@ def _render(doc, style, workdir, candidate):
                    values.get("color", "#000000"))
             block["mark"] = mark
             block["mark_id"] = box_ids.setdefault(key, len(box_ids) + 1)
+    if doc.memos:
+        printable = False
+        for block in blocks:
+            spans = _omit_memos(block["inlines"])
+            block["inlines"] = spans
+            # Inter-reference spaces do not start a TeX paragraph. An empty list item has a label.
+            if not printable:
+                printable = block["kind"] == "list_item" or any(
+                    span["kind"] != "text" or span["text"].strip(" ") for span in spans
+                )
+        if not printable:
+            blocks = []
     book_style = style.to_stored()
     # Block overrides and running scopes already contain the rules used by TeX.
     book_style.pop("section_rules", None)
