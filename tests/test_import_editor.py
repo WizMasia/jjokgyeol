@@ -123,3 +123,25 @@ def test_stale_import_cannot_change_source_or_warnings(desk, replacement):
     assert saved_manuscript(page) == (expected_name, b"new")
     assert page.locator("#import-warnings li").all_text_contents() == warnings
     expect(page.locator("#error")).to_be_empty()
+
+
+def test_corrupt_import_keeps_previous_warnings_and_draft(browser, server_url):
+    with browser.new_context() as context:
+        page = context.new_page()
+        page.goto(os.environ.get("JJOKGYEOL_IMPORT_URL", server_url))
+        select_import(page, SAMPLES / "field.html")
+        expect(page.locator("#filename")).to_have_text("field.md")
+        notice = page.locator("#import-notice")
+        expect(notice).to_be_visible()
+        warnings = notice.locator("li").all_text_contents()
+        assert any("그림" in warning for warning in warnings)
+        page.locator("#source").fill("교정 중")
+        with page.expect_response(lambda r: "/api/import?" in r.url) as attempt:
+            select_import(page, {"name": "손상.docx", "mimeType": "", "buffer": b"broken"})
+        assert attempt.value.status == 422
+        expect(page.get_by_role("alert")).not_to_be_empty()
+        assert saved_manuscript(page) == ("field.md", "교정 중".encode())
+        assert notice.locator("li").all_text_contents() == warnings
+        page.locator("#file").set_input_files({"name": "교정.md", "mimeType": "text/markdown", "buffer": b"new"})
+        expect(page.locator("#source")).to_have_value("new")
+        expect(notice).to_be_hidden()
