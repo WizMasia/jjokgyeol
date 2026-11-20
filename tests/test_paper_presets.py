@@ -89,3 +89,11 @@ def test_reference_page_dimensions_update_selection_on_apply(review):
     expect(preset).to_have_value("custom")
     expect(width).to_have_value("170")
     expect(height).to_have_value("230")
+
+
+def test_preset_control_keeps_normal_height_in_a_tall_settings_row(desk):
+    desk.ready()
+    page = desk.page
+    page.set_viewport_size({"width": 1360, "height": 960})
+    preset, _, _ = controls(page)
+    assert preset.bounding_box()["height"] <= page.locator("#margin-mode").bounding_box()["height"] + 1

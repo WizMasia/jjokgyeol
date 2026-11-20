@@ -71,6 +71,8 @@ details { border-top: 1px solid var(--line); }
 summary { width: fit-content; padding: .65rem .25rem; font-size: .85rem; }
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 1rem; margin-block: .4rem 1rem; }
 fieldset { display: flex; flex-wrap: wrap; gap: .65rem; min-width: 0; margin: 0; border: 1px solid var(--line); }
+.settings-grid fieldset:has(#page-preset, #indent-unit) { align-content: start; }
+#page-preset { width: 100%; }
 #article-style { align-items: center; }
 #article-style[hidden] { display: none; }
 #article-expr { min-height: 36px; width: min(100%, 13rem); padding: .3rem .45rem; }
