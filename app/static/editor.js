@@ -484,6 +484,7 @@ function openMarkdown(file) {
 }
 
 function edited(kind) {
+  if (kind === "style") typography.clearError();
   fileLoads[kind] = null;
   initialPreviewNeeded = false;
   errorText.textContent = "";

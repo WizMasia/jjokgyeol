@@ -61,14 +61,20 @@ def _named_headings(outline):
 
 
 def targets(source: str) -> list[dict]:
-    """Return each path's occurrence count and its first heading's Markdown level."""
+    """Report heading paths and their levels, including repeats at different levels."""
     doc = parse_md(source)
     records = {}
     for index, path in _named_headings(_outline(doc.blocks, doc.fenced_blocks)):
+        level = doc.blocks[index].level
         if path in records:
-            records[path]["count"] += 1
+            record = records[path]
+            record["count"] += 1
+            if level != record["level"]:
+                levels = record.setdefault("levels", [record["level"]])
+                if level not in levels:
+                    levels.append(level)
         else:
-            records[path] = {"path": list(path), "count": 1, "level": doc.blocks[index].level}
+            records[path] = {"path": list(path), "count": 1, "level": level}
     return list(records.values())
 
 

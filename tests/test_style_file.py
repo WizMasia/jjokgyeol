@@ -292,3 +292,19 @@ def test_list_style_file_recovery(browser, server_url):
         with page.expect_download() as restored:
             save.click()
         assert json.loads(restored.value.path().read_bytes()) == json.loads(old_file.read_bytes())
+
+
+def test_corrected_typography_ignores_late_save_error(desk):
+    desk.ready()
+    p = desk.page
+    p.locator("#style summary").click()
+    p.locator("#text-role").select_option("note")
+    color = p.locator('[data-text="color"]')
+    color.fill("red")
+    save = hold_style(desk, "export")
+    color.fill("#112233")
+    with p.expect_request_finished(lambda req: req == save.request):
+        save.fulfill(status=422, json={"field": "text_styles.note.color", "message": "색상 오류"})
+    p.evaluate("() => new Promise(requestAnimationFrame)")
+    expect(p.locator("#error")).to_be_empty()
+    expect(color).not_to_have_attribute("aria-invalid", "true")

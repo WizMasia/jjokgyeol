@@ -241,7 +241,7 @@ def test_current_values_follow_heading_level_override_and_list_origin(review):
     p.locator("#reference-analyze").click()
     for key, body, front in (("font_pt", "13.75", "14"), ("leading_pt", "17.875", "18.2")):
         row = d.row("heading", key)
-        expect(row).to_contain_text("제목 단계별 자동")
+        expect(row).to_contain_text("현재 값 · 제목마다 다름")
         target = row.get_by_label("적용 대상", exact=True)
         target.select_option(label="본문")
         expect(row).to_contain_text("현재 값 · " + body)
@@ -312,3 +312,26 @@ def test_long_section_keeps_selections_across_visible_units(review):
         {"path": ["본문"], "role": "body", "values": {"font_pt": "14"}},
         {"path": ["본문"], "role": "list", "values": {"color": "#527219"}}]
     d.reply(0, d.pdf)
+
+
+@pytest.mark.parametrize("targets,expected", [
+    ([{"path": ["하나"], "count": 1, "level": 1}], "18"),
+    ([{"path": ["하나"], "count": 2, "level": 1, "levels": [1, 2]}], "제목마다 다름"),
+])
+def test_document_heading_current_values(review, targets, expected):
+    d, p = review, review.page
+    d.targets = targets
+    row = {"font_pt": "18", "color": "#17365D", "font": "nanum-myeongjo"}
+    file = p.request.post(d.service + "/api/style/export", data={
+        "text_styles": {"heading1": row, "heading2": {**row, "font_pt": "14"}},
+    })
+    assert file.ok
+    p.locator("#style-file").set_input_files({"name": "제목.json", "mimeType": "application/json", "buffer": file.body()})
+    expect(p.locator("#save-style")).to_be_enabled()
+    d.open()
+    p.route("**/api/reference/analyze?*", lambda r: r.fulfill(json={"units": [
+        unit(1, "본문", *(candidate("heading", key, value) for key, value in row.items()))], "warnings": []}))
+    p.locator("#reference-file").set_input_files({"name": "참고.docx", "mimeType": "application/octet-stream", "buffer": b"test"})
+    p.locator("#reference-analyze").click()
+    for key, value in [("font_pt", expected), ("color", "#17365D"), ("font", "나눔명조")]:
+        expect(d.row("heading", key)).to_contain_text("현재 값 · " + value)
