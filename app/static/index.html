@@ -47,13 +47,17 @@
         <footer class="folio"><span id="filename">원고.md</span><span>Markdown · UTF-8</span></footer>
       </section>
       <section class="proof" aria-labelledby="proof-title">
-        <header class="panel-head"><h2 id="proof-title">조판 미리보기</h2><span id="status" role="status">샘플 불러오는 중</span></header>
+        <header class="panel-head">
+          <h2 id="proof-title">조판 미리보기</h2>
+          <label>조판 방식 <select id="proof-choice" aria-describedby="proof-decision"></select></label>
+          <span id="status" role="status">샘플 불러오는 중</span>
+        </header>
         <div class="proof-stage">
           <p id="placeholder">첫 지면을 준비하고 있습니다.</p>
           <p id="viewer-fallback" hidden>이 브라우저에서는 PDF 다운로드로 지면을 확인하세요.</p>
           <iframe id="preview" title="조판된 PDF 미리보기" hidden></iframe>
         </div>
-        <footer class="folio"><span id="proof-size">PDF</span><span>읽기 전용</span></footer>
+        <footer class="folio"><span id="proof-size">PDF</span><span id="proof-decision" aria-live="polite"></span></footer>
       </section>
     </div>
     <section id="style" inert aria-labelledby="style-title">
@@ -195,7 +199,10 @@
       <div id="reference-bindings"></div>
       <button id="reference-targets" type="button">적용 대상 다시 읽기</button>
       <p id="reference-message" aria-live="polite"></p>
-      <div id="reference-proof"></div>
+      <div id="reference-proof" hidden>
+        <p id="trial-decision"></p>
+        <a id="trial-pdf" target="_blank" rel="noopener">시험 PDF 열기</a>
+      </div>
       <div class="reference-tools">
         <button id="reference-trial" type="button">시험 조판</button>
         <button id="reference-apply" class="primary" type="button" disabled>적용</button>

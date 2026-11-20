@@ -40,7 +40,7 @@ class Desk:
         self.source = page.get_by_role("textbox", name="마크다운 원고")
         self.refresh = page.get_by_role("button", name="미리보기 갱신", exact=True)
         self.export = page.get_by_role("button", name="PDF 다운로드", exact=True)
-        self.frame = page.locator("iframe")
+        self.frame = page.locator("#preview")
 
     def route(self, route):
         url = route.request.url
