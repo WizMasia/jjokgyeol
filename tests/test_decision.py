@@ -1,11 +1,16 @@
 """T13. Offline contract, measured PDF replay and opt-in local acceptance."""
 from contextlib import contextmanager
+from email import policy
+from email.parser import BytesParser
+from functools import partial
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
 import os
 import shutil
+import sys
+from tempfile import TemporaryDirectory
 from pathlib import Path
 import time
 
@@ -243,6 +248,101 @@ def test_job_deadline_returns_measured_rule_pdf(installed, monkeypatch, tmp_path
         pdf, status = decision.render_choice(doc, style, tmp_path, time.monotonic() + 25)
     assert len(calls) == 2
     assert status == "rule" and pdf == (tmp_path / "measure/book.pdf").read_bytes()
+
+
+@pytest.fixture
+def measured_jobs(installed, monkeypatch, tmp_path):
+    from app import jobs
+
+    # Use the real worker and replay, with the offline model pin available in its process.
+    launcher = (
+        f"import runpy, sys; sys.path.insert(0, {str(Path(jobs.__file__).parents[1])!r}); "
+        f"from pathlib import Path; from app.ai import decision; decision.MODEL_DIR = Path({str(tmp_path)!r}); "
+        f"decision.PIN['files'] = {decision.PIN['files']!r}; "
+        f"runpy.run_path({jobs.__file__!r}, run_name='__main__')"
+    )
+    monkeypatch.setattr(jobs, "WORKER_CMD", (sys.executable, "-IB", "-c", launcher))
+    scratch = tmp_path / "jobs"
+    scratch.mkdir()
+    monkeypatch.setattr(jobs, "TemporaryDirectory", partial(TemporaryDirectory, dir=scratch, delete=False))
+    return scratch
+
+
+@pytest.mark.parametrize("expected", ["model", "mixed", "rule"])
+def test_compare_returns_pdfs_from_one_measured_job(installed, measured_jobs, monkeypatch, expected):
+    from fastapi.testclient import TestClient
+    from app.server import app
+
+    inventory, result = installed
+    calls = 0
+
+    def answer(path, data):
+        nonlocal calls
+        if data is None:
+            return inventory
+        calls += 1
+        options = json.loads(data["messages"][-1]["content"])
+        selected = min(options, key=lambda k: options[k][0]["end_glyph"])
+        if expected == "rule" or (expected == "mixed" and calls == 2):
+            selected = "unknown"
+        result["choices"][0]["message"]["content"] = json.dumps({"id": selected})
+        return result
+
+    with model_server(answer) as port, TestClient(app) as client:
+        monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
+        response = client.post("/api/render", headers={"Accept": "multipart/form-data"},
+                               json={"source": "풀잎 사이 Dew 은빛 이슬\n\n" * 2, "style": STYLE})
+    assert response.status_code == 200
+    assert response.headers["X-Jjokgyeol-Decision"] == expected
+    assert calls == 2
+    assert response.headers["Cache-Control"] == "no-store"
+    job, = measured_jobs.iterdir()
+    passes = {path.parent.name for path in job.rglob("book.pdf")}
+    assert passes == ({"measure"} if expected == "rule" else {"measure", "replay"})
+    baseline = (job / "measure/book.pdf").read_bytes()
+    if expected == "rule":
+        assert response.headers["Content-Type"] == "application/pdf"
+        assert response.content == baseline
+        return
+    content_type = response.headers["Content-Type"]
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {content_type}\r\n\r\n".encode() + response.content)
+    assert message.get_content_type() == "multipart/form-data"
+    parts = {}
+    for part in message.iter_parts():
+        name = part.get_param("name", header="Content-Disposition")
+        assert name not in parts and part.get_filename() == f"{name}.pdf"
+        assert part.get_content_disposition() == "form-data"
+        assert part.get_content_type() == "application/pdf"
+        parts[name] = part.get_payload(decode=True)
+    assert parts == {"rule": baseline, "model": (job / "replay/book.pdf").read_bytes()}
+    assert parts["rule"] != parts["model"]
+
+
+@pytest.mark.parametrize("mode", [None, "model"])
+def test_single_pdf_with_connected_model_requires_explicit_choice(installed, measured_jobs, monkeypatch, mode):
+    from fastapi.testclient import TestClient
+    from app.server import app
+
+    inventory, result = installed
+
+    def answer(path, data):
+        if data is None:
+            return inventory
+        options = json.loads(data["messages"][-1]["content"])
+        result["choices"][0]["message"]["content"] = json.dumps({"id": next(iter(options))})
+        return result
+
+    payload = {"source": SOURCE, "style": STYLE}
+    if mode is not None:
+        payload["decision"] = mode
+    with model_server(answer) as port, TestClient(app) as client:
+        monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
+        response = client.post("/api/render", json=payload)
+    assert response.status_code == 200 and response.headers["Content-Type"] == "application/pdf"
+    assert response.headers["X-Jjokgyeol-Decision"] == (mode or "rule")
+    job, = measured_jobs.iterdir()
+    assert response.content == (job / ("replay/book.pdf" if mode else "book.pdf")).read_bytes()
 
 
 @pytest.mark.skipif(not os.getenv("JJOKGYEOL_DECISION_TEST_URL"), reason="explicit local deployment acceptance")

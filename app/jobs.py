@@ -60,7 +60,8 @@ def worker():
     request.unlink()
     if not isinstance(payload, dict) or payload.keys() - {"source", "style", "decision"}:
         raise JobError(422)
-    mode = payload.get("decision", "rule")
+    compare = sys.argv[2:] == ["--compare"]
+    mode = payload.get("decision", "model" if compare else "rule")
     if mode not in ("rule", "model"):
         raise JobError(422, "decision", "문단 선택 방식을 확인하세요.")
     status = "rule"
@@ -72,7 +73,7 @@ def worker():
             from app.ai.decision import render_choice
             deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT
             pdf, status = render_choice(doc, style, workdir, deadline)
-        elif "decision" in payload:
+        elif compare or "decision" in payload:
             pdf = typeset(doc, style, workdir, collect_candidates=True)
         else:
             pdf = typeset(doc, style, workdir)
@@ -101,14 +102,19 @@ def stop_group(process):
                 break
 
 
-async def render(body, deadline=None):
+async def render(body, deadline=None, *, compare=False):
     if deadline is None:
-        return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf")
-    return await isolated_job(body, (*WORKER_CMD, str(deadline)), "request.json", "response.pdf",
-                              with_decision=True)
+        if not compare:
+            return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf")
+        deadline = monotonic() + TIMEOUT
+    command = (*WORKER_CMD, str(deadline))
+    if compare:
+        command += ("--compare",)
+    return await isolated_job(body, command, "request.json", "response.pdf",
+                              with_decision=True, compare=compare)
 
 
-async def isolated_job(body, command, request_name, response_name, *, with_decision=False):
+async def isolated_job(body, command, request_name, response_name, *, with_decision=False, compare=False):
     if sys.platform == "linux":
         # PR_SET_CHILD_SUBREAPER adopts orphaned descendants for group-scoped waitpid.
         if ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) != 0:
@@ -134,7 +140,13 @@ async def isolated_job(body, command, request_name, response_name, *, with_decis
             raise JobError(500)
         data = (workdir / response_name).read_bytes()
         if with_decision:
-            return data, (workdir / "decision-status").read_text("ascii")
+            applied = (workdir / "decision-status").read_text("ascii")
+            if compare and applied in ("model", "mixed"):
+                rule = (workdir / "measure/book.pdf").read_bytes()
+                if not complete_pdf(rule):
+                    raise JobError(500)
+                return (rule, data), applied
+            return data, applied
         return data
 
 

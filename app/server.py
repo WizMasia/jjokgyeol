@@ -6,11 +6,12 @@ from pathlib import Path
 from subprocess import DEVNULL
 from threading import BoundedSemaphore
 from time import monotonic
+from uuid import uuid4
 
 from anyio import CapacityLimiter, fail_after, run_process
 from fastapi import FastAPI
 from starlette.requests import ClientDisconnect, Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.staticfiles import StaticFiles
 
 from app import jobs, publication
@@ -46,6 +47,20 @@ def failure(status, field=None, message=None):
     code, fallback = ERRORS[status]
     return JSONResponse({"code": code, "field": field, "message": message or fallback},
                         status_code=status, headers=NO_STORE)
+
+
+def proof_pair_response(rule, model, headers):
+    boundary = uuid4().hex
+
+    async def parts():
+        for name, pdf in (("rule", rule), ("model", model)):
+            yield (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; '
+                   f'filename="{name}.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode("ascii")
+            yield pdf
+            yield b"\r\n"
+        yield f"--{boundary}--\r\n".encode("ascii")
+
+    return StreamingResponse(parts(), media_type=f"multipart/form-data; boundary={boundary}", headers=headers)
 
 
 async def read_body(request, limit=None):
@@ -140,9 +155,13 @@ class DocumentJob:
     async def result(self, request, worker_deadline):
         if self.action == "render":
             body = await read_body(request)
-            result, status = await while_connected(jobs.render(body, worker_deadline), request.receive)
-            return Response(result, media_type="application/pdf",
-                            headers={**NO_STORE, "X-Jjokgyeol-Decision": status})
+            compare = request.headers.get("accept", "").strip().lower() == "multipart/form-data"
+            result, status = await while_connected(
+                jobs.render(body, worker_deadline, compare=compare), request.receive)
+            headers = {**NO_STORE, "X-Jjokgyeol-Decision": status}
+            if isinstance(result, tuple):
+                return proof_pair_response(*result, headers=headers)
+            return Response(result, media_type="application/pdf", headers=headers)
         if self.action == "import":
             name = request.query_params.get("name", "")
             if not name or "\x00" in name:
