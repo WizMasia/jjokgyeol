@@ -168,7 +168,7 @@ def _inlines(tokens: list[Token], row=0, switches=None) -> list[Inline]:
             elif token.content:
                 stack[-1].append(Inline("text", text=token.content.replace("\n", " ")))
         elif token.type == "unresolved_note":
-            raise InputError({"source": "주석 참조에 해당하는 정의가 없습니다."})
+            raise InputError({"source": "각주 참조에 해당하는 정의가 없습니다."})
         elif token.type in ("note_ref", "endnote_ref", "memo_ref"):
             stack[-1].append(Inline(token.type, id=token.content))
         elif token.type == "gloss":
@@ -194,8 +194,10 @@ def _manuscript(source: str):
     for index, line in enumerate(lines):
         match = DEFINITION.fullmatch(line)
         if match:
-            if not notes.add(*match.groups()):
-                raise InputError({"source": "주석 정의가 중복되었습니다."})
+            name, label, content = match.groups()
+            if not notes.add(name, label, content):
+                kind = "각주" if label is None and name in notes.footnotes else "주석"
+                raise InputError({"source": f"{kind} 정의가 중복되었습니다."})
             lines[index] = ""
 
     fenced, starts = _fence_context("\n".join(lines), notes)

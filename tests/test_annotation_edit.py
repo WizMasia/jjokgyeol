@@ -80,3 +80,15 @@ def test_hidden_number_has_no_orphan_explanation():
     spans = numbered(source, "")
     assert all(span["kind"] == "text" for span in spans)
     assert "".join(span["text"] for span in spans) == " 목적"
+
+
+@pytest.mark.parametrize(("source", "message"), [
+    ("[^memo-누락]\n\n[^별개]{미주}: 자료", "각주 참조에 해당하는 정의가 없습니다."),
+    ("[^end-주]: 하나\n[^end-주]: 둘", "각주 정의가 중복되었습니다."),
+    ("[^주]: 하나\n[^주]{미주}: 둘", "주석 정의가 중복되었습니다."),
+    ("[^주]{메모}: 하나\n[^주]: 둘", "주석 정의가 중복되었습니다."),
+])
+def test_note_errors_preserve_editor_messages(source, message):
+    with pytest.raises(InputError) as caught:
+        parse_md(source)
+    assert caught.value.errors == {"source": message}
