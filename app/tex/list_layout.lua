@@ -14,6 +14,7 @@ function lists.measure(blocks, literal, appearance)
       -- contain both the PDF color push and pop on every reuse.
       tex.sprint("\\setbox\\BookListMark=\\hbox{{")
       appearance(block.overrides)
+      if block.mark_weight then appearance({weight = block.mark_weight}) end
       literal(mark, true)
       tex.sprint("}}\\directlua{book.capture_mark(" .. index .. ")}")
     end
@@ -45,7 +46,7 @@ function lists.columns(blocks, available)
       local group = groups[b.group]
       if not group then
         group = {width = 0, level = b.level, parent = b.parent_group,
-                 indent = b.indent_sp, gap = b.gap_sp}
+                 indent = b.indent_sp, gap = b.gap_sp, from_margin = b.indent_origin == "margin"}
         groups[b.group] = group
       end
       if b.mark then group.width = math.max(group.width, boxes[b.mark_id].width) end
@@ -53,7 +54,7 @@ function lists.columns(blocks, available)
   end
   local function resolve(group)
     if group.origin then return group.origin end
-    local parent = group.parent and resolve(groups[group.parent]) or 0
+    local parent = not group.from_margin and group.parent and resolve(groups[group.parent]) or 0
     group.offset = group.width + group.gap
     group.origin = parent + group.indent + group.offset
     if group.origin >= available then require("wordbreak").no_room(group.level) end
@@ -71,7 +72,8 @@ function lists.attach(head, item)
   -- by the line or page builder. The zero-width outer box retains the origin.
   for line in node.traverse_id(node.id("hlist"), head) do
     local back = node.new("kern")
-    back.kern = -groups[item.group].offset
+    local group = groups[item.group]
+    back.kern = group.from_margin and group.indent - line.shift or -group.offset
     local label = node.copy(boxes[item.mark_id])
     back.next, label.prev = label, back
     local overlay = node.hpack(back)

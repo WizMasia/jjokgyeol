@@ -96,7 +96,7 @@ def suggest_patch(request: str, current: Style, *, draft: dict | None = None) ->
         fields.update(zip(names, editor[key], strict=True))
     levels = deepcopy(editor["list_levels"])
     for i, level in enumerate(levels, 1):
-        fields.update({f"list.{i}.{key}": v for key, v in level.items()})
+        fields.update({f"list.{i}.{key}": level[key] for key in ("expr", "indent_mm", "gap_mm")})
     rules = deepcopy(editor.get("section_rules", []))
     for role in RUNNING_ROLES:
         fields.update({f"{role}.{slot}": None for slot in SLOTS})
