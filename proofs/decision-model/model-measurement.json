@@ -1,0 +1,27 @@
+{
+  "applied": "model",
+  "elapsed_ms": 8371.628921,
+  "style": {
+    "page_mm": [
+      58,
+      100
+    ],
+    "margins_mm": [
+      10,
+      10,
+      10,
+      10
+    ],
+    "ko_tracking_pct": -3,
+    "space_pct": [
+      100,
+      100
+    ],
+    "body_pt": 11,
+    "leading_pt": 17
+  },
+  "source_sha256": "d6203df182e7f3006a23baa1289464bd6c1bdb8847214143f592a89dd9ce7193",
+  "pdf_sha256": "7aab8adc33c9fc56ec09564c65a082ef49002189fe9bff07897c3b773896bc21",
+  "log_sha256": "f27c4e644c738a0121d325f06caaa80445b5987f9cd59ec26238b25ec800c4c1",
+  "model_sha256": "54dfb6c99a9778a68dd5f3300f13930e65b567dab1ac54340001086bcf65a692"
+}
