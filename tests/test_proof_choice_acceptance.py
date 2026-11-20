@@ -1,12 +1,11 @@
 """A reader can choose and export both layouts from the same production render."""
-from email import policy
-from email.parser import BytesParser
 import hashlib
 import os
 
 from playwright.sync_api import expect
 import pytest
 
+from proof_response import rendered_pdfs
 from app.style import Style, apply_style
 from test_decision import SOURCE, STYLE, scan
 from test_refactor_acceptance import compact_json
@@ -29,12 +28,7 @@ def test_selected_proof_is_the_downloaded_pdf(editor):
     response = reply.value
     assert response.ok
     assert response.headers["x-jjokgyeol-decision"] == "model"
-    header = response.headers["content-type"]
-    message = BytesParser(policy=policy.default).parsebytes(
-        f"Content-Type: {header}\r\n\r\n".encode("ascii") + response.body())
-    assert message.get_content_type() == "multipart/form-data"
-    pdfs = {p.get_param("name", header="content-disposition"): p.get_payload(decode=True)
-            for p in message.iter_parts()}
+    pdfs = rendered_pdfs(response)
     assert pdfs.keys() == {"model", "rule"}
     model, rule = scan(pdfs["model"]), scan(pdfs["rule"])
     assert model[0] != rule[0] and model[1] == rule[1]

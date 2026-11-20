@@ -14,6 +14,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from proof_response import selected_pdf
+
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures")
 SAMPLE = ROOT / "proofs/engine-comparison/manuscript.md"
@@ -185,7 +187,7 @@ def test_real_edit_export(server_url):
                 page.goto(server_url)
             editor = page.get_by_role("textbox", name="마크다운 원고")
             expect(editor).to_have_value(sample)
-            old_pdf = initial.value.body()
+            old_pdf = selected_pdf(initial.value, page)
             old_pages = pdf_lines(old_pdf)
             width, height, _ = old_pages[0]
             assert (width, height) == pytest.approx((419.53, 595.28), abs=0.15)

@@ -13,6 +13,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 from pypdf import PdfReader
 
+from proof_response import selected_pdf
 from pdf_metrics import read_pages
 from test_article_acceptance import save
 from test_list_acceptance import download_proof, match_item, rows
@@ -219,7 +220,7 @@ def trial(page):
     with page.expect_response(lambda r: r.url.endswith("/api/render"), timeout=45000) as incoming:
         page.locator("#reference-trial").click()
     assert incoming.value.ok, incoming.value.text()
-    raw = incoming.value.body()
+    raw = selected_pdf(incoming.value, page)
     expect(page.locator("#reference-apply")).to_be_enabled(timeout=45000)
     assert blob_hash(page.locator("#reference-proof a"), "href") == hashlib.sha256(raw).hexdigest()
     return raw

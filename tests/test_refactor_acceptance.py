@@ -14,6 +14,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from proof_response import selected_pdf
 from pdf_metrics import read_pages
 from test_slice import render
 
@@ -163,7 +164,7 @@ def check_defaults(url, size_pt, folder):
             return Array.from(new Uint8Array(hash), n => n.toString(16).padStart(2, '0')).join('');
         }""")
         assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
-        assert digest == hashlib.sha256(initial.value.body()).hexdigest()
+        assert digest == hashlib.sha256(selected_pdf(initial.value, tab)).hexdigest()
         body = next(line for p in read_pages(path.read_bytes()) for line in p.lines
                     if "오래된지도" in "".join(line.text.split()))
         assert body.chars[0].size == pytest.approx(size_pt * 72 / 72.27, abs=0.001)

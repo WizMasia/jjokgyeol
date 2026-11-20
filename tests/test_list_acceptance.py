@@ -9,6 +9,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from proof_response import selected_pdf
 from pdf_metrics import read_pages
 from test_refactor_acceptance import image_id, stock, style_request
 from test_slice import render
@@ -195,7 +196,7 @@ def download_proof(tab, path):
     }""")
     pdf = path.read_bytes()
     assert digest == hashlib.sha256(pdf).hexdigest()
-    assert pdf == result.value.body()
+    assert pdf == selected_pdf(result.value, tab)
     print(f"{path.name} {len(pdf)} bytes SHA-256 {digest}")
     return pdf
 
