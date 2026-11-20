@@ -26,7 +26,7 @@ python desktop/qa/compare_pdfs.py 네이티브.pdf 웹판.pdf
 
 Mac 개발 앱에서 원고를 열고 편집한 뒤 PDF를 미리보고 저장했습니다. 원고만 고치거나 양식만 고친 경우 각각 창 닫기를 취소하면 수정값이 보존됩니다. 양면 줄 번호, 9단계 목록, 일반 보고서, 주석의 본문 크기 변경(11pt·16pt), 양끝맞춤 예제와 새 원고의 지면이 웹판과 일치했습니다. Mac 앱을 다른 폴더로 복사하고 네트워크와 개발 저장소 읽기를 차단한 상태에서도 같은 양면 PDF가 생성됐습니다. 데스크톱 개발판은 규칙 조판을 지원합니다. 웹판에서는 모델판과 규칙판을 선택할 수 있습니다. [네이티브 앱 빌드](desktop/gui/README.md) · [조판 작업자 준비](desktop/worker/README.md) · [Windows 검증](desktop/qa/runtime/README.md) · [Linux 검증](desktop/qa/linux/README.md)
 
-Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서 운영체제가 쪽결 창을 표시하는 것까지 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44737851837) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44737851780)
+Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서는 쪽결의 설정 버튼으로 별도 창을 열고, 설정창을 닫은 뒤에도 원고 창이 열려 있음을 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324666) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324648)
 
 ## 내 컴퓨터에서 실행하기
 
@@ -42,13 +42,15 @@ docker run -d --name jjokgyeol-local -p 127.0.0.1:8780:8000 jjokgyeol:local-edit
 ## 첫 PDF 만들기
 
 1. **원고 열기**에서 UTF-8 마크다운 파일을 선택합니다. TXT·HTML·DOCX·HWPX·HWP 5 파일은 **원고 가져오기**를 사용합니다. 변환 중 달라진 요소는 원고 아래 경고에서 확인할 수 있습니다.
-2. 새 원고의 기본값은 A5, 나눔명조 11pt, 행간 17pt입니다. **판형·여백 및 세부 양식**에서 판형과 여백, 첫 줄·이후 줄 들여쓰기(mm 또는 pt), 자간과 어절 공백의 허용 범위를 조정합니다.
+2. 새 원고의 기본값은 A5, 나눔명조 11pt, 행간 17pt입니다. **설정 → 판형·여백 및 세부 양식**에서 판형과 여백, 첫 줄·이후 줄 들여쓰기(mm 또는 pt), 자간과 어절 공백의 허용 범위를 조정합니다.
 3. **미리보기 갱신**으로 조판하고 **PDF 다운로드**로 화면에서 고른 결과를 저장합니다. 원고나 양식을 고친 뒤 다운로드하면 최신 내용으로 다시 조판합니다.
 4. 다음에도 편집하려면 **원고 저장**으로 마크다운을, **양식 저장**으로 JSON을 보관합니다. 같은 양식은 **양식 열기**로 다른 원고에 적용할 수 있습니다.
 
+데스크톱 앱에서 **설정**을 누르면 별도의 **출판 설정** 창이 열립니다. **적용**을 누르면 편집 중인 원고에 양식이 반영되고, **닫기**를 누르면 적용 전 변경을 취소합니다. 기존 PDF는 **미리보기 갱신**으로 새 조판을 확인할 때까지 볼 수 있습니다. 웹 편집기에서는 설정 대화상자에서 수정한 값이 바로 반영됩니다.
+
 ### 일반 보고서 양식
 
-바로 시험하려면 아래의 예제 원고를 **원고 열기**로, 양식 JSON을 **판형·여백 및 세부 양식 → 양식 열기**로 연 뒤 미리보기를 갱신합니다. 편집기 안에서도 **일반 보고서 양식 다운로드**로 같은 JSON을 받을 수 있습니다. [예제 원고](proofs/general-report/manuscript.md) · [일반 보고서 양식](app/static/general-report.json) · [완성 PDF](proofs/general-report/general-report.pdf)
+바로 시험하려면 아래의 예제 원고를 **원고 열기**로, 양식 JSON을 **설정 → 판형·여백 및 세부 양식 → 양식 열기**로 연 뒤 미리보기를 갱신합니다. 편집기 안에서도 **일반 보고서 양식 다운로드**로 같은 JSON을 받을 수 있습니다. [예제 원고](proofs/general-report/manuscript.md) · [일반 보고서 양식](app/static/general-report.json) · [완성 PDF](proofs/general-report/general-report.pdf)
 
 ```markdown
 # 현장 점검 결과 보고
@@ -72,7 +74,7 @@ docker run -d --name jjokgyeol-local -p 127.0.0.1:8780:8000 jjokgyeol:local-edit
 
 위와 같은 중첩 목록에 **단계별 목록 서식 → 목록 양식 → 계층 번호형**을 적용하면 `1.`, `1.1.`, `1.1.1.`처럼 상위 번호가 함께 인쇄됩니다. 9단계까지 각 단계의 표지와 들여쓰기를 정할 수 있습니다. 같은 목록은 쪽을 넘어도 번호를 이어가고, 새 부모 아래에서는 하위 번호가 다시 시작합니다. [9단계 원고](proofs/numbering/outline-9.md) · [양식](proofs/numbering/outline-9.json) · [PDF](proofs/numbering/outline-9.pdf)
 
-교정용 줄 번호는 **판형·여백 및 세부 양식 → 줄 번호 위치**에서 지정합니다. 양면 교정지라면 **홀짝 따로 지정**을 골라 홀수쪽은 오른쪽, 짝수쪽은 왼쪽으로 설정하세요. 양쪽에서 각각 끌 수도 있습니다. 최종 PDF의 첫 장이 홀수쪽이며, 번호를 숨긴 면의 인쇄 줄도 다음 순번에 포함됩니다. [양면 원고](proofs/numbering/manuscript.md) · [양식](proofs/numbering/odd-even.json) · [두 쪽짜리 교정 PDF](proofs/numbering/odd-even.pdf)
+교정용 줄 번호는 **설정 → 판형·여백 및 세부 양식 → 줄 번호 위치**에서 지정합니다. 양면 교정지라면 **홀짝 따로 지정**을 골라 홀수쪽은 오른쪽, 짝수쪽은 왼쪽으로 설정하세요. 양쪽에서 각각 끌 수도 있습니다. 최종 PDF의 첫 장이 홀수쪽이며, 번호를 숨긴 면의 인쇄 줄도 다음 순번에 포함됩니다. [양면 원고](proofs/numbering/manuscript.md) · [양식](proofs/numbering/odd-even.json) · [두 쪽짜리 교정 PDF](proofs/numbering/odd-even.pdf)
 
 ### 주석과 출판 기능
 
