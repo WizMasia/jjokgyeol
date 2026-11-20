@@ -9,6 +9,11 @@ local function left_at_page(page)
   return mirrored and page % 2 == 0 and outer or inner
 end
 local book = {}
+local defaults = data.text_defaults
+local roles = style.text_styles or {}
+local note = {font_sp = defaults.note_sp, weight = defaults.weight, slant = defaults.slant}
+if defaults.color:upper() ~= "#000000" then note.color = defaults.color end
+for k, v in pairs(roles.note or {}) do note[k] = v end
 local emit = tex.sprint
 local families = {}
 local compose = require("lua-uni-normalize").NFC
@@ -63,6 +68,7 @@ function book.setup()
     end
   end
   for _, block in ipairs(data.blocks) do register(block.overrides) end
+  register(note)
   if data.running_sections then
     register(data.running_sections.defaults)
     for _, scope in ipairs(data.running_sections.scopes) do
@@ -76,15 +82,26 @@ function book.setup()
   if has_color then
     emit("\\usepackage{xcolor}\\AddToHook{cmd/@makefntext/before}{\\normalcolor}")
   end
+  if next(data.footnotes) then
+    emit("\\AddToHook{cmd/@makefntext/before}{\\directlua{book.note_style()}}")
+    if next(roles) then emit("\\AtBeginDocument{\\BookStyledMarks}") end
+  end
 end
 
 local function appearance(values)
   if not values then return end
   if values.font then emit(assert(families[values.font])) end
+  if values.weight then emit(values.weight == "bold" and "\\bfseries" or "\\mdseries") end
+  if values.slant then emit(values.slant == "italic" and "\\itshape" or "\\upshape") end
   if values.color then
     local hex = assert(values.color:match("^#(%x%x%x%x%x%x)$"), "invalid RGB color")
     emit("\\color[HTML]{" .. hex .. "}")
   end
+end
+
+function book.note_style()
+  appearance(note)
+  emit("\\fontsize{" .. sp(note.font_sp) .. "}{\\baselineskip}\\selectfont")
 end
 
 local function body_appearance(values)

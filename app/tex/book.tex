@@ -9,6 +9,9 @@
 \newcommand\BookPar{\par}
 \newcommand\bookheading[3]{%
   {\sffamily\bfseries\fontsize{#1}{#2}\selectfont #3\BookPar}\nobreak}
+\makeatletter
+\newcommand\BookStyledMarks{\def\@makefnmark{\hbox{\@textsuperscript{\@thefnmark}}}}
+\makeatother
 \begin{document}
 \frenchspacing
 \parindent=0pt

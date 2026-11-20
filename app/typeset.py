@@ -14,7 +14,7 @@ from app.list_marks import format_mark
 from app.publication import FONT_DIR, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
-from app.style import RUNNING_DEFAULTS
+from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS
 
 if TYPE_CHECKING:
     from app.document import Document
@@ -51,6 +51,24 @@ def _running_sections(doc, style):
     return {"defaults": _running_fields(dict(RUNNING_DEFAULTS)), "scopes": settings}, [c[-1] for c in chains]
 
 
+def _role_styles(style):
+    """Omit attributes already supplied by the template's ordinary paragraph and heading."""
+    explicit = dict(style.text_styles or ())
+    styles = {}
+    for role in ("body", *(f"heading{level}" for level in range(1, 7))):
+        heading = role != "body"
+        weight = TEXT_DEFAULTS["heading_weight" if heading else "weight"]
+        base = {}
+        if weight != ("bold" if heading else "normal"):
+            base["weight"] = weight
+        if TEXT_DEFAULTS["slant"] != "normal":
+            base["slant"] = TEXT_DEFAULTS["slant"]
+        if TEXT_DEFAULTS["color"].upper() != "#000000":
+            base["color"] = TEXT_DEFAULTS["color"]
+        styles[role] = base | dict(explicit.get(role, ()))
+    return styles
+
+
 def _render(doc, style, workdir, candidate):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
@@ -59,11 +77,15 @@ def _render(doc, style, workdir, candidate):
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
+    role_styles = _role_styles(style)
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
     box_ids = {}
     for block, values in zip(blocks, overrides, strict=True):
         if "running_id" in values:
             block["running_id"] = values.pop("running_id")
+        heading = block["kind"] == "heading"
+        role = f"heading{block['level']}" if heading else "body"
+        values = role_styles[role] | values
         if values:
             block["overrides"] = {k: v for k, v in values.items() if not k.startswith("levels.")}
         if block["kind"] != "list_item":
@@ -80,7 +102,7 @@ def _render(doc, style, workdir, candidate):
             except ValueError as error:
                 raise InputError({f"list_levels[{index}].expr": f"{index + 1}단계 표지를 만들 수 없습니다."}) from error
             key = (mark, values.get("font", style.body_font), values.get("font_sp", style.body_sp),
-                   values.get("color", "#000000"))
+                   values.get("color", TEXT_DEFAULTS["color"]), values.get("weight"), values.get("slant"))
             block["mark"] = mark
             block["mark_id"] = box_ids.setdefault(key, len(box_ids) + 1)
     book_style = style.to_stored()
@@ -89,6 +111,7 @@ def _render(doc, style, workdir, candidate):
     data = {"blocks": blocks,
             "footnotes": dict(doc.footnotes), "style": book_style,
             "policy": engine_policy(), "candidate": candidate}
+    data["text_defaults"] = TEXT_DEFAULTS
     if settings:
         data["running_sections"] = settings
     (workdir / "input.json").write_text(
