@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/editor.css">
   <!--EDITOR_SETTINGS-->
   <script src="/static/list-style.js" defer></script>
+  <script src="/static/indent-units.js" defer></script>
   <script src="/static/typography.js" defer></script>
   <script src="/static/editor.js" defer></script>
   <script src="/static/style-file.js" defer></script>
@@ -98,7 +99,8 @@
             </div>
             <span id="margin-error" aria-live="polite"></span>
           </fieldset>
-          <fieldset><legend>문단 들여쓰기 (mm)</legend>
+          <fieldset><legend>문단 들여쓰기</legend>
+            <label>단위 <select id="indent-unit" aria-label="들여쓰기 단위"></select></label>
             <label>첫 줄 들여쓰기 <input id="first_indent_mm" name="first_indent_mm" type="text" inputmode="decimal"></label>
             <label>이후 줄 들여쓰기 <input id="rest_indent_mm" name="rest_indent_mm" type="text" inputmode="decimal"></label>
           </fieldset>
