@@ -19,3 +19,5 @@ The worker bounds request reads and PDF output. On POSIX, it also applies the co
 Worker tests are run with `PYTHONPATH=. python -m pytest desktop/worker/tests/test_worker.py` (on Windows PowerShell, set `$env:PYTHONPATH = '.'` first). The tests exercise the CLI separately and mock only the typesetter's engine subprocess for successful and failed renders; no shell-based engine is required.
 
 This build is a development prototype. Dependencies are pinned and hash checked; byte-for-byte reproducibility and platform-specific engine bundles require separate validation.
+
+For native style files, invoke the same executable with either `--style-open` or `--style-export` and no `--runtime`. Send one UTF-8 JSON object on stdin (a UTF-8 BOM is accepted); stdout contains the converted JSON object. Open converts stored integer units to editor values, and export converts editor values to stored units. Input is limited to the configured request size; invalid input exits nonzero with a JSON error on stderr. These modes do not render or require a runtime directory.

@@ -148,3 +148,43 @@ assert __import__('os').stat('large').st_size <= 4096
     result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path,
                             env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True)
     assert result.returncode == 0, result.stderr.decode()
+
+
+def style_cli(tmp_path, mode, raw):
+    return subprocess.run([sys.executable, str(WORKER), mode], input=raw, cwd=tmp_path,
+                          env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True)
+
+
+def test_style_open_export_roundtrip_with_bom(tmp_path):
+    opened = style_cli(tmp_path, '--style-open', b'\xef\xbb\xbf' + json.dumps(STYLE).encode())
+    assert opened.returncode == 0, opened.stderr.decode()
+    editor = json.loads(opened.stdout)
+    exported = style_cli(tmp_path, '--style-export', json.dumps(editor).encode())
+    assert exported.returncode == 0, exported.stderr.decode()
+    from app.style import from_stored_style
+    assert json.loads(exported.stdout) == from_stored_style(STYLE).to_stored()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(('mode', 'raw'), [
+    ('--style-open', b'[]'),
+    ('--style-open', b'{"body_sp": -1}'),
+    ('--style-export', b'{"body_pt": "not a number"}'),
+    ('--style-export', b'{'),
+    ('--style-open', b'[' * 2000 + b'0' + b']' * 2000),
+    ('--style-open', b' ' * (1048576 + 1)),
+])
+def test_style_invalid_input_returns_json_error(tmp_path, mode, raw):
+    result = style_cli(tmp_path, mode, raw)
+    assert result.returncode != 0
+    error = json.loads(result.stderr)
+    assert error['code'] in ('invalid_input', 'worker_error')
+    assert b'Traceback' not in result.stderr
+    assert result.stdout == b''
+
+
+def test_style_modes_are_mutually_exclusive(tmp_path):
+    result = subprocess.run([sys.executable, str(WORKER), '--style-open', '--style-export'],
+                            input=b'{}', cwd=tmp_path, env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True)
+    assert result.returncode != 0
+    assert json.loads(result.stderr)['code'] == 'worker_error'

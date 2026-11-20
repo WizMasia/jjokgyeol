@@ -1,5 +1,6 @@
 """One local, rule-only render request; the caller owns the working directory."""
 import argparse
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import tempfile
 from app.configuration import unique_fields
 from app.document import InputError, parse_md
 from app.operations import LIMITS
-from app.style import from_stored_style
+from app.style import from_editor_style, from_stored_style
 from app.typeset import typeset
 
 
@@ -30,12 +31,29 @@ def limit_worker_files(max_bytes):
         resource.setrlimit(resource.RLIMIT_FSIZE, (min(soft, max_bytes) if soft != resource.RLIM_INFINITY else max_bytes, hard))
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise ValueError(message)
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--runtime', required=True, type=Path)
-    args = parser.parse_args()
+    parser = ArgumentParser()
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument('--runtime', type=Path)
+    modes.add_argument('--style-open', action='store_true')
+    modes.add_argument('--style-export', action='store_true')
     try:
+        args = parser.parse_args()
         limit_worker_files(LIMITS.worker_file_bytes)
+        if args.style_open or args.style_export:
+            raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
+            if len(raw) > LIMITS.request_body_bytes:
+                raise InputError({'style': '요청 크기가 너무 큽니다.'})
+            values = json.loads(raw.decode('utf-8-sig'), parse_float=Decimal, object_pairs_hook=unique_fields)
+            style = from_stored_style(values) if args.style_open else from_editor_style(values)
+            result = style.to_editor() if args.style_open else style.to_stored()
+            print(json.dumps(result, allow_nan=False))
+            return 0
         with Path('request.json').open('rb') as stream:
             raw = stream.read(LIMITS.request_body_bytes + 1)
         if len(raw) > LIMITS.request_body_bytes:
@@ -65,7 +83,7 @@ def main():
         return 0
     except InputError as error:
         print(json.dumps({'code': error.code, 'field': error.field, 'message': error.message}, ensure_ascii=False), file=sys.stderr)
-    except (OSError, ValueError, UnicodeError, RecursionError, subprocess.SubprocessError):
+    except (OSError, ValueError, UnicodeError, RecursionError, InvalidOperation, subprocess.SubprocessError):
         print(json.dumps({'code': 'worker_error', 'message': '작업을 처리할 수 없습니다.'}, ensure_ascii=False), file=sys.stderr)
     return 1
 
