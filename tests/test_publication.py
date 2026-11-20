@@ -127,23 +127,77 @@ def test_tracking_bounds_round_trip():
         assert from_stored_style(safe.to_stored()) == safe
 
 
-@pytest.mark.parametrize("role", ["heading1", "note", "gloss", "section"])
+@pytest.mark.parametrize("role", ["heading1", "note"])
 @pytest.mark.parametrize("bounds", [(-17000, 0), (0, 17000)])
-def test_tracking_endpoints_must_fit_document_and_section_sizes(role, bounds):
+def test_tracking_endpoints_must_fit_document_sizes(role, bounds):
     from app.document import InputError
     from app.style import Style, apply_style, from_stored_style
 
-    patch = ({"section_rules": [{"path": ["장"], "role": "body", "values": {"font_pt": 100}}]}
-             if role == "section" else {"text_styles": {role: {"font_pt": 100}}})
+    patch = {"text_styles": {role: {"font_pt": 100}}}
     style = apply_style(Style(), patch)
     for base, edit in [(style, {}), (Style(), patch)]:
         with pytest.raises(InputError) as exc:
             apply_style(base, {**edit, "ko_tracking_bounds_pct": bounds})
-        assert exc.value.field == ("section_rules[0].values.font_pt" if role == "section" else "ko_tracking_bounds_pct")
+        assert exc.value.field == "ko_tracking_bounds_pct"
     with pytest.raises(InputError) as exc:
         from_stored_style(dict(style.to_stored(), ko_tracking_bounds_per_10000=[n * 100 for n in bounds]))
-    assert exc.value.field == ("section_rules[0].values.font_sp" if role == "section"
-                               else "ko_tracking_bounds_per_10000")
+    assert exc.value.field == "ko_tracking_bounds_per_10000"
+
+
+def test_requested_gloss_size_round_trips_with_bounds_that_fit_surrounding_text():
+    from app.document import InputError
+    from app.style import Style, apply_style, from_stored_style
+
+    style = apply_style(Style(), {"body_pt": 11, "text_styles": {"gloss": {"font_pt": 100}},
+                                  "ko_tracking_bounds_pct": [-17000, 17000]})
+    assert style.to_editor()["text_styles"]["gloss"] == {"font_pt": "100"}
+    assert style.to_stored()["text_styles"]["gloss"] == {"font_sp": 6553600}
+    assert from_stored_style(style.to_stored()) == style
+    # At 100000% the derived 17.6pt heading exceeds TeX's limit; the 11pt body still fits.
+    with pytest.raises(InputError) as exc:
+        apply_style(style, {"ko_tracking_bounds_pct": [0, 100000]})
+    assert exc.value.field == "ko_tracking_bounds_pct"
+
+
+@pytest.mark.parametrize(("size", "bounds"), [(100, [-17000, 0]), (100, [0, 17000]), (128, [0, "12799.215"])])
+def test_section_tracking_error_identifies_edit(size, bounds):
+    from app.document import InputError
+    from app.style import Style, apply_style, from_stored_style
+
+    section = {"section_rules": [{"path": ["장"], "role": "body", "values": {"font_pt": size}}]}
+    bounds_patch = {"ko_tracking_bounds_pct": bounds}
+    with_section = apply_style(Style(), section)
+    with_bounds = apply_style(Style(), bounds_patch)
+    for current, patch, field in [
+        (with_section, bounds_patch, "ko_tracking_bounds_pct"),
+        (with_bounds, section, "section_rules[0].values.font_pt"),
+        (Style(), {**section, **bounds_patch}, "section_rules[0].values.font_pt"),
+    ]:
+        with pytest.raises(InputError) as exc:
+            apply_style(current, patch)
+        assert exc.value.field == field
+
+    stored = {**with_bounds.to_stored(), "section_rules": with_section.to_stored()["section_rules"]}
+    with pytest.raises(InputError) as exc:
+        from_stored_style(stored)
+    assert exc.value.field == "section_rules[0].values.font_sp"
+
+
+@pytest.mark.parametrize(("patch", "field"), [
+    ({"text_styles": {"제목": {"color": "#17365D"}}}, "text_styles.제목"),
+    ({"text_styles": {"제목\n": {"color": "#17365D"}}}, "text_styles"),
+    ({"text_styles": {"note": {"글꼴\t": 12}}}, "text_styles.note"),
+    ({"section_rules": [{"path": [], "role": "body", "values": {"글꼴\t": 12}}]}, "section_rules[0].values"),
+])
+def test_unsupported_names_have_printable_validation_paths(patch, field):
+    from app.document import InputError
+    from app.style import Style, apply_style, from_stored_style
+
+    for load in (lambda: apply_style(Style(), patch), lambda: from_stored_style({**Style().to_stored(), **patch})):
+        with pytest.raises(InputError) as exc:
+            load()
+        assert exc.value.field == field
+        assert all(path.isprintable() and path.encode("utf-8") for path in exc.value.errors)
 
 
 def test_bounds_use_effective_heading_and_unrounded_explicit_size():

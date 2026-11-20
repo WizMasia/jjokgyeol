@@ -198,7 +198,7 @@ def _check_rule_fit(key, amount, base, scale):
             raise ValueError("구간 글자 크기와 자간·공백의 조합이 조판 범위를 벗어났습니다.")
 
 
-def _check_existing_rules(base, scale, stored):
+def _check_existing_rules(base, scale, stored, *, bounds_only):
     for index, row in enumerate(base.get("section_rules") or ()):
         if row.role in RUNNING_ROLES:
             continue
@@ -208,6 +208,8 @@ def _check_existing_rules(base, scale, stored):
             try:
                 _check_rule_fit(key, amount * scale, base, scale)
             except ValueError as error:
+                if bounds_only and key == "font_sp":
+                    raise InputError({"ko_tracking_bounds_pct": str(error)}) from None
                 field = key if stored else _editor_rule_key(key)
                 raise InputError({f"section_rules[{index}].values.{field}": str(error)}) from None
 
@@ -267,6 +269,12 @@ def _rule_value(role, key, value, stored, context, base):
     return canonical, amount if stored else _rounded(amount, DENOMINATOR)
 
 
+def _field_path(parent, key):
+    if isinstance(key, str) and key and key.isprintable():
+        return f"{parent}.{key}"
+    return parent
+
+
 def _section_rules(rows, stored, context, base):
     if not isinstance(rows, (list, tuple)):
         raise InputError({"section_rules": "구간 규칙은 배열이어야 합니다."})
@@ -290,7 +298,7 @@ def _section_rules(rows, stored, context, base):
         path = tuple(path)
         values = {}
         for key, raw_value in raw.items():
-            location = f"{field}.values.{key}"
+            location = _field_path(f"{field}.values", key)
             try:
                 if not isinstance(key, str):
                     raise ValueError
@@ -329,7 +337,7 @@ def _text_styles(current, patch, stored, context, scale, errors):
         return styles
     size_key = "font_sp" if stored else "font_pt"
     for role, row in patch.items():
-        path = f"text_styles.{role}"
+        path = _field_path("text_styles", role)
         if role not in TEXT_ROLES or not isinstance(row, dict):
             errors[path] = "지원하는 역할과 속성 객체를 지정하세요."
             continue
@@ -343,7 +351,7 @@ def _text_styles(current, patch, stored, context, scale, errors):
                 else:
                     raise ValueError("이 역할에서 적용할 수 없는 속성입니다.")
             except (ValueError, InvalidOperation) as error:
-                errors[f"{path}.{key}"] = str(error) or "속성 값의 단위와 범위를 확인하세요."
+                errors[_field_path(path, key)] = str(error) or "속성 값의 단위와 범위를 확인하세요."
             else:
                 styles.setdefault(role, {})[key] = value
     return styles
@@ -429,8 +437,8 @@ def _validate_typography(values, scale, errors, tracking_supplied, stored):
     unit = publication.RATIO_UNIT
     body = values["body_sp"]
     styles = values["text_styles"]
-    largest = max(body, styles.get("note", {}).get("font_sp", TEXT_DEFAULTS["note_sp"] * scale),
-                  styles.get("gloss", {}).get("font_sp", 0))
+    # A gloss always fits within the surrounding font size, including in a sized section.
+    largest = max(body, styles.get("note", {}).get("font_sp", TEXT_DEFAULTS["note_sp"] * scale))
     for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
         size = styles.get(role, {}).get("font_sp")
         if size is None:
@@ -516,13 +524,14 @@ def _load(current, patch, *, stored):
             raise InputError({names.get(key, key): msg for key, msg in errors.items()})
         values["text_styles"] = _text_styles(values.get("text_styles"), patch.get("text_styles", {}),
                                             stored, context, scale, errors)
+        bounds_only = patch.keys() == {"ko_tracking_bounds_pct"}
         tracking_supplied = names["ko_tracking_per_10000"] in patch
         _validate(values, scale, errors, tracking_supplied=tracking_supplied, stored=stored)
         if not errors:
             if "section_rules" in patch:
                 values["section_rules"] = _section_rules(patch["section_rules"], stored, context, values)
             else:
-                _check_existing_rules(values, scale, stored)
+                _check_existing_rules(values, scale, stored, bounds_only=bounds_only)
         if not stored:
             for key in names:
                 if values.get(key) is not None:
@@ -532,7 +541,7 @@ def _load(current, patch, *, stored):
                     fields["font_sp"] = _rounded(fields["font_sp"], scale)
             _validate(values, 1, errors, tracking_supplied=tracking_supplied, stored=False)
             if not errors:
-                _check_existing_rules(values, 1, stored=False)
+                _check_existing_rules(values, 1, stored=False, bounds_only=bounds_only)
 
     if errors:
         raise InputError({names.get(key, key): message for key, message in errors.items()})
