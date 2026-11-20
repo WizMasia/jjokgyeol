@@ -15,6 +15,7 @@ from starlette.staticfiles import StaticFiles
 
 from app import jobs, publication
 from app import style as styles
+from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
 from app.operations import LIMITS
 from app.reference import load_settings
@@ -25,6 +26,7 @@ MAX_BODY = LIMITS.request_body_bytes
 SLOTS = BoundedSemaphore(LIMITS.render_slots)
 PIN_WORKERS = CapacityLimiter(LIMITS.render_slots)
 TARGET_SLOTS = BoundedSemaphore(LIMITS.render_slots)
+IMPORT_MAX_BYTES = read_config(CONFIG_DIR / "imports.json")["max_bytes"]
 REFERENCE = load_settings()
 REFERENCE_SLOTS = BoundedSemaphore(REFERENCE["slots"])
 NO_STORE = {"Cache-Control": "no-store"}
@@ -106,7 +108,7 @@ class DocumentJob:
 
     def error(self, status, field=None, message=None):
         if self.action != "render" and not message:
-            field = "source" if self.action == "targets" else "reference"
+            field = "reference" if self.action == "analyze" else "source"
             message = {
                 413: f"파일은 {self.byte_limit():,}바이트 이하여야 합니다.",
                 429: "다른 문서를 처리 중입니다. 잠시 뒤 다시 시도하세요.",
@@ -116,6 +118,8 @@ class DocumentJob:
         return failure(status, field, message)
 
     def byte_limit(self):
+        if self.action == "import":
+            return IMPORT_MAX_BYTES
         return REFERENCE["max_bytes"] if self.action == "analyze" else MAX_BODY
 
     async def result(self, request, worker_deadline):
@@ -123,14 +127,21 @@ class DocumentJob:
             body = await read_body(request)
             result = await while_connected(jobs.render(body), request.receive)
             return Response(result, media_type="application/pdf", headers=NO_STORE)
-        command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
+        if self.action == "import":
+            name = request.query_params.get("name", "")
+            if not name or "\x00" in name:
+                raise jobs.JobError(422, "source", "가져올 원고의 파일 이름을 확인하세요.")
+            command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), name,
+                       str(REFERENCE["worker_memory_bytes"]))
+        else:
+            command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
         body = await read_body(request, self.byte_limit())
         result = await while_connected(
             jobs.isolated_job(body, command, "request.bin", "response.json"), request.receive)
         return Response(result, media_type="application/json", headers=NO_STORE)
 
     async def __call__(self, scope, receive, send):
-        slots = {"render": SLOTS, "analyze": REFERENCE_SLOTS, "targets": TARGET_SLOTS}[self.action]
+        slots = {"render": SLOTS, "import": SLOTS, "analyze": REFERENCE_SLOTS, "targets": TARGET_SLOTS}[self.action]
         if not slots.acquire(blocking=False):
             await self.error(429)(scope, receive, send)
             return
@@ -159,6 +170,7 @@ class DocumentJob:
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
 app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
 app.add_route("/api/reference/analyze", DocumentJob("analyze"), methods=["POST"])
 app.add_route("/api/reference/targets", DocumentJob("targets"), methods=["POST"])
