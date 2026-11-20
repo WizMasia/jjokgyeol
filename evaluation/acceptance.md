@@ -45,7 +45,7 @@ docker run --rm --network none --shm-size=512m \
 /private/tmp/jjokgyeol-dev/venv/bin/python -m evaluation pairs evaluation/runs/model-initial evaluation/runs/references evaluation/runs/t13-real
 ```
 
-빈 응답표와 실제 T13 번들 부재는 각각 종료 코드 2로 거절됐다. 편집자 기준 지면, 실제 모델 쌍, 사람 판독, 사용자의 시간 수용은 대기 중이다. 현재 수치는 자간 PDF 생성 시간이다.
+첫 실행 당시 빈 응답표와 T13 번들 부재는 각각 종료 코드 2로 거절됐다. 위 시간은 자간 PDF 생성 시간이다.
 
 ### 독립 검토 후 재검증
 
@@ -60,3 +60,7 @@ docker run --rm --network none --shm-size=512m -v "$PWD:/opt/jjokgyeol:ro" jjokg
 수정 전 test 이미지에서는 소스 마운트 없이 `test_split`이 평가 모듈 누락으로 실패했다. 수정 후 같은 방식으로 T14 테스트 33개가 통과했다(40.96초, TestClient 경고 1건). 이미지 안의 `evaluation/` 파일 10개를 허용 목록과 대조했다. 실행 폴더와 응답 키는 제외됐다. 서비스 단계 이미지에도 평가 폴더가 없었다. 기존 자간 실행은 읽기 전용으로 열어 익명 PDF 12장의 해시와 `awaiting_reader` 상태를 확인했다.
 
 저장소를 읽기 전용으로 마운트한 전체 회귀는 643 passed, 47 skipped, 경고 1건이었다(373.10초).
+
+### 고정 원고의 실모델 출력
+
+두 원고를 규칙과 실모델로 각각 조판했다. 네 PDF 모두 여백·자간·공백 위반과 선택한 줄 끝의 불일치가 0건이다. 측정물은 대응표와 함께 운영자용으로 보관한다. 편집자가 두 기준 지면을 확정하면 익명 비교를 시작한다. 사람의 자간·지면 선호와 갱신 시간 수용 판정은 대기 중이다. [실행 환경과 응답 측정 기록](../docs/superpowers/decision-acceptance.md)
