@@ -45,3 +45,13 @@
 !proofs/reference-style/
 !proofs/*/*.docx
 !proofs/*/*.hwpx
+!evaluation/__main__.py
+!evaluation/model.py
+!evaluation/packet.py
+!evaluation/results.py
+!evaluation/reading-sheet.csv
+!evaluation/README.md
+!evaluation/reader-guide.md
+!evaluation/corpus/quay.md
+!evaluation/corpus/drawer.md
+!evaluation/corpus/platform.md

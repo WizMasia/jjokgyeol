@@ -47,6 +47,7 @@ COPY tests/ tests/
 COPY proofs/duplex-running-heads/*.docx proofs/duplex-running-heads/*.hwpx proofs/duplex-running-heads/
 COPY proofs/reference-style/*.docx proofs/reference-style/*.hwpx proofs/reference-style/
 COPY proofs/running-heads/*.docx proofs/running-heads/*.hwpx proofs/running-heads/
+COPY evaluation/ evaluation/
 COPY proofs/engine-comparison/LuaLaTeX.pdf proofs/engine-comparison/
 COPY proofs/running-heads/style.json proofs/running-heads/
 ENV PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
