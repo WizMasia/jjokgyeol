@@ -31,6 +31,9 @@ def _unpin(inline, text, pin):
                 left, right, before = closes.pop()
                 if before == kept:
                     cuts.extend([(start, raw), (left, right)])
+                elif marker <= visible <= end:
+                    # A surviving emphasis opener around a memo still needs its separator.
+                    pin = marker
             raw = start
         elif token.type == "text":
             start = visible - len(token.content)
