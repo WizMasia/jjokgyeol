@@ -2,7 +2,7 @@
 import pytest
 from playwright.sync_api import expect
 
-from test_editor import browser, desk
+from test_editor import STATIC, browser, desk
 from test_mirrored_margin_editor import open_style, save_style
 from test_reference_editor import candidate, review, unit
 from test_slice import server_url
@@ -17,6 +17,15 @@ def controls(page):
     preset = page.get_by_role("combobox", name="판형 선택", exact=True)
     expect(preset).to_have_id("page-preset", timeout=1000)
     return preset, page.get_by_label("폭", exact=True), page.get_by_label("높이", exact=True)
+
+
+def test_decimal_comparison_without_editor_controls(browser):
+    with browser.new_page() as page:
+        page.add_script_tag(path=STATIC / "decimal.js")
+        assert page.evaluate('sameDecimal("+025.400", "2.54e1")')
+        assert page.evaluate('decimalKey("1x")') is None
+        assert page.evaluate('compareDecimal("-1.00000000000000000001", "-1")') < 0
+        assert page.evaluate('compareDecimal("1e999999", "9e999998")') > 0
 
 
 def test_portrait_presets_and_custom_edits_reach_preview(desk):
