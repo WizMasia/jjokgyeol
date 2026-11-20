@@ -29,3 +29,14 @@
 !proofs/engine-comparison/LuaLaTeX.pdf
 !proofs/running-heads/
 !proofs/running-heads/style.json
+!packaging/hwp/
+!packaging/hwp/*.whl
+!packaging/hwp/requirements.lock
+!app/config/imports.json
+!app/importers/
+!tests/fixtures/imports/
+!tests/fixtures/imports/**
+!proofs/duplex-running-heads/
+!proofs/reference-style/
+!proofs/*/*.docx
+!proofs/*/*.hwpx
