@@ -255,6 +255,28 @@ def test_current_values_follow_heading_level_override_and_list_origin(review):
     expect(d.row("body", "color")).to_contain_text("현재 값 · #000000")
 
 
+def test_current_values_follow_list_levels_and_section_rule(review):
+    d, p = review, review.page
+    row = {"expr": "-", "indent_mm": 0, "gap_mm": 1, "font": "nanum-gothic"}
+    file = p.request.post(d.service + "/api/style/export", data={
+        "list_levels": [{**row, "font_pt": 16}, row],
+        "section_rules": [{"path": ["서문"], "role": "list", "values": {"font_pt": "14"}}],
+    })
+    assert file.ok, file.text()
+    p.locator("#style-file").set_input_files({"name": "목록.json", "mimeType": "application/json", "buffer": file.body()})
+    expect(p.locator("#list-preset")).to_have_value("custom")
+    d.open()
+    result = [unit(1, "서식", candidate("list", "font_pt", 15), candidate("list", "font", "nanum-myeongjo"))]
+    p.route("**/api/reference/analyze?*", lambda r: r.fulfill(json={"units": result, "warnings": []}))
+    p.locator("#reference-file").set_input_files({"name": "참고.docx", "mimeType": "application/octet-stream", "buffer": b"test"})
+    p.locator("#reference-analyze").click()
+    size = d.row("list", "font_pt")
+    expect(size).to_contain_text("현재 값 · 단계마다 다름")
+    expect(d.row("list", "font")).to_contain_text("현재 값 · 나눔고딕")
+    size.get_by_label("적용 대상", exact=True).select_option(label="서문")
+    expect(size).to_contain_text("현재 값 · 14")
+
+
 def test_page_retry_keeps_reviewed_read_value_on_the_same_page(review):
     d, p = review, review.page
     page_size = candidate("document", "page_mm", [148, 210])

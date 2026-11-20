@@ -375,6 +375,16 @@ function currentValue(style, path, role, key, face, parity, firstDepth) {
   const value = inheritedValue(style, path, role, key, face, parity, firstDepth);
   if (value !== undefined) return value;
   if (isRunning(role)) return key === "visible" ? false : settings.running_defaults?.[key];
+  if (role === "list" && (key === "font" || key === "font_pt")) {
+    const levels = style.list_levels ?? settings.list_presets?.[settings.default_list_preset] ?? [];
+    const fallback = key === "font" ? style.body_font : style.body_pt;
+    const first = levels[0]?.[key] ?? fallback;
+    const same = levels.every(level => {
+      const item = level[key] ?? fallback;
+      return key === "font" ? item === first : sameDecimal(item, first);
+    });
+    return same ? first : "단계마다 다름";
+  }
   if (["body", "list"].includes(role) && style.text_styles?.body?.[key] !== undefined) return style.text_styles.body[key];
   if (role === "list" && ["first_indent_mm", "rest_indent_mm"].includes(key)) return "0";
   if (Object.hasOwn(style, key)) return style[key];
