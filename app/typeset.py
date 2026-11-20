@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
@@ -25,9 +26,10 @@ TEMPLATES = Path(__file__).resolve().with_name("tex")
 
 
 def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
-            paragraph_choices: dict[int, str] | None = None) -> bytes:
+            paragraph_choices: dict[int, str] | None = None,
+            engine: Path | None = None, font_dir: Path | None = None) -> bytes:
     """Optionally collect paragraph-candidates.jsonl or replay its per-block IDs."""
-    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices)
+    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir)
 
 
 def _running_fields(values):
@@ -94,7 +96,7 @@ def _hierarchy_items(doc, style, levels):
                 yield i
 
 
-def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None):
+def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None, font_dir=None):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     levels = style.resolved_list_levels()
@@ -180,13 +182,19 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     (workdir / "input.json").write_text(
         json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8"
     )
-    font_dir = Path(os.environ.get("JJOKGYEOL_FONT_DIR", FONT_DIR))
-    (workdir / "fonts").symlink_to(font_dir.resolve(strict=True), target_is_directory=True)
+    if font_dir is None:
+        font_dir = Path(os.environ.get("JJOKGYEOL_FONT_DIR", FONT_DIR))
+        (workdir / "fonts").symlink_to(font_dir.resolve(strict=True), target_is_directory=True)
+    else:
+        (workdir / "fonts").mkdir()
+        for faces in data["policy"]["fonts"].values():
+            for name in faces.values():
+                shutil.copyfile(font_dir / name, workdir / "fonts" / name)
     (workdir / "texcache").mkdir()
     env = dict(os.environ, LUAINPUTS=f"{TEMPLATES}{os.pathsep}",
                TEXMFCACHE=os.environ.get("TEXMFCACHE", "texcache"))
     process = subprocess.run(
-        ["lualatex", "--no-shell-escape", "--halt-on-error", "--interaction=batchmode",
+        [str(engine) if engine is not None else "lualatex", "--no-shell-escape", "--halt-on-error", "--interaction=batchmode",
          str(TEMPLATES / "book.tex")],
         cwd=workdir, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
