@@ -223,8 +223,10 @@ def load_arm(folder, ms, mode, model_hash, *, justified=False, audit=False):
     rows = [json.loads(line) for line in log.decode("utf-8").splitlines()]
     catalog, evidence = selected_lines(rows, ms, mode, justified=justified)
     if justified:
+        expected_lines = [line for (_, candidates), chosen in zip(catalog, evidence["choices"], strict=True)
+                          for line in candidates[chosen]]
         try:
-            verification = packet.verify_justified_pdf(pdf, ms["source"], style)
+            verification = packet.verify_justified_pdf(pdf, ms["source"], style, expected_lines=expected_lines)
         except ValueError as exc:
             if not audit:
                 raise
