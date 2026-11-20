@@ -14,7 +14,7 @@
 | --- | --- |
 | 지금 사용할 수 있는 앱 | 소스에서 빌드하는 Docker 웹 편집기. Apple Silicon Mac에서 Linux ARM64 컨테이너를 실행하고 Chromium으로 PDF 출력을 확인했습니다. |
 | GitHub Releases | 게시된 릴리즈 0개, 초안 0개, 원격 Git 태그 0개입니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) |
-| Windows·macOS·Linux 네이티브 앱 | 세 운영체제 모두 다운로드할 설치 파일은 아직 배포 전입니다. |
+| Windows·macOS·Linux 네이티브 앱 | 세 운영체제 모두 다운로드할 설치 파일은 아직 배포 전입니다. [앱 구조와 운영체제별 출시 기준](docs/superpowers/specs/2026-11-20-native-desktop-design.md) |
 
 ## 내 컴퓨터에서 실행하기
 
