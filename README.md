@@ -43,6 +43,12 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 
 같은 원고를 A5·14pt, 첫 줄 0mm·이후 줄 6mm로 출력한 예시입니다. 편집기에서 원고와 양식 파일을 각각 열면 두 쪽에 걸친 내어쓰기와 각주를 확인할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [양식 JSON](proofs/web-editor/fixed-point-style.json) · [출력 PDF](proofs/web-editor/fixed-point.pdf)
 
+### 본문과 제목 크기를 따로 정하기
+
+보고서 예제의 원고를 **원고 열기**로, 양식을 **양식 열기**로 엽니다. **판형·여백 및 세부 양식 → 역할별 글자 모양**에서 1단계 제목을 선택하면 18pt, 굵게, 남색(`#17365D`)으로 설정되어 있습니다. 본문 크기를 11pt에서 16pt로 바꾸고 **미리보기 갱신**을 누르면 본문과 목록의 줄바꿈을 비교할 수 있습니다. 두 PDF 모두 2단계 제목은 14pt, 각주는 9pt이고, 머리글에는 ‘능선 관측소’, 바닥글에는 쪽 번호가 나옵니다. [원고](proofs/publication-typography/manuscript.md) · [11pt 양식](proofs/publication-typography/style.json) · [본문 11pt PDF](proofs/publication-typography/report-11.pdf) · [본문 16pt PDF](proofs/publication-typography/report-16.pdf) · [PDF 글자 실측](docs/superpowers/plans/2026-11-20-publication-typography.md#보고서-pdf-실측)
+
+새 편집기의 여섯 제목 단계는 각각 크기를 갖습니다. 예전 양식을 열면 크기를 지정하지 않은 제목은 종전처럼 본문 크기에 비례합니다. 한 단계만 고쳐 저장하면 다른 다섯 단계는 그 비례 동작을 유지합니다.
+
 ### 다른 형식의 원고 가져오기
 
 **원고 가져오기**에서 TXT(ASCII·UTF-8), HTML, DOCX, HWPX 또는 HWP 5 파일을 고릅니다. 성공하면 현재 편집창에 새 마크다운 원고가 열립니다. 예를 들어 `관측 기록.hwpx`를 가져온 뒤 **원고 저장**을 누르면 `관측 기록.md`를 내려받습니다. 현재 출판 양식으로 **미리보기 갱신**과 **PDF 다운로드**를 사용할 수 있습니다.
