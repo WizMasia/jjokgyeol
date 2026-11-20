@@ -49,8 +49,30 @@ end
 local function wordspace(n)
   if n.id ~= glue or n.subtype ~= 13 and n.subtype ~= 14 then return false end
   local left, right = n.prev, n.next
-  return not (left and right and left.id == glyph and right.id == glyph)
+  if left and right and left.id == glyph and right.id == glyph then
+    return legal(left.char, right.char)
+  end
+  local props = node.getproperty(n)
+  if props and props.jjok_space_break ~= nil then return props.jjok_space_break end
+  -- A run of literal spaces or a color switch can separate the punctuation
+  -- from this glue. Classify the run once, including its interior spaces.
+  local function transparent(p)
+    return p and (p.id == penalty or p.id == kern or p.id == node.id("whatsit")
+      or p.id == glue and (p.subtype == 13 or p.subtype == 14))
+  end
+  while transparent(left) do left = left.prev end
+  while transparent(right) do right = right.next end
+  local allowed = not (left and right and left.id == glyph and right.id == glyph)
     or legal(left.char, right.char)
+  while n ~= right do
+    if n.id == glue then
+      props = node.getproperty(n) or {}
+      props.jjok_space_break = allowed
+      node.setproperty(n, props)
+    end
+    n = n.next
+  end
+  return allowed
 end
 
 local function chunks(first, stop)
@@ -88,6 +110,21 @@ local function no_room(level)
   assert(marker:write(reason))
   assert(marker:close())
   error(reason)
+end
+
+local function lock(head)
+  -- Keep only the selected edges. A penalty immediately before glue prevents
+  -- TeX from independently splitting a word it can place on the next line.
+  for item in node.traverse(head) do
+    if item.id == penalty and item.penalty > -10000 or item.id == disc then
+      item.penalty = 10000
+    elseif item.id == glue and item.prev and item.prev.id ~= penalty then
+      local p = node.new(penalty)
+      p.penalty = 10000
+      head = node.insert_before(head, item, p)
+    end
+  end
+  return head
 end
 
 local function apply(head, style, active, level)
@@ -159,18 +196,7 @@ local function apply(head, style, active, level)
   end
   if first then place(gap, first, nil) end
 
-  -- Keep only the selected edges. A penalty immediately before glue prevents
-  -- TeX from independently splitting a word it can place on the next line.
-  for item in node.traverse(head) do
-    if item.id == penalty and item.penalty > -10000 or item.id == disc then
-      item.penalty = 10000
-    elseif item.id == glue and item.prev and item.prev.id ~= penalty then
-      local p = node.new(penalty)
-      p.penalty = 10000
-      head = node.insert_before(head, item, p)
-    end
-  end
-  return head
+  return lock(head)
 end
 
-return {apply = apply, no_room = no_room}
+return {apply = apply, no_room = no_room, wordspace = wordspace, chunks = chunks, lock = lock}

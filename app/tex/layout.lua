@@ -97,13 +97,17 @@ end
 
 -- Space nodes are measured after shaping. TeX still builds the lines and moves
 -- insertions (including footnotes) through its normal page builder.
-local active, item = false, nil
+local active, item, paragraph_index = false, nil, nil
+local paragraph = require("paragraph")
 local lists = require("list_layout")
 local wordbreak = require("wordbreak")
 local fixed = require("fixed")
 luatexbase.add_to_callback("pre_linebreak_filter", function(head)
   local candidate = active and data.candidate
   head = fixed.prepare(head, style, candidate)
+  if paragraph_index and not active then
+    return paragraph.apply(head, style, paragraph_index, data.paragraphs)
+  end
   return wordbreak.apply(head, style, active, item and item.level)
 end, "jjokgyeol.wordspacing")
 luatexbase.add_to_callback("post_linebreak_filter", function(head)
@@ -144,6 +148,9 @@ local function scaled_size(size, per_10000)
 end
 
 function book.document()
+  if data.paragraphs and data.paragraphs.collect then
+    assert(io.open("paragraph-candidates.jsonl", "w")):close()
+  end
   if book.running then book.running.begin(literal, body_appearance) end
   emit("\\fontsize{" .. sp(style.body_sp) .. "}{" .. sp(style.leading_sp) .. "}\\selectfont")
   lists.measure(data.blocks, literal, body_appearance)
@@ -189,7 +196,7 @@ function book.blocks()
       emit("\\directlua{book.item(" .. index .. ")}\\BookPar\\directlua{book.item(0)}")
     else
       assert(block.kind == "paragraph")
-      inlines(block.inlines)
+      inlines(block.inlines, true)
       local first = values.first_indent_sp or style.first_indent_sp
       local rest = values.rest_indent_sp or style.rest_indent_sp
       emit(string.format("\\parshape 2 %s %s %s %s\\relax",
@@ -197,11 +204,15 @@ function book.blocks()
       if data.candidate and index == data.candidate.block then
         emit("\\directlua{book.candidate(true)}\\BookPar\\directlua{book.candidate(false)}")
       else
-        emit("\\BookPar")
+        emit("\\directlua{book.paragraph(" .. index .. ")}\\BookPar\\directlua{book.paragraph(nil)}")
       end
     end
     if grouped then emit("\\endgroup") end
   end
+end
+
+function book.paragraph(index)
+  paragraph_index = index
 end
 
 function book.candidate(value)
