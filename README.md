@@ -19,7 +19,17 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 2. 글자 크기와 판형을 정하고 **미리보기 갱신**을 누릅니다. 옆 창에서 실제 PDF의 줄바꿈과 쪽 나눔을 확인합니다.
 3. **PDF 다운로드**로 출력합니다. 갱신 후 원고나 양식을 더 고쳤다면 최신 내용으로 다시 조판합니다. 원고는 마크다운 파일로 따로 저장할 수 있습니다.
 
-각주는 원고의 해당 단어 뒤에 `[^지도]`를 붙이고 별도 문단에 `[^지도]: 각주 내용`을 씁니다.
+참조할 위치에 `[^지도]`를 쓰고 정의를 별도 줄에 둡니다. 정의에 따라 쪽 하단 각주, 문서 끝의 미주, 원고에서만 읽는 메모가 됩니다. 같은 미주를 다시 인용하면 같은 번호가 붙습니다.
+
+```markdown
+지도에는 [판형]{풀이=책의 크기}과 출처가 적혀 있다.[^규격][^대장][^교정]
+
+[^규격]: 실측에 사용한 자의 눈금은 1mm다.
+[^대장]{미주}: 도서관 등록 대장에서 확인했다.
+[^교정]{메모}: 인쇄 전에 원본과 대조할 것.
+```
+
+단어 풀이는 해당 단어 옆에 작은 괄호로 출력됩니다. 한 줄에 들어가면 단어와 풀이가 함께 이동합니다. [주석 원고](proofs/annotations/manuscript.md) · [11pt PDF](proofs/annotations/annotations-11.pdf) · [16pt PDF](proofs/annotations/annotations-16.pdf)
 
 같은 A5 원고를 나눔명조 16pt로 조판한 파일에서 전각 들여쓰기와 자간에 따른 줄바꿈을 비교할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [자간 0% PDF](proofs/web-editor/tracking-0.pdf) · [자간 −7% PDF](proofs/web-editor/tracking-minus-7.pdf)
 

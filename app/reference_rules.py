@@ -2,7 +2,7 @@
 
 from collections import Counter, defaultdict
 
-from app.articles import match_article
+from app.articles import section_title
 from app.document import parse_md
 from app.running_heads import RUNNING_ROLES
 from app.style import RUNNING_DEFAULTS
@@ -10,26 +10,6 @@ from app.style import RUNNING_DEFAULTS
 
 def _fields(node):
     return node if isinstance(node, dict) else vars(node)
-
-
-def _title_parts(inlines):
-    for inline in inlines:
-        span = _fields(inline)
-        if span["kind"] == "text":
-            yield span["text"]
-        elif span["kind"] == "note_ref":
-            # A note interrupts an article-number match but adds no title text.
-            yield "\0"
-        elif span["kind"] in ("strong", "emphasis"):
-            yield from _title_parts(span["children"])
-
-
-def _title(inlines):
-    title = "".join(_title_parts(inlines))
-    article = match_article(title)
-    if article and article[1] is not None:
-        title = title[:article[1]]
-    return title.replace("\0", "")
 
 
 def _outline(blocks, fenced_blocks):
@@ -42,7 +22,7 @@ def _outline(blocks, fenced_blocks):
             level = fields["level"]
             while stack and stack[-1][0] >= level:
                 stack.pop()
-            stack.append((level, _title(fields["inlines"])))
+            stack.append((level, section_title(fields["inlines"])))
             path = tuple(title for _, title in stack)
             yield path, "heading"
         elif kind == "paragraph":

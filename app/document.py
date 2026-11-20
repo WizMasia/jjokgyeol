@@ -4,8 +4,9 @@ import re
 from dataclasses import dataclass, field
 
 from markdown_it import MarkdownIt
-from markdown_it.rules_inline import StateInline
 from markdown_it.token import Token
+
+from app.annotations import DEFINITION, NoteDefinitions, read_annotation
 
 
 class InputError(ValueError):
@@ -69,6 +70,9 @@ class Document:
     fenced_blocks: set[int] = field(default_factory=set)
     _fence_layout: _FenceLayout | None = field(default=None, repr=False)
 
+    endnotes: dict[str, str] = field(default_factory=dict)
+    memos: dict[str, str] = field(default_factory=dict)
+
     def render_layout(self, overrides, *, number_articles, running_ids=()):
         """Keep the printed fence/title join unless this title needs its own heading."""
         layout = self._fence_layout
@@ -89,7 +93,8 @@ class Document:
         rows = []
         sections = dict(zip(layout.block_rows, running_ids)) if running_ids else {}
         switches = {row: sections[row] for row in layout.starts.keys() - set(split)} if sections else {}
-        view = _document(layout.lines, self.footnotes, layout.fenced_lines, split, rows, switches)
+        notes = NoteDefinitions(self.footnotes, self.endnotes, self.memos)
+        view = _document(layout.lines, notes, layout.fenced_lines, split, rows, switches)
         mapped = []
         for row, block in zip(rows, view.blocks, strict=True):
             values = by_source.get((row, block.kind), {})
@@ -99,32 +104,19 @@ class Document:
 
 
 _IDEOGRAPHIC_INDENT = re.compile(r"\u3000[\u3000 \t]*\Z")
-_NOTE = re.compile(r"\[\^([^\[\]\s]+)\]")
-_DEFINITION = re.compile(_NOTE.pattern + r":[ \t]*(.*)")
-
-
-def _note_ref(state: StateInline, silent: bool) -> bool:
-    match = _NOTE.match(state.src, state.pos, state.posMax)
-    if not match:
-        return False
-    if not silent:
-        state.push("note_ref", "", 0).content = match[1]
-    state.pos = match.end()
-    return True
 
 
 # Start from plain text so links, HTML, entities and TeX escapes stay literal.
 _MD = MarkdownIt("zero", {"html": False}).enable(["heading", "lheading", "list", "emphasis"])
-_MD.inline.ruler.before("text", "note_ref", _note_ref)
+_MD.inline.ruler.before("text", "annotation", read_annotation)
 # The legacy renderer displays fenced examples with its original block styles.
 # Read fence boundaries separately so those examples never enter article numbering.
 _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])
 
 
-def _fence_context(source):
+def _fence_context(source, notes):
     if "```" not in source and "~~~" not in source:
         return set(), {}
-    from app.articles import match_article
 
     tokens = []
     _FENCES.block.parse(source, _FENCES, {}, tokens)
@@ -133,19 +125,19 @@ def _fence_context(source):
     for index, t in enumerate(tokens):
         if (t.type == "heading_open" and t.level == 0 and t.markup in ("=", "-")
                 and t.map[0] - 1 in fenced):
-            inline, = _MD.parseInline(tokens[index + 1].content)
-            match = match_article(heading_text(inline))
+            inline, = _MD.parseInline(tokens[index + 1].content, {"notes": notes})
+            match = heading_title(inline).article()
             starts[t.map[0]] = match[1] is not None if match else None
     return fenced, starts
 
 
-def _tokens(lines, starts):
+def _tokens(lines, starts, notes):
     # A closing fence can run into a Setext title in the legacy zero preset.
     # Parse at each requested title boundary and keep maps in original source rows.
     tokens = []
     start = 0
     for end in [*starts, len(lines)]:
-        part = _MD.parse("\n".join(lines[start:end]))
+        part = _MD.parse("\n".join(lines[start:end]), {"notes": notes})
         if start:
             for token in part:
                 if token.map:
@@ -155,7 +147,7 @@ def _tokens(lines, starts):
     return tokens
 
 
-def _inlines(tokens: list[Token], notes: dict[str, str], row=0, switches=None) -> list[Inline]:
+def _inlines(tokens: list[Token], row=0, switches=None) -> list[Inline]:
     root = []
     stack = [root]
     for token in tokens:
@@ -175,10 +167,13 @@ def _inlines(tokens: list[Token], notes: dict[str, str], row=0, switches=None) -
                     stack[-1].append(Inline("text", text=token.content[start:].replace("\n", " ")))
             elif token.content:
                 stack[-1].append(Inline("text", text=token.content.replace("\n", " ")))
-        elif token.type == "note_ref":
-            if token.content not in notes:
-                raise InputError({"source": "각주 참조에 해당하는 정의가 없습니다."})
-            stack[-1].append(Inline("note_ref", id=token.content))
+        elif token.type == "unresolved_note":
+            raise InputError({"source": "각주 참조에 해당하는 정의가 없습니다."})
+        elif token.type in ("note_ref", "endnote_ref", "memo_ref"):
+            stack[-1].append(Inline(token.type, id=token.content))
+        elif token.type == "gloss":
+            word = Inline("text", text=token.content)
+            stack[-1].append(Inline("gloss", text=token.meta["explanation"], children=[word]))
         elif token.type in ("em_open", "strong_open"):
             span = Inline("emphasis" if token.type == "em_open" else "strong")
             stack[-1].append(span)
@@ -194,33 +189,39 @@ def _manuscript(source: str):
     if re.search(r"[\x00\ud800-\udfff]", source):
         raise InputError({"source": "원고에 조판할 수 없는 문자가 있습니다."})
 
-    notes = {}
+    notes = NoteDefinitions()
     lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for index, line in enumerate(lines):
-        match = _DEFINITION.fullmatch(line)
+        match = DEFINITION.fullmatch(line)
         if match:
-            if match[1] in notes:
-                raise InputError({"source": "각주 정의가 중복되었습니다."})
-            notes[match[1]] = match[2]
+            name, label, content = match.groups()
+            if not notes.add(name, label, content):
+                kind = "각주" if label is None and name in notes.footnotes else "주석"
+                raise InputError({"source": f"{kind} 정의가 중복되었습니다."})
             lines[index] = ""
 
-    fenced, starts = _fence_context("\n".join(lines))
+    fenced, starts = _fence_context("\n".join(lines), notes)
     return lines, notes, fenced, starts
 
 
 def heading_tokens(source: str):
     """Yield top-level Markdown (opening, inline) tokens with original source line maps."""
-    lines, _, fenced_lines, starts = _manuscript(source)
-    tokens = _tokens(lines, starts)
+    lines, notes, fenced_lines, starts = _manuscript(source)
+    tokens = _tokens(lines, starts, notes)
     for index, token in enumerate(tokens):
         if token.type == "heading_open" and token.level == 0 and token.map[0] not in fenced_lines:
             yield token, tokens[index + 1]
 
 
+def heading_title(inline: Token):
+    from app.articles import HeadingTitle
+
+    return HeadingTitle.from_parts((t.type, t.content) for t in inline.children or ())
+
+
 def heading_text(inline: Token) -> str:
-    """Visible title for article matching; a footnote interrupts a text range."""
-    return "".join(t.content.replace("\n", " ") if t.type == "text" else "\0"
-                   for t in inline.children or () if t.type in ("text", "note_ref"))
+    """Visible title for article matching, with notes interrupting text ranges."""
+    return heading_title(inline).text
 
 
 def parse_md(source: str) -> Document:
@@ -233,7 +234,7 @@ def parse_md(source: str) -> Document:
 
 
 def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
-    tokens = _tokens(lines, starts)
+    tokens = _tokens(lines, starts, notes)
     blocks = []
     groups: list[_Siblings] = []
     group_id = 0
@@ -262,7 +263,7 @@ def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
                 blocks.append(Block("paragraph", []))
         elif token.type == "inline":
             block = blocks[-1]
-            block.inlines = _inlines(token.children or [], notes, token.map[0], switches)
+            block.inlines = _inlines(token.children or [], token.map[0], switches)
             if tokens[index - 1].type == "paragraph_open":
                 # Recover stripped U+3000 from the original line, after any
                 # Markdown list markers and indentation consumed by the parser.
@@ -279,4 +280,4 @@ def _document(lines, notes, fenced_lines, starts, rows=None, switches=None):
             rows.append(token.map[0])
         if token.type in ("inline", "list_item_open") and token.map[0] in fenced_lines:
             fenced_blocks.add(len(blocks) - 1)
-    return Document(blocks, notes, fenced_blocks)
+    return Document(blocks, notes.footnotes, fenced_blocks, endnotes=notes.endnotes, memos=notes.memos)

@@ -4,8 +4,7 @@ import json
 import re
 import sys
 
-from app.articles import match_article
-from app.document import InputError, heading_text, heading_tokens
+from app.document import InputError, heading_title, heading_tokens
 
 
 def _unpin(inline, marked_length):
@@ -41,6 +40,8 @@ def _edit_heading(source, heading, inline, text, pin):
     # The parser already removed ATX closing hashes, indentation and trailing spaces.
     end = line.index(last_line) + len(last_line)
     if pin is None:
+        if inline.children[-1].meta.get("unfinished_gloss"):
+            raise InputError({"source": "제목 끝의 풀이를 닫은 뒤 번호를 고정하세요."})
         parts[2 * end_row] = line[:end] + " {번호고정}" + line[end:]
     else:
         cut, closers = _unpin(inline, len(text) - pin)
@@ -70,10 +71,10 @@ def toggle_pin(source: str, first_line: int, last_line: int) -> str:
     for heading, inline in heading_tokens(source.removeprefix("\ufeff")):
         start, end = heading.map
         if start <= first_line <= last_line < end:
-            text = heading_text(inline)
-            match = match_article(text)
+            title = heading_title(inline)
+            match = title.article()
             if match is not None:
-                return _edit_heading(source, heading, inline, text, match[1])
+                return _edit_heading(source, heading, inline, title.text, match[1])
             break
     raise InputError({"source": invalid})
 

@@ -67,6 +67,7 @@ function book.setup()
       end
     end
   end
+  for _, v in pairs(style.text_styles or {}) do register(v) end
   for _, block in ipairs(data.blocks) do register(block.overrides) end
   register(note)
   if data.running_sections then
@@ -134,13 +135,47 @@ luatexbase.add_to_callback("post_linebreak_filter", function(head)
   return head
 end, "jjokgyeol.line_spacing")
 
+local gloss_style = roles.gloss or {}
+
+function book.gloss()
+  local surrounding = font.getfont(font.current()).size
+  local size = gloss_style.font_sp
+  if not size or size >= surrounding then
+    size = math.min(surrounding - 1, math.max(1, (surrounding *
+      defaults.gloss_per_10000 + fixed.RATIO_UNIT // 2) // fixed.RATIO_UNIT))
+  end
+  if size < 1 then
+    local marker = assert(io.open("layout-error.txt", "wb"))
+    marker:write("gloss_size")
+    marker:close()
+    error("gloss_size")
+  end
+  appearance(gloss_style)
+  emit("\\fontsize{" .. sp(size) .. "}{\\baselineskip}\\selectfont")
+end
+
 local marks, count = {}, 0
+local end_indices, end_order = {}, {}
 local function inlines(items, preserve_spaces)
   for _, item in ipairs(items) do
     if item.kind == "text" then
       literal(item.text, preserve_spaces)
     elseif item.kind == "running_section" then
       emit("\\directlua{book.running.section(" .. assert(math.tointeger(item.id)) .. ")}")
+    elseif item.kind == "gloss" then
+      emit("{\\attribute" .. wordbreak.gloss_attribute .. "=1\\relax ")
+      inlines(item.children, preserve_spaces)
+      emit("\\attribute" .. wordbreak.gloss_attribute .. "=2\\relax \\directlua{book.gloss()}")
+      literal("(" .. item.text .. ")", preserve_spaces)
+      emit("}")
+    elseif item.kind == "endnote_ref" then
+      if not end_indices[item.id] then
+        end_order[#end_order + 1] = item.id
+        end_indices[item.id] = #end_order
+      end
+      emit("\\textsuperscript{")
+      literal("미" .. end_indices[item.id])
+      emit("}")
     elseif item.kind == "note_ref" then
       if marks[item.id] then
         emit("\\footnotemark[" .. marks[item.id] .. "]")
@@ -225,6 +260,17 @@ function book.blocks()
       end
     end
     if grouped then emit("\\endgroup") end
+  end
+  if #end_order > 0 then
+    emit("\\begingroup\\bfseries ")
+    literal("미주")
+    emit("\\BookPar\\endgroup\\nobreak\\begingroup")
+    book.note_style()
+    for index, id in ipairs(end_order) do
+      literal("미" .. index .. " " .. data.endnotes[id])
+      emit("\\BookPar")
+    end
+    emit("\\endgroup")
   end
 end
 
