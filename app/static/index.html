@@ -59,6 +59,7 @@
     <section id="style" inert aria-labelledby="style-title">
       <div class="typebar">
         <h2 id="style-title">출판 양식</h2>
+        <label>문단 배치 방식 <select id="paragraph-layout" aria-label="문단 배치 방식"></select></label>
         <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
         <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
         <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
@@ -94,7 +95,6 @@
             <label>한글 자간 (%) <input id="ko_tracking_pct" name="ko_tracking_pct" type="text" inputmode="decimal"></label>
           </fieldset>
           <fieldset id="tracking-limits"><legend>문단 배치와 줄별 자간 보정 (%)</legend>
-            <label><input type="checkbox" id="paragraph-balanced"> 문단 전체 배치 비교</label>
             <label><input type="checkbox" id="tracking-enabled"> 최종 자간 한계 지정</label>
             <label>최종 자간 하한 <input id="tracking-lower" type="text" inputmode="decimal" disabled></label>
             <label>최종 자간 상한 <input id="tracking-upper" type="text" inputmode="decimal" disabled></label>

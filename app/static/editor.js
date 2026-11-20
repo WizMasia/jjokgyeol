@@ -260,7 +260,7 @@ const styleForm = {
 for (const select of stylePanel.querySelectorAll("select[name]")) {
   for (const font of settings.fonts) select.add(new Option(font.label, font.id));
 }
-styleForm.set({...settings.defaults, text_styles: settings.new_text_styles, paragraph_layout: settings.new_paragraph_layout});
+styleForm.set({...settings.defaults, ...settings.new_spacing, text_styles: settings.new_text_styles, paragraph_layout: settings.new_paragraph_layout});
 stylePanel.inert = false;
 
 function showReferenceError() {
@@ -354,6 +354,17 @@ async function fetchPdf(style, signal) {
   return pdf;
 }
 
+function spacingCaption(style) {
+  const base = appliedPercent(style.ko_tracking_pct);
+  const spaces = style.space_pct.map(appliedPercent).join(" ~ ");
+  if (style.paragraph_layout !== "justified") {
+    return `표시 중인 PDF 적용값 · 한글 자간 ${base} · 어절 공백 ${spaces}`;
+  }
+  const bounds = style.ko_tracking_bounds_pct;
+  const tracking = bounds ? `줄별 최종 자간 허용 범위 ${bounds.map(appliedPercent).join(" ~ ")}` : "줄별 자간 보정 끔";
+  return `표시 중인 PDF의 양끝맞춤 설정 · 기본 한글 자간 ${base} · ${tracking} · 어절 공백 ${spaces} 허용`;
+}
+
 function showPdf(url, style) {
   const oldUrl = pdfUrl;
   pdfUrl = url;
@@ -364,7 +375,7 @@ function showPdf(url, style) {
   displayedVersion = version;
   if (oldUrl) URL.revokeObjectURL(oldUrl);
   byId("proof-size").textContent = `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt`;
-  byId("applied-ratios").textContent = `표시 중인 PDF 적용값 · 한글 자간 ${appliedPercent(style.ko_tracking_pct)} · 어절 공백 ${style.space_pct.map(appliedPercent).join(" ~ ")}`;
+  byId("applied-ratios").textContent = spacingCaption(style);
   statusText.textContent = "최신 버전";
 }
 

@@ -16,9 +16,10 @@
   "first_indent_sp": 0,
   "rest_indent_sp": 0,
   "ko_tracking_per_10000": 0,
+  "ko_tracking_bounds_per_10000": [-1500, 1500],
   "space_per_10000": [
-    10000,
-    10000
+    7000,
+    13000
   ],
   "list_levels": [
     {
@@ -64,5 +65,5 @@
       "frame": "box"
     }
   },
-  "paragraph_layout": "balanced"
+  "paragraph_layout": "justified"
 }

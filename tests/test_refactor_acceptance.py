@@ -86,7 +86,7 @@ def compact_json(value):
 @pytest.mark.parametrize("name", BASELINES)
 def test_prechange_geometry(stock, name, tmp_path):
     _, url = stock
-    style = {}
+    style = {"space_pct": [100, 100]}  # Explicit original fixed-space layout.
     if name == "saved":
         saved = json.loads((PROOFS / "fixed-point-style.json").read_bytes())
         style = style_request(url, "open", saved)

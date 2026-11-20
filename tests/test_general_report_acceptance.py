@@ -20,6 +20,9 @@ SOURCE = ROOT / "proofs/general-report/manuscript.md"
 def test_distributed_report_is_a_saved_style():
     assert STYLE.is_file(), "일반 보고서 양식 JSON이 배포본에 필요합니다."
     stored = json.loads(STYLE.read_bytes())
+    assert stored["paragraph_layout"] == "justified"
+    assert stored["ko_tracking_per_10000"] == 0 and stored["ko_tracking_bounds_per_10000"] == [-1500, 1500]
+    assert stored["space_per_10000"] == [7000, 13000]
     assert from_stored_style(stored).to_stored() == stored
 
 
