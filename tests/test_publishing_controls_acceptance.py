@@ -1,5 +1,6 @@
 """Measure the selected sheet and both paragraph indents in a downloaded PDF."""
 import json
+import os
 import re
 
 from playwright.sync_api import expect
@@ -26,7 +27,10 @@ def test_trim_size_and_point_indents_reach_both_proofs(editor, tmp_path):
     stored = json.loads(style)
     assert (stored["first_indent_sp"], stored["rest_indent_sp"]) == (11 * 65536, 22 * 65536)
     assert "article_expr" not in stored
-    first = download_proof(editor, tmp_path / "model.pdf")
+    with editor.expect_response("**/api/render", timeout=45000) as render:
+        first = download_proof(editor, tmp_path / "model.pdf")
+    if os.environ.get("JJOKGYEOL_DECISION_TEST_URL"):
+        assert render.value.headers["x-jjokgyeol-decision"] == "model"
     editor.locator("#proof-choice").select_option("rule")
     second = save(editor, "#export")
     for pdf in (first, second):
