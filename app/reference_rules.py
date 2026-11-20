@@ -17,10 +17,10 @@ def _title_parts(inlines):
         span = _fields(inline)
         if span["kind"] == "text":
             yield span["text"]
-        elif span["kind"] == "note_ref":
+        elif span["kind"] in ("note_ref", "endnote_ref", "memo_ref"):
             # A note interrupts an article-number match but adds no title text.
             yield "\0"
-        elif span["kind"] in ("strong", "emphasis"):
+        elif span["kind"] in ("strong", "emphasis", "gloss"):
             yield from _title_parts(span["children"])
 
 

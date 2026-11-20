@@ -14,7 +14,7 @@ _PIN = "{번호고정}"
 
 def _leaves(inlines):
     for span in inlines:
-        if span["kind"] in ("strong", "emphasis"):
+        if span["kind"] in ("strong", "emphasis", "gloss"):
             yield from _leaves(span["children"])
         else:
             yield span
