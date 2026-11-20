@@ -86,9 +86,22 @@ const indentKeys = ["first_indent_mm", "rest_indent_mm"];
 const indents = indentEditor(settings.indent_units, indentKeys);
 const listStyle = listLevelEditor(settings, () => edited("style"));
 const lineNumbers = byId("line-numbers");
-lineNumbers.add(new Option("끔", "off"));
-lineNumbers.add(new Option("왼쪽", "left"));
-lineNumbers.add(new Option("오른쪽", "right"));
+const oddLineNumbers = byId("odd-line-numbers");
+const evenLineNumbers = byId("even-line-numbers");
+const lineNumberFaces = byId("line-number-faces");
+for (const select of [lineNumbers, oddLineNumbers, evenLineNumbers]) {
+  select.add(new Option("끔", "off"));
+  select.add(new Option("왼쪽", "left"));
+  select.add(new Option("오른쪽", "right"));
+}
+lineNumbers.add(new Option("홀짝 따로 지정", "separate"));
+lineNumbers.addEventListener("input", () => {
+  lineNumberFaces.hidden = lineNumbers.value !== "separate";
+  if (lineNumberFaces.hidden) {
+    oddLineNumbers.value = lineNumbers.value;
+    evenLineNumbers.value = lineNumbers.value;
+  }
+});
 const articleNumbering = byId("article-numbering");
 const articleExpr = byId("article-expr");
 const pinButton = byId("toggle-article-pin");
@@ -281,7 +294,11 @@ const styleForm = {
     ]));
     const levels = listStyle.get();
     if (levels !== undefined) values.list_levels = levels;
-    if (lineNumbers.value !== "off") values.line_numbers = lineNumbers.value;
+    if (lineNumbers.value === "separate") {
+      values.line_numbers = {odd: oddLineNumbers.value, even: evenLineNumbers.value};
+    } else if (lineNumbers.value !== "off") {
+      values.line_numbers = lineNumbers.value;
+    }
     if (articleNumbering.checked) values.article_expr = articleExpr.value;
     if (sectionRules !== undefined) values.section_rules = structuredClone(sectionRules);
     if (!gutter.disabled) values.gutter_mm = gutter.value;
@@ -301,7 +318,12 @@ const styleForm = {
     sectionRules = structuredClone(values.section_rules);
     typography.set(values, preserveDraft);
     listStyle.set(values.list_levels);
-    lineNumbers.value = values.line_numbers ?? "off";
+    const numbering = values.line_numbers ?? "off";
+    const separate = typeof numbering === "object";
+    lineNumbers.value = separate ? "separate" : numbering;
+    oddLineNumbers.value = separate ? numbering.odd : numbering;
+    evenLineNumbers.value = separate ? numbering.even : numbering;
+    lineNumberFaces.hidden = !separate;
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;
     articleExpr.value = values.article_expr ?? inactiveArticleExpr;

@@ -110,3 +110,19 @@ def test_outline_nine_levels_fit_a5_and_wrap_at_body_column(tmp_path):
         _, marker, _ = match_item(printed, name)
         assert "".join(c.text for c in marker) == expected
     assert len(levels) == 9
+
+
+def test_line_number_faces_round_trip_and_validate_both_sides():
+    for odd in ("left", "right", "off"):
+        for even in ("left", "right", "off"):
+            pair = {"odd": odd, "even": even}
+            style = apply_style(Style(), {"line_numbers": pair})
+            assert style.to_editor()["line_numbers"] == pair
+            assert from_stored_style(style.to_stored()) == style
+            assert apply_style(style, {"line_numbers": "right"}).to_stored()["line_numbers"] == "right"
+            assert "line_numbers" not in apply_style(style, {"line_numbers": "off"}).to_stored()
+    for bad in ({}, {"odd": "left"}, {"odd": "up", "even": "right"},
+                {"odd": [], "even": "left"}, {"odd": "left", "even": "left", "first": "off"}):
+        with pytest.raises(InputError) as err:
+            apply_style(Style(), {"line_numbers": bad})
+        assert err.value.field == "line_numbers"

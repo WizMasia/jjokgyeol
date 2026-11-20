@@ -51,3 +51,42 @@ def test_numbering_controls_reopen_and_print(editor, tmp_path):
     side.select_option(label="끔")
     assert "line_numbers" not in json.loads(save(editor, "#save-style"))
     assert save(editor, "#save") == source.encode()
+
+
+def test_separate_line_numbers_reopen_and_switch_to_common(editor, tmp_path):
+    editor.locator("#source").fill("\n\n".join(["교정 문장"] * 40))
+    editor.locator("#style summary").click()
+    position = editor.get_by_role("combobox", name="줄 번호 위치", exact=True)
+    odd = editor.get_by_role("combobox", name="홀수 쪽 줄 번호", exact=True)
+    even = editor.get_by_role("combobox", name="짝수 쪽 줄 번호", exact=True)
+    expect(odd).to_be_hidden()
+    position.select_option(label="왼쪽")
+    position.select_option(label="홀짝 따로 지정")
+    expect(odd).to_have_value("left")
+    expect(even).to_have_value("left")
+    odd.select_option(label="오른쪽")
+    even.select_option(label="왼쪽")
+    path = tmp_path / "양면.json"
+    path.write_bytes(save(editor, "#save-style"))
+    assert json.loads(path.read_bytes())["line_numbers"] == {"odd": "right", "even": "left"}
+    position.select_option(label="왼쪽")
+    expect(even).to_be_hidden()
+    assert json.loads(save(editor, "#save-style"))["line_numbers"] == "left"
+    reopen_file(editor, path)
+    expect(odd).to_have_value("right")
+    expect(even).to_have_value("left")
+    pages = read_pages(download_proof(editor, tmp_path / "양면.pdf"))
+    assert len(pages) >= 2
+    next_number = 1
+    for page_no, page in enumerate(pages, 1):
+        digits = {}
+        for line in page.lines:
+            for c in line.chars:
+                if c.text in "0123456789":
+                    assert (c.x0 > (148 - 18) * 72 / 25.4 if page_no % 2 else c.x1 < 18 * 72 / 25.4)
+                    digits.setdefault(round(c.baseline, 2), []).append(c)
+        assert digits
+        for _, chars in sorted(digits.items(), reverse=True):
+            assert "".join(c.text for c in sorted(chars, key=lambda c: c.x0)) == str(next_number)
+            next_number += 1
+    assert next_number == 41

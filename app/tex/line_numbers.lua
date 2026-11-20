@@ -29,8 +29,7 @@ function numbers.mark(head)
   end
 end
 
-local function label(line, offset, margin)
-  count = count + 1
+local function label(line, offset, margin, side)
   local move = node.new("kern")
   local tail, digits, digit_width = move, tostring(count), 0
   for i = 1, #digits do
@@ -41,7 +40,7 @@ local function label(line, offset, margin)
     digit_width = digit_width + digit.width
   end
   if gap + digit_width > margin then book.layout_error("line_numbers:" .. page) end
-  move.kern = (style.line_numbers == "left" and -gap - digit_width or width + gap) - offset
+  move.kern = (side == "left" and -gap - digit_width or width + gap) - offset
   local overlay = node.hpack(move)
   overlay.width, overlay.height, overlay.depth = 0, 0, 0
   line.head = node.insert_before(line.head, line.head, overlay)
@@ -49,13 +48,20 @@ end
 
 function numbers.place(box)
   page = page + 1
+  local side = style.line_numbers
+  if type(side) == "table" then side = side[page % 2 == 1 and "odd" or "even"] end
   local left = left_at_page(page)
-  local margin = style.line_numbers == "left" and left or style.page_sp[1] - left - width
+  local margin = side == "left" and left or style.page_sp[1] - left - width
   local function visit(head)
     for n in node.traverse(head) do
       if n.id == hlist or n.id == vlist then
         local offset = node.has_attribute(n, origin)
-        if offset then label(n, offset, margin) else visit(n.head) end
+        if offset then
+          count = count + 1
+          if side ~= "off" then label(n, offset, margin, side) end
+        else
+          visit(n.head)
+        end
       end
     end
   end

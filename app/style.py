@@ -514,11 +514,15 @@ def _load(current, patch, *, stored):
     if patch.keys() - units.keys() - set(FONTS) - optional_fields:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "line_numbers" in patch:
-        side = patch["line_numbers"]
-        if side not in ("off", "left", "right"):
-            errors["line_numbers"] = "줄 번호 위치는 끔, 왼쪽, 오른쪽 중에서 선택하세요."
+        setting = patch["line_numbers"]
+        positions = ("off", "left", "right")
+        if isinstance(setting, dict) and setting.keys() == {"odd", "even"} and all(
+                side in positions for side in setting.values()):
+            values["line_numbers"] = (setting["odd"], setting["even"])
+        elif setting in positions:
+            values["line_numbers"] = None if setting == "off" else setting
         else:
-            values["line_numbers"] = None if side == "off" else side
+            errors["line_numbers"] = "줄 번호 위치는 공통 또는 홀수·짝수 쪽 각각에 끔, 왼쪽, 오른쪽을 지정하세요."
     if "paragraph_layout" in patch:
         if patch["paragraph_layout"] in publication.PARAGRAPH_LAYOUTS:
             values["paragraph_layout"] = patch["paragraph_layout"]
@@ -668,7 +672,12 @@ class Style:
     text_styles: tuple[tuple[str, tuple[tuple[str, str | int], ...]], ...] | None = None
     ko_tracking_bounds_per_10000: tuple[int, int] | None = None
     paragraph_layout: str | None = None
-    line_numbers: str | None = None
+    line_numbers: str | tuple[str, str] | None = None
+
+    def _line_number_fields(self):
+        if isinstance(self.line_numbers, tuple):
+            return {"odd": self.line_numbers[0], "even": self.line_numbers[1]}
+        return self.line_numbers
 
     def resolved_list_levels(self) -> tuple[ListLevel, ...]:
         if self.list_levels is None:
@@ -678,6 +687,8 @@ class Style:
     def to_stored(self) -> dict:
         values = {key: list(value) if isinstance(value, tuple) else value
                   for key, value in vars(self).items() if value is not None}
+        if self.line_numbers is not None:
+            values["line_numbers"] = self._line_number_fields()
         if self.text_styles:
             values["text_styles"] = {role: dict(fields) for role, fields in self.text_styles}
         if self.list_levels is not None:
@@ -699,7 +710,7 @@ class Style:
             if self.paragraph_layout is not None:
                 values["paragraph_layout"] = self.paragraph_layout
             if self.line_numbers is not None:
-                values["line_numbers"] = self.line_numbers
+                values["line_numbers"] = self._line_number_fields()
             if self.article_expr is not None:
                 values["article_expr"] = self.article_expr
             if self.list_levels is not None:

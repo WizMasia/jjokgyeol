@@ -114,3 +114,33 @@ def test_empty_indent_and_memo_are_skipped_but_a_printed_list_mark_counts(tmp_pa
     for label, marker in zip(labels, ("가", "①"), strict=True):
         printed, = (c for c in chars if c.text == marker)
         assert label.baseline == pytest.approx(printed.baseline, abs=.02)
+
+
+@pytest.mark.parametrize(("odd", "even"), [("right", "left"), ("left", "right"), ("off", "right"), ("left", "off")])
+def test_line_numbers_follow_physical_page_and_count_hidden_lines(tmp_path, odd, even):
+    source = "\n\n".join("교정 문장" for _ in range(20))
+    patch = {"page_mm": [90, 65], "margins_mm": [10, 12, 10, 16], "gutter_mm": 2}
+    original = render(tmp_path / "original", source, **patch)
+    proof = render(tmp_path / "separate", source, line_numbers={"odd": odd, "even": even}, **patch)
+    assert len(proof) >= 3
+    number = 0
+    for page, (before, after) in enumerate(zip(original, proof, strict=True), 1):
+        side = odd if page % 2 else even
+        left, right = (18, 78) if page % 2 else (12, 72)
+        body, labels = [], defaultdict(list)
+        for c in glyphs(after):
+            if c.x1 < left * BP_PER_MM or c.x0 > right * BP_PER_MM:
+                labels[round(c.baseline, 2)].append(c)
+            else:
+                body.append(c)
+        assert_same_glyphs(glyphs(before), body)
+        lines = sorted({round(c.baseline, 2) for c in glyphs(before) if c.text == "교"}, reverse=True)
+        assert set(labels) == (set() if side == "off" else set(lines))
+        for y in lines:
+            number += 1
+            if side != "off":
+                digits = sorted(labels[y], key=lambda c: c.x0)
+                assert "".join(c.text for c in digits) == str(number)
+                distance = left * BP_PER_MM - digits[-1].x1 if side == "left" else digits[0].x0 - right * BP_PER_MM
+                assert distance == pytest.approx(6 * BP_PER_PT, abs=.03)
+    assert number == 20
