@@ -15,6 +15,7 @@ import unicodedata
 from collections import defaultdict
 from contextlib import contextmanager
 from io import BytesIO
+from itertools import repeat
 from pathlib import Path
 
 from PIL import Image
@@ -29,6 +30,7 @@ PAGE = {"page_mm": [148, 210], "margins_mm": [20, 18, 20, 18]}
 JUSTIFIED_TRACKING_BOUNDS = (-15, 15)
 JUSTIFIED_SPACE_BOUNDS = (70, 130)
 PDF_TOLERANCE = .05  # PDF points
+BP_PER_SP = 72 / 72.27 / 65536
 # Independently measured natural space advances in the two locked regular faces.
 BODY_FACES = {"nanum-myeongjo": ("NanumMyeongjo", 307 / 1024),
               "nanum-gothic": ("NanumGothic", 280 / 1000)}
@@ -159,7 +161,9 @@ def measured(call, *args, **kwargs):
     return result, (time.perf_counter_ns() - start) / 1_000_000
 
 
-def _check_word_gaps(chars, offset, word_ends, tracking, spaces, where):
+def _word_gaps(chars, offset, word_ends, tracking, spaces, where):
+    """Read adjustments in print order. Native Latin kerning is outside both channels."""
+    gaps = []
     for a, b in zip(chars, chars[1:]):
         offset += len(a.text)
         gap = b.x0 - a.x0 - a.advance
@@ -170,15 +174,79 @@ def _check_word_gaps(chars, offset, word_ends, tracking, spaces, where):
             low, high = tracking
             kind = "tracking"
         else:
-            # Latin kerning and punctuation retain their own metrics.
             if gap >= spaces[0] - PDF_TOLERANCE:
                 raise ValueError(f"{where}: unexpected space inside source word at {offset}")
             continue
         if not low - PDF_TOLERANCE <= gap <= high + PDF_TOLERANCE:
             raise ValueError(f"{where}: {kind} outside requested bounds at {offset}")
+        gaps.append((kind, gap))
+    return gaps
 
 
-def verify_justified_pdf(pdf, source, style):
+def _compare_gaps(gaps, tracked, spaces, where, *, first_offset=0.):
+    # Each prefix checks the next printed origin as well as the individual gap.
+    drift = first_offset
+    for kind, actual in gaps:
+        expected = next(spaces) if kind == "space" else tracked
+        difference = actual - expected
+        drift += difference
+        if abs(difference) > PDF_TOLERANCE or abs(drift) > PDF_TOLERANCE:
+            raise ValueError(f"{where} {kind} differs from printed PDF")
+
+
+def _natural_final(gaps, tracking, space, remaining, where):
+    if gaps and all(kind == "tracking" for kind, _ in gaps):
+        # Reconstruct spare width at the preferred setting using this printed word.
+        # A single unbroken word may need just enough compression to fit the line.
+        natural_spare = remaining - sum(tracking - actual for _, actual in gaps)
+        if natural_spare < 0:
+            tracking += natural_spare / len(gaps)
+    _compare_gaps(gaps, tracking, repeat(space), where + ": natural final")
+
+
+def _trace_spacing(line, gaps, size, natural_space, remaining, first_offset, where):
+    where += ": selected spacing trace"
+    counts = {"space": 0, "tracking": 0}
+    for kind, _ in gaps:
+        counts[kind] += 1
+    advances = {}
+    for kind, nominal in (("tracking", size), ("space", natural_space)):
+        ratio = line.get(kind + "_per_10000")
+        if type(ratio) is not int:
+            raise ValueError(f"{where}: invalid {kind} ratio")
+        average = nominal * ratio / 10000
+        total_key = kind + "_width_sp"
+        if total_key in line:
+            total = line[total_key]
+            count = counts[kind]
+            # The engine log rounds its ratio to 1/10000, but clips and applies exact sp totals.
+            if type(total) is not int or (not count and total != 0):
+                raise ValueError(f"{where}: invalid {total_key}")
+            if count:
+                exact = total * BP_PER_SP / count
+                if abs(exact - average) > nominal / 20000 + 2 * BP_PER_SP:
+                    raise ValueError(f"{where}: {total_key} differs from ratio")
+                average = exact
+        advances[kind] = average
+    spaces = repeat(advances["space"])
+    if "spaces_sp" in line:
+        raw = line["spaces_sp"]
+        if (not isinstance(raw, list) or len(raw) != counts["space"]
+                or any(type(v) is not int or v <= 0 for v in raw)):
+            raise ValueError(f"{where}: invalid spaces_sp")
+        if "space_width_sp" in line and sum(raw) != line["space_width_sp"]:
+            raise ValueError(f"{where}: spaces_sp differs from total")
+        if any(abs(v * BP_PER_SP - advances["space"]) > PDF_TOLERANCE for v in raw):
+            raise ValueError(f"{where}: spaces_sp differs from ratio")
+        spaces = (value * BP_PER_SP for value in raw)
+    if "remaining_sp" in line:
+        slack = line["remaining_sp"]
+        if type(slack) is not int or abs(slack * BP_PER_SP - remaining) > PDF_TOLERANCE:
+            raise ValueError(f"{where}: remaining_sp differs from printed right edge")
+    _compare_gaps(gaps, advances["tracking"], spaces, where, first_offset=first_offset)
+
+
+def verify_justified_pdf(pdf, source, style, *, expected_lines=None):
     """Measure searchable physical lines, including paragraph continuations across pages."""
     from tests.pdf_metrics import read_pages
 
@@ -201,6 +269,8 @@ def verify_justified_pdf(pdf, source, style):
     top, right, bottom, left = (n * 72 / 25.4 for n in style["margins_mm"])
     tracking = [size * pct / 100 for pct in style["ko_tracking_bounds_pct"]]
     spaces = [size * space_em * pct / 100 for pct in style["space_pct"]]
+    preferred_tracking = size * style["ko_tracking_pct"] / 100
+    natural_space = min(max(size * space_em, spaces[0]), spaces[1])
     line_ends = []
     offset = paragraph = nonfinal = 0
     max_left = max_right = 0.
@@ -234,6 +304,7 @@ def verify_justified_pdf(pdf, source, style):
             final = end == paragraph_ends[paragraph]
             if delta > PDF_TOLERANCE or (not final and abs(delta) > PDF_TOLERANCE):
                 raise ValueError(f"{where}: right edge differs by {delta:+.3f} PDF pt")
+            paragraph_start = paragraph_ends[paragraph - 1] if paragraph else 0
             if final:
                 paragraph += 1
             else:
@@ -244,11 +315,24 @@ def verify_justified_pdf(pdf, source, style):
                     raise ValueError(f"{where}: wrong font or size")
                 if c.y0 < bottom - PDF_TOLERANCE or c.y1 > page.height - top + PDF_TOLERANCE:
                     raise ValueError(f"{where}: glyph outside vertical margins")
-            _check_word_gaps(chars, offset, word_ends, tracking, spaces, where)
+            gaps = _word_gaps(chars, offset, word_ends, tracking, spaces, where)
+            if final:
+                _natural_final(gaps, preferred_tracking, natural_space, -delta, where)
+            if expected_lines is not None:
+                if len(line_ends) >= len(expected_lines):
+                    raise ValueError(f"{where}: missing selected trace line")
+                selected = expected_lines[len(line_ends)]
+                if not isinstance(selected, dict):
+                    raise ValueError(f"{where}: invalid selected trace line")
+                if "end_glyph" in selected and selected["end_glyph"] != end - paragraph_start:
+                    raise ValueError(f"{where}: selected ends differ from printed PDF lines")
+                _trace_spacing(selected, gaps, size, size * space_em, -delta, chars[0].x0 - left, where)
             offset = end
             line_ends.append(end)
     if offset != len(original):
         raise ValueError("PDF does not contain complete source")
+    if expected_lines is not None and len(line_ends) != len(expected_lines):
+        raise ValueError("extra selected trace lines")
     return {"line_ends": line_ends, "nonfinal_lines": nonfinal,
             "max_left_error_pt": max_left, "max_nonfinal_right_error_pt": max_right}
 

@@ -188,3 +188,63 @@ def test_actual_render_service_packet(tmp_path):
         reader = PdfReader(dest / "reader" / (sid + ".pdf"))
         assert not reader.metadata
         assert all(page.extract_text() == "" and len(page.images) == 1 for page in reader.pages)
+
+
+@pytest.mark.parametrize(("printed_tracking", "printed_space", "base", "spaces", "error"), [
+    (12, 125, 0, [70, 130], "natural final"),
+    (0, 125, 0, [70, 130], "natural final space"),
+    (-7, 100, -7, [70, 130], None),
+    (-3, 110, -3, [110, 130], None),
+    (0, 95, 0, [70, 95], None),
+])
+def test_final_uses_preferred_tracking_and_bounded_natural_space(
+        tmp_path, printed_tracking, printed_space, base, spaces, error):
+    from evaluation.packet import verify_justified_pdf
+
+    source = "한낮 계단 끝"
+    fixed = {"body_font": "nanum-myeongjo", "page_mm": [148, 210], "margins_mm": [20, 18, 20, 18],
+             "body_pt": 11, "ko_tracking_pct": printed_tracking, "space_pct": [printed_space] * 2}
+    pdf = typeset(parse_md(source), apply_style(Style(), fixed), tmp_path)
+    expected = {**fixed, "paragraph_layout": "justified", "ko_tracking_pct": base,
+                "ko_tracking_bounds_pct": [-15, 15], "space_pct": spaces}
+    if error:
+        with pytest.raises(ValueError, match=error):
+            verify_justified_pdf(pdf, source, expected)
+    else:
+        assert verify_justified_pdf(pdf, source, expected)["line_ends"] == [5]
+
+
+@pytest.mark.parametrize("printed_tracking", [-10, -15])
+def test_single_word_final_may_shrink_only_as_much_as_needed(tmp_path, printed_tracking):
+    from evaluation.packet import verify_justified_pdf
+
+    source = "봄날봄날"
+    width_mm = (11 * (4 * 973 / 1024 - 3 * .10) + .01) * 25.4 / 72.27
+    fixed = {"body_font": "nanum-myeongjo", "body_pt": 11, "ko_tracking_pct": printed_tracking,
+             "space_pct": [100, 100], "page_mm": [36 + width_mm, 210], "margins_mm": [20, 18, 20, 18]}
+    pdf = typeset(parse_md(source), apply_style(Style(), fixed), tmp_path)
+    expected = {**fixed, "paragraph_layout": "justified", "ko_tracking_pct": 0,
+                "ko_tracking_bounds_pct": [-15, 15], "space_pct": [70, 130]}
+    if printed_tracking == -10:
+        assert verify_justified_pdf(pdf, source, expected)["line_ends"] == [4]
+    else:
+        with pytest.raises(ValueError, match="natural final"):
+            verify_justified_pdf(pdf, source, expected)
+
+
+@pytest.mark.parametrize("fault", [None, "tracking_per_10000", "space_per_10000", "missing line", "extra line"])
+def test_selected_line_spacing_matches_physical_gaps(measured_text, fault):
+    from evaluation.packet import verify_justified_pdf
+
+    lines = [{"tracking_per_10000": 0, "space_per_10000": 10000} for _ in range(3)]
+    if fault == "missing line":
+        lines.pop()
+    elif fault == "extra line":
+        lines.append(lines[-1])
+    elif fault:
+        lines[0][fault] += 1200
+    if fault:
+        with pytest.raises(ValueError, match="trace"):
+            verify_justified_pdf(*measured_text, expected_lines=lines)
+    else:
+        assert verify_justified_pdf(*measured_text, expected_lines=lines)["line_ends"] == [4, 6, 8]
