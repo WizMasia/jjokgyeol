@@ -17,6 +17,7 @@ def test_numbering_controls_reopen_and_print(editor, tmp_path):
     preset = editor.get_by_label("목록 양식", exact=True)
     side = editor.get_by_label("줄 번호 위치")
     preset.select_option(label="계층 번호형")
+    expect(editor.locator("#list-levels fieldset")).to_have_count(9)
     side.select_option(label="오른쪽")
     settings = tmp_path / "번호.json"
     settings.write_bytes(save(editor, "#save-style"))
@@ -39,6 +40,14 @@ def test_numbering_controls_reopen_and_print(editor, tmp_path):
             for _, row in sorted(printed.items(), reverse=True)] == [
                 "1.조사", "1.1.현장", "1.1.1.기록", "2.검토", "2.1.결과",
             ]
+    ninth = editor.get_by_role("group", name="9단계", exact=True)
+    ninth.get_by_label("표지 표현식").fill("({계층번호})")
+    edited = tmp_path / "개별단계.json"
+    edited.write_bytes(save(editor, "#save-style"))
+    preset.select_option(label="법령형")
+    reopen_file(editor, edited)
+    expect(ninth.get_by_label("표지 표현식")).to_have_value("({계층번호})")
+    expect(editor.get_by_role("group", name="8단계", exact=True).get_by_label("표지 표현식")).to_have_value("{계층번호}.")
     side.select_option(label="끔")
     assert "line_numbers" not in json.loads(save(editor, "#save-style"))
     assert save(editor, "#save") == source.encode()

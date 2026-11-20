@@ -1,7 +1,14 @@
 {
   "line_number_gap_pt": 6,
   "outline_levels": [
-    {"expr": "{계층번호}.", "indent_mm": 0, "gap_mm": 2},
-    {"expr": "{계층번호}.", "indent_mm": 2, "gap_mm": 2}
+    {"expr": "{계층번호}.", "indent_mm": 0, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 3, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 6, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 9, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 12, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 15, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 18, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 21, "gap_mm": 2, "indent_origin": "margin"},
+    {"expr": "{계층번호}.", "indent_mm": 24, "gap_mm": 2, "indent_origin": "margin"}
   ]
 }

@@ -89,3 +89,24 @@ def test_fences_only_change_lists_using_hierarchy_in_their_section(tmp_path):
     printed = rows(typeset(parse_md(source), style, tmp_path))
     for name, mark in (("원본", "8."), ("결과", "24.")):
         assert "".join(c.text for c in match_item(printed, name)[1]) == mark, name
+
+
+def test_outline_nine_levels_fit_a5_and_wrap_at_body_column(tmp_path):
+    names = ["계획", "조사", "지역", "현장", "기록", "면담", "증언", "대조", "검증"]
+    source = "\n".join("  " * depth + "- " + name for depth, name in enumerate(names))
+    source += " " + "확인 " * 45 + "\n" + "  " * 8 + "- 보완\n- 결론"
+    levels = editor_bootstrap()["list_presets"]["outline"]
+    style = apply_style(Style(), {"list_levels": levels, "paragraph_layout": "justified",
+                                "ko_tracking_bounds_pct": [-15, 15], "space_pct": [70, 130]})
+    printed = rows(typeset(parse_md(source), style, tmp_path))
+    previous = 0
+    for depth, name in enumerate(names, 1):
+        index, marker, first = match_item(printed, name)
+        assert "".join(c.text for c in marker) == "1." * depth
+        assert marker[0].x0 > previous
+        previous = marker[0].x0
+    assert printed[index + 1][1][0].x0 == pytest.approx(first.x0, abs=.03)
+    for name, expected in (("보완", "1." * 8 + "2."), ("결론", "2.")):
+        _, marker, _ = match_item(printed, name)
+        assert "".join(c.text for c in marker) == expected
+    assert len(levels) == 9
