@@ -36,6 +36,38 @@ class SmokeTest(unittest.TestCase):
         with patch.object(smoke, 'query', return_value=''):
             self.assertFalse(smoke.window_found(123))
 
+class BacktraceTest(unittest.TestCase):
+    def test_running_process_backtrace_records_debugger_output(self):
+        import tempfile
+        from types import SimpleNamespace
+        process = SimpleNamespace(pid=123, poll=lambda: None)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(smoke.subprocess, 'run') as run:
+                run.return_value = SimpleNamespace(returncode=0, stdout='thread backtrace\n')
+                smoke.backtrace(Path(directory), process)
+            self.assertIn('thread backtrace', (Path(directory) / 'app-backtrace.log').read_text())
+            self.assertIn('thread apply all bt', run.call_args.args[0])
+            self.assertEqual(run.call_args.kwargs['timeout'], 10)
+
+    def test_debugger_failure_is_recorded(self):
+        import tempfile
+        from types import SimpleNamespace
+        process = SimpleNamespace(pid=123, poll=lambda: None)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(smoke.subprocess, 'run', side_effect=FileNotFoundError('gdb missing')):
+                smoke.backtrace(Path(directory), process)
+            self.assertIn('gdb missing', (Path(directory) / 'app-backtrace.log').read_text())
+
+    def test_debugger_timeout_is_recorded(self):
+        import subprocess
+        import tempfile
+        from types import SimpleNamespace
+        process = SimpleNamespace(pid=123, poll=lambda: None)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(smoke.subprocess, 'run', side_effect=subprocess.TimeoutExpired('gdb', 10)):
+                smoke.backtrace(Path(directory), process)
+            self.assertIn('timed out', (Path(directory) / 'app-backtrace.log').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

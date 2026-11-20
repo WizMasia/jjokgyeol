@@ -35,7 +35,26 @@ def window_found(pid):
     return False
 
 
+def backtrace(results, process):
+    log = results / 'app-backtrace.log'
+    if process is None or process.poll() is not None:
+        log.write_text('App is not running; no backtrace available.\n', encoding='utf-8')
+        return
+    command = ['timeout', '--kill-after=1s', '8s']
+    command += (['sudo', '-n'] if os.environ.get('JJOKGYEOL_GDB_SUDO') == '1' else [])
+    command += ['gdb', '--batch', '-ex', 'set pagination off', '-ex', 'thread apply all bt',
+                '-p', str(process.pid)]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding='utf-8', errors='replace', env=ENV,
+                                timeout=10, check=False)
+        log.write_text(f'gdb exit={result.returncode}\n{result.stdout}', encoding='utf-8')
+    except (OSError, subprocess.TimeoutExpired) as error:
+        log.write_text(f'Could not capture backtrace: {error}\n', encoding='utf-8')
+
+
 def diagnostics(results, process, wm):
+    backtrace(results, process)
     tree = query('xwininfo', '-root', '-tree')
     (results / 'window-tree.txt').write_text(tree, encoding='utf-8')
     with (results / 'window-details.txt').open('w', encoding='utf-8') as output:
@@ -45,6 +64,14 @@ def diagnostics(results, process, wm):
             status = Path(f'/proc/{process.pid}/status')
             if status.exists():
                 output.write(status.read_text(encoding='utf-8', errors='replace'))
+            output.write('\nthread wait channels:\n')
+            for thread in sorted(Path(f'/proc/{process.pid}/task').glob('*/wchan')):
+                try:
+                    output.write(f'{thread.parent.name}: {thread.read_text().strip()}\n')
+                except OSError:
+                    pass
+        output.write('\nprocess tree:\n')
+        output.write(query('ps', '-eo', 'pid,ppid,stat,wchan:32,comm'))
         for window in WINDOW.findall(tree):
             output.write(f'\n--- {window} ---\n')
             output.write(query('xwininfo', '-id', window))
