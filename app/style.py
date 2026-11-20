@@ -462,8 +462,14 @@ def _load(current, patch, *, stored):
         units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    if patch.keys() - units.keys() - set(FONTS) - {"list_levels", "article_expr", "section_rules", "text_styles"}:
+    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout"}
+    if patch.keys() - units.keys() - set(FONTS) - optional_fields:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
+    if "paragraph_layout" in patch:
+        if patch["paragraph_layout"] == publication.BALANCED_PARAGRAPH_LAYOUT:
+            values["paragraph_layout"] = patch["paragraph_layout"]
+        else:
+            errors["paragraph_layout"] = "문단 배치 값은 balanced여야 합니다."
     if "article_expr" in patch:
         expr = patch["article_expr"]
         try:
@@ -589,6 +595,7 @@ class Style:
     gutter_sp: int | None = None
     text_styles: tuple[tuple[str, tuple[tuple[str, str | int], ...]], ...] | None = None
     ko_tracking_bounds_per_10000: tuple[int, int] | None = None
+    paragraph_layout: str | None = None
 
     def resolved_list_levels(self) -> tuple[ListLevel, ...]:
         if self.list_levels is None:
@@ -616,6 +623,8 @@ class Style:
                 values["ko_tracking_bounds_pct"] = [
                     format(Decimal(n) / 100, "f") for n in self.ko_tracking_bounds_per_10000
                 ]
+            if self.paragraph_layout is not None:
+                values["paragraph_layout"] = self.paragraph_layout
             if self.article_expr is not None:
                 values["article_expr"] = self.article_expr
             if self.list_levels is not None:
@@ -688,6 +697,7 @@ def editor_bootstrap() -> dict:
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
         "defaults": Style().to_editor(),
+        "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new_text_styles,
         "text_defaults": text_defaults,
         "heading_per_10000": list(publication.HEADINGS),

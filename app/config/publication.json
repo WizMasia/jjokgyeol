@@ -11,6 +11,7 @@
     "ko_tracking_pct": 0,
     "space_pct": [100, 100]
   },
+  "new_paragraph_layout": "balanced",
   "fonts": [
     {"id": "nanum-myeongjo", "label": "나눔명조"},
     {"id": "nanum-gothic", "label": "나눔고딕"}

@@ -46,12 +46,13 @@ local function legal(left, right)
     and right ~= 0x2019 and right ~= 0x201D
 end
 
-local function wordspace(n)
+local function wordspace(n, literal_spaces)
   if n.id ~= glue or n.subtype ~= 13 and n.subtype ~= 14 then return false end
   local left, right = n.prev, n.next
   if left and right and left.id == glyph and right.id == glyph then
     return legal(left.char, right.char)
   end
+  if not literal_spaces then return true end
   local props = node.getproperty(n)
   if props and props.jjok_space_break ~= nil then return props.jjok_space_break end
   -- A run of literal spaces or a color switch can separate the punctuation

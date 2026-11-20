@@ -94,7 +94,7 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             "policy": engine_policy(), "candidate": candidate}
     if settings:
         data["running_sections"] = settings
-    if collect_candidates or paragraph_choices:
+    if collect_candidates or paragraph_choices is not None:
         snapshot = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
         data["paragraphs"] = {"snapshot": hashlib.sha256(snapshot).hexdigest(),
                               "collect": collect_candidates, "choices": paragraph_choices or {}}

@@ -100,6 +100,8 @@ async def check_live_limits():
         bootstrap = json.loads(first.text.split(prefix, 1)[1].split("</script>", 1)[0])
         assert set(bootstrap) == {
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
+            "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
+            "new_paragraph_layout",
         }
         assert bootstrap["default_list_preset"] == "legal"
         assert "list_levels" not in bootstrap["defaults"]

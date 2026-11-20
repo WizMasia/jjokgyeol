@@ -61,7 +61,7 @@ local function boundaries(head, shapes, low_tracking, low_space)
   local gap, first = head, nil
   for n in node.traverse(head) do
     if n.id == penalty and n.penalty <= -10000 then return end
-    if breaks.wordspace(n) or n.id == glue and n.subtype == 15 then
+    if breaks.wordspace(n, true) or n.id == glue and n.subtype == 15 then
       if first then
         word(gap, first, n)
         gap, first = n, nil

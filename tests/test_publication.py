@@ -40,6 +40,33 @@ def test_public_interfaces_use_locked_fonts_and_round_trip():
     assert from_stored_style(stored) == apply_style(style, style.to_editor()) == style
 
 
+def test_paragraph_layout_round_trip_and_new_document_default():
+    from app.style import Style, apply_style, editor_bootstrap, from_stored_style
+
+    boot = editor_bootstrap()
+    assert boot["new_paragraph_layout"] == "balanced"
+    legacy = Style()
+    assert "paragraph_layout" not in boot["defaults"]
+    assert "paragraph_layout" not in legacy.to_stored()
+    assert "paragraph_layout" not in from_stored_style(legacy.to_stored()).to_editor()
+    chosen = apply_style(legacy, {"paragraph_layout": boot["new_paragraph_layout"]})
+    assert chosen.to_editor()["paragraph_layout"] == chosen.to_stored()["paragraph_layout"] == "balanced"
+    assert from_stored_style(chosen.to_stored()) == apply_style(legacy, chosen.to_editor()) == chosen
+    assert apply_style(chosen, {"body_pt": 16}).paragraph_layout == "balanced"
+
+
+@pytest.mark.parametrize("value", [None, False, "", "legacy", "BALANCED", ["balanced"]])
+def test_invalid_paragraph_layout_identifies_field(value):
+    from app.document import InputError
+    from app.style import Style, apply_style, from_stored_style
+
+    with pytest.raises(InputError) as editor:
+        apply_style(Style(), {"paragraph_layout": value})
+    with pytest.raises(InputError) as stored:
+        from_stored_style(dict(Style().to_stored(), paragraph_layout=value))
+    assert editor.value.field == stored.value.field == "paragraph_layout"
+
+
 def test_new_style_keeps_heading_sizes():
     from app.style import Style, apply_style, editor_bootstrap, from_stored_style
 
@@ -202,6 +229,7 @@ CONFIG = "app/config/publication.json"
 def test_changed_install_controls_defaults_limits_and_existing_files(install):
     def edit(config):
         config["defaults"].update(body_pt=13, body_font="nanum-gothic")
+        config["new_paragraph_layout"] = None
         config["fonts"][0]["label"] = "책 본문"
         config["space_pct_range"] = [75, 120]
         config["heading_per_10000"][1] = 20000
@@ -215,6 +243,7 @@ s = Style()
 assert (s.body_sp, s.body_font) == (851968, "nanum-gothic")
 boot = editor_bootstrap()
 assert boot["defaults"]["body_pt"] == "13"
+assert boot["new_paragraph_layout"] is None and "paragraph_layout" not in boot["defaults"]
 assert boot["new_text_styles"]["heading2"] == {"font_pt": "26"}
 assert boot["heading_per_10000"][1] == 20000
 assert boot["heading_leading_per_10000"] == 12500
@@ -243,6 +272,7 @@ for patch, field in [({"space_pct": [75, 121]}, "space_pct"), ({"body_pt": 1024}
     (CONFIG, lambda c: c["defaults"].update(margins_mm=[0, 100, 0, 100]), "margins_mm"),
     (CONFIG, lambda c: c["defaults"].update(body_font="missing"), "body_font"),
     (CONFIG, lambda c: c.update(space_pct_range=[100, 99]), "space_pct_range"),
+    (CONFIG, lambda c: c.update(new_paragraph_layout="unknown"), "new_paragraph_layout"),
     (CONFIG, lambda c: c.update(space_pct_range=[70.001, 130]), "space_pct_range"),
     (CONFIG, lambda c: c.update(heading_per_10000=[True] * 6), "heading_per_10000"),
     (CONFIG, lambda c: c["text_defaults"].update(gloss_per_10000=10000), "gloss_per_10000"),

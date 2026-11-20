@@ -110,6 +110,22 @@ def test_prechange_geometry(stock, name, tmp_path):
     print(f"{name} (lines, glyphs) per page {counts}, geometry {signatures}")
 
 
+def test_saved_proof_layout_is_opt_in(stock):
+    _, url = stock
+    source = (PROOFS / "manuscript.md").read_text(encoding="utf-8")
+    saved = json.loads((PROOFS / "fixed-point-style.json").read_bytes())
+    legacy = style_request(url, "open", saved)
+    proof = read_pages((PROOFS / "fixed-point.pdf").read_bytes())
+    first = read_pages(render(url, source, legacy))[0].lines[1].text
+    assert first == proof[0].lines[1].text
+    assert first.endswith("눈에 들어오는")
+    assert style_request(url, "export", legacy) == saved
+
+    balanced = style_request(url, "open", dict(saved, paragraph_layout="balanced"))
+    revised = read_pages(render(url, source, balanced))[0].lines[1].text
+    assert revised == first.removesuffix(" 들어오는")
+
+
 def check_defaults(url, size_pt, folder):
     stored = style_request(url, "export", {})
     assert stored["body_sp"] == size_pt * 65536
