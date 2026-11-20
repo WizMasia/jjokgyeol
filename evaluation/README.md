@@ -17,18 +17,39 @@ ev() {
     -v "$PWD/evaluation/runs:/runs" \
     jjokgyeol:t14-test python -m evaluation "$@"
 }
-ev spacing /runs/spacing-02
-ev timing /runs/spacing-02
+ev justification /runs/quay-justified-01
+ev timing /runs/quay-justified-01
 ```
+
+`justification`은 고정 원고 `quay.md`를 편집기의 실제 `/api/render`로 조판한다. A5, 상하 20mm·좌우 18mm에서 나눔명조와 나눔고딕을 각각 11pt·행간 17pt와 16pt·행간 24pt로 비교한다. 네 묶음마다 선호 자간(initial tracking) 0%, −3%, −7%를 무작위 순서로 조판한다. 각 줄의 실제 자간은 세 조건 모두 같은 절대 범위 −15~+15% 안에서 달라질 수 있으며, 어절 공백은 자연 폭의 70~130%다. 두 글꼴의 실측 글리프 폭으로 계산했을 때 16pt의 일부 줄은 −7~+15%에서 어절을 보존하며 채울 수 없어 기본 하한을 −15%로 정했다.
+
+범위를 바꿀 때는 별도 실행 이름과 `--tracking-bounds MIN MAX`, `--space-bounds MIN MAX`를 쓴다. 예를 들어 `ev justification /runs/quay-narrow --tracking-bounds -7 15 --space-bounds 70 130`은 좁은 하한을 그대로 적용한다. 어느 한 표본이라도 검사에 실패하면 명령이 실패하고 해당 실행 폴더가 생성되지 않는다.
+
+원본 PDF에서 문단별 원고 글자와 줄 끝의 어절 경계, 글꼴·크기, 자간과 공백을 확인한다. 모든 줄의 첫 글자는 본문 왼쪽 경계에서, 문단 마지막 줄을 제외한 줄의 마지막 글자 진행 폭 끝은 본문 오른쪽 경계에서 0.05 PDF pt 이내여야 한다. 문단 마지막 줄은 본문 폭 안에서 자연 길이를 허용한다. 쪽이 바뀌어도 같은 문단이면 검사를 이어간다. 비공개 키의 각 표본에는 실제 요청 양식과 `verification`이 저장된다. `line_ends`는 누적 비공백 문자 위치, `nonfinal_lines`는 양끝을 검사한 줄 수이며 오차는 PDF pt 단위다.
+
+과거의 `spacing` 명령과 결과는 공백 100%, 한글 자간을 줄마다 같은 값으로 고정한 보정 자료로 유지한다. 새 양끝맞춤 판독에는 `justification`의 실행 ID와 빈 응답표를 쓴다.
 
 진행자는 `reader/`와 판독 안내만 제공한다. `private/key.json`은 원고·조건·원본 PDF 해시·실측 시간을 연결하는 실행별 대응표다. PDF 원본과 이 폴더는 판독자와 분리한다. 자간 판독은 한 묶음당 세 표본, 모델 판독은 한 묶음당 두 표본과 확정 기준 지면 한 장이다.
 
 ```sh
-ev capture /runs/spacing-02 /runs/returned.csv --reader R1
-ev score /runs/spacing-02
+ev capture /runs/quay-justified-01 /runs/returned.csv --reader R1
+ev score /runs/quay-justified-01
 ```
 
 CSV 열은 `run,group,sample,preferred,crowding,paragraph,reason`이다. 실행·묶음·표본 조합이 정확히 한 번씩 있어야 한다. 등록 시 익명 PDF 무결성을 확인해 응답 원문·별칭과 대응표 해시를 비공개로 고정한다. 응답 전 상태는 `awaiting_reader`다.
+
+### 출판 양끝맞춤 모델 비교
+
+새 판독에는 편집자가 `drawer`·`platform`을 양끝맞춤 프로필로 각각 다시 확정한 기준 지면을 권장한다. 두 기준은 A5·나눔명조 11pt·행간 17pt, 선호 자간 0%, 절대 자간 −15~+15%, 어절 공백 70~130%다. 별도 기준 폴더와 새 실행에서 규칙·모델 양쪽의 같은 프로필을 비교한다. `reference`의 각 수정판과 `pairs`에 모두 `--justified`를 지정한다.
+
+```sh
+ev reference /runs/refs-justified drawer /runs/drawer-edited.pdf --justified \
+  --editor E1 --paragraph "$PARAGRAPHS" --reason "$EDITOR_REASON" --final
+# platform도 편집자가 지면을 확인한 뒤 같은 방식으로 등록한다.
+ev pairs /runs/model-justified /runs/refs-justified /runs/t13-justified --justified
+```
+
+아래의 옵션 없는 모델 명령은 종전 프로필로 수집한 기준·산출물의 재현용이다. 새 실행의 선호·동률·시간 수용은 해당 실행에서 받은 사람의 응답으로 기록한다.
 
 ### 편집자 기준 / Editor reference
 
