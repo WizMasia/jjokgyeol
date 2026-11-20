@@ -1,0 +1,44 @@
+name: Native Windows proof
+on:
+  push:
+    branches: [feature/native-desktop]
+permissions:
+  contents: read
+jobs:
+  resources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export Debian TeX resources
+        run: desktop/qa/runtime/export-resources.sh "$RUNNER_TEMP/resources.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tex-resources
+          path: ${{ runner.temp }}/resources.tar
+          retention-days: 1
+  windows-proof:
+    needs: resources
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: tex-resources
+          path: ${{ runner.temp }}/resources
+      - name: Build and verify native proof
+        run: desktop/qa/runtime/verify.ps1 "${{ runner.temp }}/resources/resources.tar" "${{ runner.temp }}/native-proof"
+      - name: Save proof and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-proof
+          path: ${{ runner.temp }}/native-proof/results/
+          if-no-files-found: warn
+          retention-days: 7
