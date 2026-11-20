@@ -13,7 +13,8 @@ from test_style_ai import BODY, BOTH, FOOT, reply
 from test_style_suggestion_api import ENDPOINT, local_model
 
 SOURCE = "# 제목\n\n본문입니다.\n"
-TITLE = {"path": [], "role": "heading", "values": {"font_pt": "18"}}
+HEADER = {"path": [], "role": "header", "values": {"left": "기관"}}
+TEXT_STYLES = {"heading1": {"font_pt": "18", "color": "#17365d"}}
 
 
 @pytest.fixture
@@ -55,7 +56,8 @@ def measured(page, points, numbered):
 
 
 def open_saved_style(page):
-    stored = apply_style(Style(), {"margins_mm": [20, 23, 20, 23], "section_rules": [TITLE]}).to_stored()
+    stored = apply_style(Style(), {"margins_mm": [20, 23, 20, 23], "section_rules": [HEADER],
+                                  "text_styles": TEXT_STYLES, "ko_tracking_bounds_pct": [-2, 2]}).to_stored()
     with page.expect_response("**/api/style/open"):
         page.locator("#style-file").set_input_files({"name": "보고서.json", "mimeType": "application/json",
                                                     "buffer": json.dumps(stored).encode()})
@@ -67,6 +69,7 @@ def open_saved_style(page):
 def test_suggestions_reach_pdf(page, request, real, tmp_path):
     control = None if real else request.getfixturevalue("local_model")[0]
     open_saved_style(page)
+    page.locator("#style summary").click()
     initial = measured(pdf(page, tmp_path / "before.pdf"), 11, False)
     for prompt, numbered in [(BOTH, True), (BODY, False)]:
         if not numbered:
@@ -77,8 +80,11 @@ def test_suggestions_reach_pdf(page, request, real, tmp_path):
         with page.expect_response("**" + ENDPOINT, timeout=100000) as response:
             page.get_by_role("button", name="제안 받기").click()
         assert response.value.ok, response.value.text()
+        submitted = response.value.request.post_data_json["style"]
+        assert submitted["text_styles"] == TEXT_STYLES
+        assert submitted["ko_tracking_bounds_pct"] == ["-2", "2"]
         patch = response.value.json()["patch"]
-        assert patch == ({"body_pt": "16", "section_rules": [TITLE, FOOT]} if numbered else {"body_pt": "16"})
+        assert patch == ({"body_pt": "16", "section_rules": [HEADER, FOOT]} if numbered else {"body_pt": "16"})
         expect(page.locator("#suggestion-fields")).to_contain_text("본문 크기")
         if numbered:
             expect(page.locator("#suggestion-fields")).to_contain_text("바닥글 가운데")
@@ -88,6 +94,11 @@ def test_suggestions_reach_pdf(page, request, real, tmp_path):
         expect(page.locator("#body_pt")).to_have_value("16")
         name = "body-and-footer.pdf" if numbered else "body-only.pdf"
         metric = measured(pdf(page, tmp_path / name), 16, numbered)
+        with page.expect_download() as export:
+            page.locator("#save-style").click()
+        saved = json.loads(export.value.path().read_bytes())
+        assert saved["text_styles"] == {"heading1": {"font_sp": 18 * 65536, "color": "#17365d"}}
+        assert saved["ko_tracking_bounds_per_10000"] == [-200, 200]
         manual = None
         if numbered:
             page.locator("#body_pt").fill("14")
@@ -161,3 +172,60 @@ def test_style_open_supersedes_review_and_source_edit_can_coexist(page):
     apply.click()
     expect(page.locator("#body_pt")).to_have_value("16")
     expect(page.locator("#source")).to_have_value("검토 중 바꾼 원고")
+
+
+def test_disabled_article_formula_survives_body_suggestion(page, local_model):
+    page.locator("#style summary").click()
+    numbering = page.locator("#article-numbering")
+    expr = page.locator("#article-expr")
+    numbering.check()
+    expr.fill("조 {숫자}")
+    numbering.uncheck()
+    local_model[0]["answer"] = reply(("body_pt", "16"))
+    page.get_by_label("양식 변경 요청").fill(BODY)
+    page.get_by_role("button", name="제안 받기").click()
+    page.get_by_role("button", name="제안 적용").click()
+    expect(page.locator("#body_pt")).to_have_value("16")
+    expect(numbering).not_to_be_checked()
+    numbering.check()
+    expect(expr).to_have_value("조 {숫자}")
+
+
+def test_reference_exclusion_survives_late_footer_suggestion_and_retry(page, local_model):
+    open_saved_style(page)
+    page.locator("#open-reference").click()
+    exclude = page.get_by_label("규칙 제외", exact=True)
+    expect(exclude).to_be_visible()
+    held = []
+    page.route("**" + ENDPOINT, lambda route: held.append(route), times=1)
+    page.get_by_label("양식 변경 요청").fill(BOTH)
+    ask = page.get_by_role("button", name="제안 받기")
+    apply = page.get_by_role("button", name="제안 적용")
+    footer = {"patch": {"body_pt": "16", "section_rules": [HEADER, FOOT]}}
+    with page.expect_request("**" + ENDPOINT):
+        ask.click()
+    exclude.check()
+    held.pop().fulfill(json=footer)
+    expect(page.locator("#suggestion-message")).to_contain_text("다시 요청")
+    expect(apply).to_be_hidden()
+    expect(exclude).to_be_checked()
+
+    ask.click()
+    expect(page.locator("#suggestion-message")).to_contain_text("참고")
+    expect(apply).to_be_hidden()
+    expect(exclude).to_be_checked()
+    expect(page.locator("#body_pt")).to_have_value("11")
+
+    exclude.uncheck()
+    ask.click()
+    expect(apply).to_be_visible()
+    exclude.check()
+    expect(apply).to_be_hidden()
+    expect(exclude).to_be_checked()
+
+    local_model[0]["answer"] = reply(("body_pt", "16"))
+    page.get_by_label("양식 변경 요청").fill(BODY)
+    ask.click()
+    apply.click()
+    expect(exclude).to_be_checked()
+    expect(page.locator("#body_pt")).to_have_value("16")

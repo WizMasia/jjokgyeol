@@ -15,7 +15,7 @@ _PIN = "{번호고정}"
 
 @dataclass
 class HeadingTitle:
-    """Gloss words count toward the article number. A pin must follow the last gloss."""
+    """Printed notes interrupt an article number, memos have no width, and pins follow glosses."""
     text: str
     first_gloss: int | None
     last_gloss_end: int
@@ -28,7 +28,7 @@ class HeadingTitle:
         for kind, value in parts:
             if kind in ("text", "gloss"):
                 value = value.replace("\n", " ")
-            elif kind in ("note_ref", "endnote_ref", "memo_ref", "unresolved_note", "running_section"):
+            elif kind in ("note_ref", "endnote_ref", "unresolved_note", "running_section"):
                 value = "\0"
             else:
                 continue
@@ -54,7 +54,7 @@ def _leaves(inlines):
         kind = span["kind"]
         if kind in ("strong", "emphasis"):
             yield from _leaves(span["children"])
-        else:
+        elif kind != "memo_ref":
             yield span
 
 
@@ -70,7 +70,7 @@ def section_title(inlines):
     title = _leaf_title(_leaves(inlines))
     match = title.article()
     end = match[1] if match else None
-    return title.text[:end].replace("\0", "")
+    return title.text[:end].rstrip().replace("\0", "")
 
 
 def _replace(leaves, start, end, replacement, *, align_digits=False):
@@ -78,7 +78,7 @@ def _replace(leaves, start, end, replacement, *, align_digits=False):
     offset = 0
     for span in leaves:
         leaf = _word(span)
-        # A note occupies one non-text position and cannot be part of a match.
+        # A printed note occupies one non-text position and cannot be part of a match.
         value = leaf["text"] if leaf["kind"] == "text" else "\0"
         stop = offset + len(value)
         if max(start, offset) < min(end, stop):

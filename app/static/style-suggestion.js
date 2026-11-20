@@ -76,6 +76,10 @@ function current(job) {
     clear(changedMessage);
     return false;
   }
+  if (job.patch?.section_rules && !document.dispatchEvent(new Event("style-suggestion-check-rules", {cancelable: true}))) {
+    clear("참고 서식 변경을 적용하거나 취소한 뒤 다시 요청하세요.");
+    return false;
+  }
   return true;
 }
 
@@ -87,6 +91,7 @@ byId("open-suggestion").addEventListener("click", event => {
   else prompt.focus();
 });
 document.addEventListener("style-suggestion-invalidate", () => { if (active) clear(changedMessage); });
+byId("reference-bindings").addEventListener("input", () => { if (active) clear(changedMessage); });
 prompt.addEventListener("input", () => clear(""));
 cancel.addEventListener("click", () => clear("제안을 취소했습니다."));
 
@@ -108,9 +113,9 @@ form.addEventListener("submit", async event => {
       headers: {"Content-Type": "application/json"}, body: JSON.stringify({request: prompt.value, style: job.before}),
     });
     const result = await response.json();
+    job.patch = result.patch;
     if (!current(job)) return;
     if (!response.ok) throw new Error(result.message || "양식 제안을 받지 못했습니다.");
-    job.patch = result.patch;
     if (!Object.keys(job.patch).length) {
       clear("변경할 항목이 없습니다.");
       return;
@@ -127,6 +132,6 @@ confirm.addEventListener("click", () => {
   const job = active;
   if (!job?.patch || !current(job)) return;
   clear("제안을 적용했습니다.");
-  styleForm.set({...job.before, ...job.patch}, {preserveMarginSplit: true});
+  styleForm.set({...job.before, ...job.patch}, {preserveMarginSplit: true, inactiveArticleExpr: articleExpr.value});
   edited("style");
 });
