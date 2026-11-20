@@ -75,7 +75,7 @@ def _space_limits(bounds):
 
 
 _policy = read_config(CONFIG_DIR / "publication.json", parse_float=Decimal)
-_keys = {"defaults", "fonts", "space_pct_range", "heading_per_10000", "heading_leading_per_10000",
+_keys = {"defaults", "page_presets_mm", "fonts", "space_pct_range", "heading_per_10000", "heading_leading_per_10000",
          "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
 if not isinstance(_policy, dict) or _policy.keys() != _keys:
     difference = sorted(_policy.keys() ^ _keys) if isinstance(_policy, dict) else sorted(_keys)
@@ -90,6 +90,7 @@ if not isinstance(JUSTIFIED_SPACING, dict) or JUSTIFIED_SPACING.keys() != {"ko_t
     raise ValueError("publication.json justified_spacing requires ko_tracking_bounds_pct and space_pct")
 NEW_SPACING = JUSTIFIED_SPACING if NEW_PARAGRAPH_LAYOUT == "justified" else {}
 DEFAULTS = _policy["defaults"]
+PAGE_PRESETS_MM = _policy["page_presets_mm"]
 RUNNING_DEFAULTS = _policy["running_defaults"]
 TEXT_DEFAULTS = _policy["text_defaults"]
 DEFAULT_ARTICLE_EXPR = _policy["default_article_expr"]

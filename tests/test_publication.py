@@ -284,6 +284,7 @@ CONFIG = "app/config/publication.json"
 def test_changed_install_controls_defaults_limits_and_existing_files(install):
     def edit(config):
         config["defaults"].update(body_pt=13, body_font="nanum-gothic")
+        config["page_presets_mm"] = {"교정판": [124.5, 192]}
         config["new_paragraph_layout"] = None
         config["fonts"][0]["label"] = "책 본문"
         config["space_pct_range"] = [75, 120]
@@ -298,6 +299,7 @@ s = Style()
 assert (s.body_sp, s.body_font) == (851968, "nanum-gothic")
 boot = editor_bootstrap()
 assert boot["defaults"]["body_pt"] == "13"
+assert boot["page_presets_mm"] == {"교정판": ["124.5", "192"]}
 assert boot["new_paragraph_layout"] is None and "paragraph_layout" not in boot["defaults"]
 assert boot["new_text_styles"]["heading2"] == {"font_pt": "26"}
 assert boot["heading_per_10000"][1] == 20000
@@ -326,6 +328,8 @@ for patch, field in [({"space_pct": [75, 121]}, "space_pct"), ({"body_pt": 1024}
     (CONFIG, lambda c: c["defaults"].update(body_pt=True), "body_pt"),
     (CONFIG, lambda c: c["defaults"].update(margins_mm=[0, 100, 0, 100]), "margins_mm"),
     (CONFIG, lambda c: c["defaults"].update(body_font="missing"), "body_font"),
+    (CONFIG, lambda c: c.update(page_presets_mm={"교정판": [210, 148]}), "page_presets_mm"),
+    (CONFIG, lambda c: c.update(page_presets_mm={"교정판": [True, 192]}), "page_presets_mm"),
     (CONFIG, lambda c: c.update(space_pct_range=[100, 99]), "space_pct_range"),
     (CONFIG, lambda c: c.update(new_paragraph_layout="unknown"), "new_paragraph_layout"),
     (CONFIG, lambda c: c.update(space_pct_range=[70.001, 130]), "space_pct_range"),

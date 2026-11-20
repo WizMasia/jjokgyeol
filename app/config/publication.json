@@ -11,6 +11,14 @@
     "ko_tracking_pct": 0,
     "space_pct": [100, 100]
   },
+  "page_presets_mm": {
+    "A4": [210, 297],
+    "A5": [148, 210],
+    "A6": [105, 148],
+    "신국판": [152, 225],
+    "사륙판": [128, 188],
+    "사륙배판": [188, 257]
+  },
   "new_paragraph_layout": "justified",
   "justified_spacing": {"ko_tracking_bounds_pct": [-15, 15], "space_pct": [70, 130]},
   "fonts": [
