@@ -7,7 +7,7 @@ from markdown_it.rules_inline import StateInline
 
 REFERENCE = re.compile(r"\[\^([^\[\]\s]+)\]")
 DEFINITION = re.compile(REFERENCE.pattern + r"(?:\{(미주|메모)\})?:[ \t]*(.*)")
-_GLOSS = re.compile(r"\[([^\[\]{}\s]+)\]\{풀이=([^}\r\n]+)\}")
+_GLOSS = re.compile(r"\[([^\[\]{}\s]+)\]\{풀이=([^}\r\n]*)(\}?)")
 
 
 @dataclass
@@ -44,8 +44,14 @@ def read_annotation(state: StateInline, silent: bool) -> bool:
         if not match:
             return False
         if not silent:
-            token = state.push("gloss", "", 0)
-            token.content = match[1]
-            token.meta["explanation"] = match[2]
+            if match[2] and match[3]:
+                token = state.push("gloss", "", 0)
+                token.content = match[1]
+                token.meta["explanation"] = match[2]
+            else:
+                # A draft explanation is literal through the end of this line.
+                state.pending += match[0]
+                if not match[3] and match.end() == state.posMax:
+                    state.pushPending().meta["unfinished_gloss"] = True
     state.pos = match.end()
     return True

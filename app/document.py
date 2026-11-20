@@ -117,7 +117,6 @@ _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])
 def _fence_context(source, notes):
     if "```" not in source and "~~~" not in source:
         return set(), {}
-    from app.articles import match_article
 
     tokens = []
     _FENCES.block.parse(source, _FENCES, {}, tokens)
@@ -127,7 +126,7 @@ def _fence_context(source, notes):
         if (t.type == "heading_open" and t.level == 0 and t.markup in ("=", "-")
                 and t.map[0] - 1 in fenced):
             inline, = _MD.parseInline(tokens[index + 1].content, {"notes": notes})
-            match = match_article(heading_text(inline))
+            match = heading_title(inline).article()
             starts[t.map[0]] = match[1] is not None if match else None
     return fenced, starts
 
@@ -212,15 +211,15 @@ def heading_tokens(source: str):
             yield token, tokens[index + 1]
 
 
+def heading_title(inline: Token):
+    from app.articles import HeadingTitle
+
+    return HeadingTitle.from_parts((t.type, t.content) for t in inline.children or ())
+
+
 def heading_text(inline: Token) -> str:
-    """Visible title for article matching, with annotations interrupting text ranges."""
-    parts = []
-    for token in inline.children or ():
-        if token.type in ("text", "gloss"):
-            parts.append(token.content.replace("\n", " "))
-        elif token.type in ("note_ref", "endnote_ref", "memo_ref", "unresolved_note"):
-            parts.append("\0")
-    return "".join(parts)
+    """Visible title for article matching, with notes interrupting text ranges."""
+    return heading_title(inline).text
 
 
 def parse_md(source: str) -> Document:
