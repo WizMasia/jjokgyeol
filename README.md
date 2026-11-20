@@ -33,9 +33,9 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 
 같은 A5 원고를 나눔명조 16pt로 조판한 파일에서 전각 들여쓰기와 자간에 따른 줄바꿈을 비교할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [자간 0% PDF](proofs/web-editor/tracking-0.pdf) · [자간 −7% PDF](proofs/web-editor/tracking-minus-7.pdf)
 
-초기 양식은 A5, 나눔명조 11pt, 행간 17pt입니다. **판형·여백 및 세부 양식**을 열면 한글 자간과 어절 공백도 바꿀 수 있습니다. 어절 공백의 최소와 최대에 70과 130을 입력하면 조판 엔진이 줄을 짤 때 기본 공백을 조정할 수 있습니다. 90%로 고정하려면 둘 다 90으로 입력합니다.
+새 원고는 A5, 나눔명조 11pt, 행간 17pt의 **양끝맞춤**으로 시작합니다. 조판기는 한글 어절과 영문 단어 경계에서 줄을 나누고, 문단의 마지막 줄을 제외한 각 줄이 본문 오른쪽 경계에 닿도록 한글 자간과 어절 사이 공백을 조정합니다. 문단의 마지막 줄은 자연스러운 길이를 유지합니다. [같은 원고](proofs/justified-publication/manuscript.md) · [종전 PDF](proofs/justified-publication/before.pdf) · [양끝맞춤 PDF](proofs/justified-publication/after.pdf)
 
-새 원고에는 **문단 전체 배치 비교**가 켜져 있습니다. 조판기는 문단 전체에서 허용 범위에 드는 줄바꿈과 간격을 비교합니다. **최종 자간 한계 지정**을 켜면 하한과 상한 안에서 줄별 자간도 조정합니다. 양식 저장·열기에 이 선택이 포함됩니다. [같은 문단의 줄 끝과 간격 실측](docs/superpowers/plans/2026-11-20-paragraph-candidates.md)
+**판형·여백 및 세부 양식**에서 줄별 최종 자간과 어절 공백의 하한·상한을 정할 수 있습니다. 간격을 좁게 고정하거나 본문 폭에 비해 단어가 긴 경우에는 어절 보존과 허용 범위를 지키면서 가능한 만큼 맞춥니다. [출판용 양끝맞춤 설계](docs/superpowers/specs/2026-11-20-justified-publication.md)
 
 첫 줄과 이후 줄의 들여쓰기는 mm 단위입니다. 첫 줄에 6, 이후 줄에 0을 입력하면 문단 첫머리가 들어갑니다. 첫 줄에 0, 이후 줄에 6을 입력하면 둘째 줄부터 안으로 들어가는 내어쓰기입니다. 조판기는 각 줄의 폭에 맞춰 어절 경계를 우선합니다.
 
