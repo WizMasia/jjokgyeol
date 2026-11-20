@@ -36,6 +36,7 @@ CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM test-tools AS test
 COPY --from=service /opt/jjokgyeol/ ./
 COPY tests/ tests/
+COPY evaluation/ evaluation/
 COPY proofs/engine-comparison/LuaLaTeX.pdf proofs/engine-comparison/
 COPY proofs/running-heads/style.json proofs/running-heads/
 ENV PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"

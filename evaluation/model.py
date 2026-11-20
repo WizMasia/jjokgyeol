@@ -124,7 +124,6 @@ def selected_lines(rows, ms, mode):
         raise ValueError("missing paragraph log")
     choices, ends, catalog, violations = [], [], [], []
     base = 0
-    different = False
     for block, (row, part) in enumerate(zip(rows, parts, strict=True), 1):
         if not isinstance(row, dict) or type(row.get("block")) is not int or row["block"] != block:
             raise ValueError("invalid paragraph block")
@@ -136,7 +135,8 @@ def selected_lines(rows, ms, mode):
         rule, chosen = row.get("rule_id"), row.get("selected_id")
         if len(by_id) != len(items) or rule not in by_id or chosen not in by_id:
             raise ValueError("unknown or duplicate candidate ID")
-        different |= chosen != rule
+        if mode == "rules" and chosen != rule:
+            raise ValueError("baseline selected a non-rule candidate")
         catalog.append((rule, by_id))
         choices.append(chosen)
         lines = by_id[chosen]
@@ -159,8 +159,6 @@ def selected_lines(rows, ms, mode):
         if previous != len(compact(part)):
             raise ValueError("end_glyph does not cover manuscript paragraph")
         base += previous
-    if different != (mode == "model"):
-        raise ValueError("missing distinct model selection or non-rule baseline")
     return catalog, {"choices": choices, "selected_ends": ends, "constraint_violations": violations}
 
 
@@ -215,7 +213,7 @@ def model_pairs(dest, references, bundle):
             blind_ref = blind_pdf(ref)
             (tmp / "reader" / ref_name).write_bytes(blind_ref)
             group["blind_reference_sha256"] = digest(blind_ref)
-            pages, catalogs = set(), []
+            catalogs = []
             for mode in RNG.sample(["rules", "model"], 2):
                 try:
                     pdf, log, receipt, catalog, evidence = load_arm(bundle / ms["group"] / mode, ms, mode,
@@ -226,8 +224,9 @@ def model_pairs(dest, references, bundle):
                 prefix.with_suffix(".jsonl").write_bytes(log)
                 save_json(prefix.with_suffix(".json"), receipt)
                 catalogs.append(catalog)
-                pages.add(add_pdf(tmp, group, pdf, evidence))
+                add_pdf(tmp, group, pdf, evidence)
             if catalogs[0] != catalogs[1]:
                 raise ValueError("T13 candidate sets or rule choices differ")
-            if len(pages) != 2:
-                raise ValueError("identical rendered model and rules pages")
+            first, second = group["samples"].values()
+            group["same_choices"] = first["choices"] == second["choices"]
+            group["same_pages"] = first["blind_sha256"] == second["blind_sha256"]

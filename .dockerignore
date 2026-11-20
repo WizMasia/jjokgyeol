@@ -29,3 +29,13 @@
 !proofs/engine-comparison/LuaLaTeX.pdf
 !proofs/running-heads/
 !proofs/running-heads/style.json
+!evaluation/__main__.py
+!evaluation/model.py
+!evaluation/packet.py
+!evaluation/results.py
+!evaluation/reading-sheet.csv
+!evaluation/README.md
+!evaluation/reader-guide.md
+!evaluation/corpus/quay.md
+!evaluation/corpus/drawer.md
+!evaluation/corpus/platform.md

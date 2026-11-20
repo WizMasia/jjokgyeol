@@ -6,14 +6,16 @@
 
 ### 실행과 응답 / Operator workflow
 
-저장소 루트에서 잠긴 test 이미지로 실행한다. `/runs`는 호스트의 Git 제외 폴더다. 각 실행은 새 이름을 쓴다.
+저장소 루트에서 test 이미지를 빌드한다. 이미지에는 평가 코드·안내·빈 CSV와 고정 원고 3편이 들어 있다. `/runs`는 호스트의 Git 제외 폴더다. 각 실행은 새 이름을 쓴다.
 
 ```sh
+docker build --platform linux/arm64 --target test -t jjokgyeol:t14-test .
+docker run --rm --network none --shm-size=512m jjokgyeol:t14-test pytest -q tests/test_evaluation.py
 mkdir -p evaluation/runs
 ev() {
   docker run --rm --network none --shm-size=512m \
-    -v "$PWD:/opt/jjokgyeol:ro" -v "$PWD/evaluation/runs:/runs" \
-    jjokgyeol:mirrored-margins-test python -m evaluation "$@"
+    -v "$PWD/evaluation/runs:/runs" \
+    jjokgyeol:t14-test python -m evaluation "$@"
 }
 ev spacing /runs/spacing-02
 ev timing /runs/spacing-02
@@ -52,7 +54,9 @@ T13 담당자는 opt-in한 실제 제품 경로에서 각 원고를 두 번 조�
 | `{group}/{arm}/paragraph-candidates.jsonl` | 규칙은 해당 출력의 수집 로그, 모델은 재생한 최종 출력의 T11 로그다. 작업 폴더 정리 전에 두 로그를 보존한다. 각 본문 블록의 `block,candidates,rule_id,selected_id`와 후보별 `id,lines`를 보존한다. |
 | `{group}/{arm}/measurement.json` | `applied`는 응답 헤더 `X-Jjokgyeol-Decision` 원값이다. 규칙은 `rule`, 실제 모델은 `model`이다. 모델 쪽의 `rule`·`mixed`는 거절한다. `source_sha256, pdf_sha256, log_sha256`은 원본 바이트의 SHA-256 소문자 16진수다. `style`은 요청한 MODEL_STYLE 객체, `model_sha256`은 모델 쪽에서 실제 로드한 파일 해시, 규칙 쪽에서 null이다. `elapsed_ms`는 요청 직전부터 PDF 본문 수신 완료까지 측정한 양의 밀리초다. |
 
-**Producer contract (English).** Export both real render responses, their final replay logs and wall-clock receipts from the same pinned runtime. Record the applied path, including any fallback. T14 checks source and artifact hashes, split membership, all paragraph selections, identical candidate sets, physical page differences and selected versus printed line ends. The adapter consumes files locally.
+지면 차이로 원고를 고르면 규칙과 일치하는 모델 판단이 평가에서 빠진다. 두 원고 모두 실제 모델 사용이 확인되면 같은 선택·같은 지면도 익명 표본 두 개로 판독한다. 운영자 키의 묶음별 `same_choices`는 전 문단 선택 ID 일치, `same_pages`는 300dpi 열람 지면 일치를 뜻한다. 판독표의 선호 칸은 비워 두며 동률은 판독자가 표시한다.
+
+**Producer contract (English).** Export both real render responses, their final replay logs and wall-clock receipts from the same pinned runtime. Record the applied path, including any fallback. T14 checks source and artifact hashes, split membership, all paragraph selections, matching candidate sets and selected versus printed line ends. Verified model agreement stays in the fixed cohort. Agreement flags are private, and the reader decides preference or tie. The adapter consumes files locally.
 
 ```sh
 ev pairs /runs/model-01 /runs/refs /runs/t13-real

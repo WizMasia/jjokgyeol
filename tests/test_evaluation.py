@@ -184,33 +184,35 @@ def test_missing_bundle(tmp_path):
     assert not (tmp_path / "trial").exists()
 
 
-@pytest.mark.parametrize("fault", ["overlap", "no-inventory", "identical", "fallback", "no-pdf", "wrong-hash",
+@pytest.mark.parametrize("fault", ["overlap", "no-inventory", "model-used-rule", "fallback", "no-pdf", "wrong-hash",
                                    "wrong-model", "missing-block", "no-reference", "bad-ends", "candidate-set",
-                                   "no-change", "no-timing", "invalid-id"])
+                                   "non-rule-baseline", "no-timing", "invalid-id"])
 def test_model_refuses(tmp_path, contract, fault):
-    from io import BytesIO
-    from pypdf import PdfWriter
     from evaluation.model import model_pairs
-    from evaluation.packet import digest, read_json, save_json
+    from evaluation.packet import read_json, save_json
 
     refs, bundle, ms = contract
     folder = bundle / ms["group"] / "model"
     receipt = read_json(folder / "measurement.json")
-    if fault == "identical":
-        doc = PdfWriter(clone_from=folder.parent / "rules/render.pdf")
-        doc.add_metadata({"/Title": "test-only"})
-        out = BytesIO()
-        doc.write(out)
-        (folder / "render.pdf").write_bytes(out.getvalue())
-        receipt["pdf_sha256"] = digest(out.getvalue())
+    if fault == "model-used-rule":
+        # Even a loaded model can fall back: only the HTTP decision differs from valid agreement.
+        baseline = folder.parent / "rules"
+        for name in ("render.pdf", "paragraph-candidates.jsonl"):
+            (folder / name).write_bytes((baseline / name).read_bytes())
+        receipt = {**read_json(baseline / "measurement.json"), "model_sha256": receipt["model_sha256"]}
     if fault in ("fallback", "wrong-model", "wrong-hash", "no-timing"):
-        field, value = {"fallback": ("applied", "mixed"), "wrong-model": ("model_sha256", "b"*64),
-                        "wrong-hash": ("log_sha256", "b"*64), "no-timing": ("elapsed_ms", 0)}[fault]
+        field, value = {"fallback": ("applied", "mixed"),
+                        "wrong-model": ("model_sha256", "b"*64), "wrong-hash": ("log_sha256", "b"*64),
+                        "no-timing": ("elapsed_ms", 0)}[fault]
         receipt[field] = value
     save_json(folder / "measurement.json", receipt)
     if fault == "no-pdf":
         (folder / "render.pdf").unlink()
-    if fault in ("missing-block", "bad-ends", "candidate-set", "no-change", "invalid-id"):
+    if fault == "non-rule-baseline":
+        def wrong_baseline(rows):
+            rows[0]["selected_id"] = "M"
+        alter_log(folder.parent / "rules", wrong_baseline)
+    if fault in ("missing-block", "bad-ends", "candidate-set", "invalid-id"):
         def mutate(rows):
             if fault == "missing-block":
                 rows.pop()
@@ -218,9 +220,6 @@ def test_model_refuses(tmp_path, contract, fault):
                 rows[0]["candidates"][1]["lines"][0]["end_glyph"] = True
             elif fault == "candidate-set":
                 rows[0]["candidates"][1]["id"] = rows[0]["selected_id"] = "different"
-            elif fault == "no-change":
-                for row in rows:
-                    row["selected_id"] = row["rule_id"]
             else:
                 rows[0]["selected_id"] = "unknown"
         alter_log(folder, mutate)
@@ -235,6 +234,50 @@ def test_model_refuses(tmp_path, contract, fault):
     with pytest.raises(ValueError):
         model_pairs(tmp_path / "trial", refs, bundle)
     assert not (tmp_path / "trial").exists()
+
+
+@pytest.mark.parametrize(("same_choices", "same_pages"), [(True, True), (True, False), (False, True)])
+def test_agreement_remains_blind(tmp_path, contract, same_choices, same_pages):
+    from io import BytesIO
+    from pypdf import PdfWriter
+    from evaluation.model import model_pairs
+    from evaluation.packet import HEADER, digest, read_json, save_json
+    from evaluation.results import capture, score
+
+    refs, bundle, ms = contract
+    folder = bundle / ms["group"] / "model"
+    if same_choices:
+        def agree(rows):
+            for row in rows:
+                row["selected_id"] = row["rule_id"]
+        alter_log(folder, agree)
+    if same_pages:
+        # Source PDF bytes differ, but a reader sees exactly the rule pages.
+        doc = PdfWriter(clone_from=folder.parent / "rules/render.pdf")
+        doc.add_metadata({"/Title": "test-only"})
+        out = BytesIO()
+        doc.write(out)
+        (folder / "render.pdf").write_bytes(out.getvalue())
+        receipt = folder / "measurement.json"
+        save_json(receipt, {**read_json(receipt), "pdf_sha256": digest(out.getvalue())})
+
+    run = tmp_path / "study"
+    model_pairs(run, refs, bundle)
+    (gid, group), = read_json(run / "private/key.json")["groups"].items()
+    assert group["same_choices"] is same_choices and group["same_pages"] is same_pages
+    public = run / "reader"
+    with (public / "reading-sheet.csv").open() as sheet:
+        rows = list(csv.DictReader(sheet))
+    assert len(rows) == 2 and {r["sample"] for r in rows} == group["samples"].keys()
+    assert all(list(r) == HEADER and not r["preferred"] and r["group"] == gid for r in rows)
+    assert {p.name for p in public.iterdir()} == {
+        "reading-sheet.csv", f"ref-{gid}.pdf", *(r["sample"] + ".pdf" for r in rows)}
+    assert score(run)["status"] == "awaiting_reader"
+    # A unit ballot chooses one arm even when both pages agree. Only its marks count.
+    ballot = tmp_path / "fixture.csv"
+    ballot.write_text(filled(run, lambda r: group["samples"][r["sample"]]["applied"] == "rules"))
+    capture(run, ballot, "unit-test")
+    assert score(run)["counts"] == {"model": 0, "rules": 1, "tie": 0}
 
 
 def test_model_pair(tmp_path, contract):
