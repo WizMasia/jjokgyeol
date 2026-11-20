@@ -1,6 +1,7 @@
 """Run the fixed book template in a fresh directory owned by one render job."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -23,8 +24,10 @@ if TYPE_CHECKING:
 TEMPLATES = Path(__file__).resolve().with_name("tex")
 
 
-def typeset(doc: Document, style: Style, workdir: Path) -> bytes:
-    return _render(doc, style, workdir, None)
+def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
+            paragraph_choices: dict[int, str] | None = None) -> bytes:
+    """Optionally collect paragraph-candidates.jsonl or replay its per-block IDs."""
+    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices)
 
 
 def _running_fields(values):
@@ -69,7 +72,7 @@ def _role_styles(style):
     return styles
 
 
-def _render(doc, style, workdir, candidate):
+def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     levels = style.resolved_list_levels()
@@ -114,6 +117,10 @@ def _render(doc, style, workdir, candidate):
     data["text_defaults"] = TEXT_DEFAULTS
     if settings:
         data["running_sections"] = settings
+    if collect_candidates or paragraph_choices:
+        snapshot = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
+        data["paragraphs"] = {"snapshot": hashlib.sha256(snapshot).hexdigest(),
+                              "collect": collect_candidates, "choices": paragraph_choices or {}}
     (workdir / "input.json").write_text(
         json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8"
     )
