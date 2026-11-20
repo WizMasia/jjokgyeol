@@ -8,6 +8,7 @@ from dataclasses import asdict
 import pytest
 from playwright.sync_api import expect
 
+from app.style import Style
 from pdf_metrics import read_pages
 from test_list_acceptance import download_proof, rows, tab
 from test_refactor_acceptance import compact_json, image_id, stock
@@ -143,6 +144,11 @@ def test_browser_unique_base_after_branches_and_pin_roundtrip(tab, tmp_path):
 
 
 def test_custom_expression_error_and_disabled_geometry(tab, tmp_path):
+    # This signature belongs to the fixed style shipped before article numbering.
+    with tab.expect_response(lambda reply: reply.url.endswith("/api/style/open")) as opened:
+        tab.locator("#style-file").set_input_files({
+            "name": "기존 양식.json", "mimeType": "application/json", "buffer": compact_json(Style().to_stored())})
+    assert opened.value.ok
     tab.locator("#source").fill(PLAIN)
     old = download_proof(tab, tmp_path / "disabled.pdf")
     assert printed_lines(old) == ["제8조(목적)", "⑦솔바람", "⑧푸른잎", "본문제8조의2를인용한다."]

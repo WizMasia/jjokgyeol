@@ -105,6 +105,17 @@ async def test_duplex_style_api_keeps_faces_and_sparse_fields():
         assert (await client.post("/api/style/export", json=opened.json())).json() == stored
 
 
+@pytest.mark.anyio
+async def test_justified_shorthand_and_fixed_file_have_distinct_spacing():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as api:
+        preset = (await api.post("/api/style/export", json={"paragraph_layout": "justified"})).json()
+        assert preset["ko_tracking_bounds_per_10000"] == [-1500, 1500] and preset["space_per_10000"] == [7000, 13000]
+        fixed = {**preset, "space_per_10000": [10000, 10000]}
+        del fixed["ko_tracking_bounds_per_10000"]
+        opened = (await api.post("/api/style/open", json=fixed)).json()
+        assert (await api.post("/api/style/export", json=opened)).json() == fixed
+
+
 def test_style_file_in_browser(server_url, tmp_path):
     with sync_playwright() as playwright:
         with playwright.chromium.launch() as browser:
@@ -370,14 +381,3 @@ def test_selecting_justification_after_opening_fixed_style(browser, server_url):
         expect(page.get_by_label("최대", exact=True)).to_have_value("130")
         assert save() == {**old, "paragraph_layout": "justified", "ko_tracking_bounds_per_10000": [-1500, 1500],
                           "space_per_10000": [7000, 13000]}
-
-
-@pytest.mark.anyio
-async def test_justified_shorthand_and_fixed_file_have_distinct_spacing():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as api:
-        preset = (await api.post("/api/style/export", json={"paragraph_layout": "justified"})).json()
-        assert preset["ko_tracking_bounds_per_10000"] == [-1500, 1500] and preset["space_per_10000"] == [7000, 13000]
-        fixed = {**preset, "space_per_10000": [10000, 10000]}
-        del fixed["ko_tracking_bounds_per_10000"]
-        opened = (await api.post("/api/style/open", json=fixed)).json()
-        assert (await api.post("/api/style/export", json=opened)).json() == fixed
