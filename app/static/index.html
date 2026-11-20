@@ -28,6 +28,8 @@
           <div class="file-actions">
             <button type="button" id="toggle-article-pin" title="원고에서 조 제목에 커서를 놓고 번호를 고정하거나 해제합니다.">번호 고정/해제</button>
             <button type="button" id="open">원고 열기</button>
+            <button type="button" id="import-source">원고 가져오기</button>
+            <input type="file" id="import-file" accept=".txt,.html,.htm,.docx,.hwpx,.hwp" hidden>
             <button type="button" id="save">원고 저장</button>
             <input type="file" id="file" accept=".md,.markdown,text/markdown,text/plain" hidden>
           </div>
@@ -36,6 +38,10 @@
           <label class="sr-only" for="source">마크다운 원고</label>
           <textarea id="source" spellcheck="false" autocomplete="off" placeholder="원고를 입력하세요."></textarea>
         </div>
+        <section id="import-notice" aria-labelledby="import-warnings-title" hidden>
+          <h3 id="import-warnings-title">원고 가져오기 경고</h3>
+          <ul id="import-warnings"></ul>
+        </section>
         <footer class="folio"><span id="filename">원고.md</span><span>Markdown · UTF-8</span></footer>
       </section>
       <section class="proof" aria-labelledby="proof-title">

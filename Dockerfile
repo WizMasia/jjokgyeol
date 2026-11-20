@@ -14,6 +14,11 @@ RUN pip install --no-cache-dir --only-binary=:all: --require-hashes -r requireme
     useradd --uid 10001 --create-home editor
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/opt/jjokgyeol
 
+FROM backend AS hwp-deps
+COPY packaging/hwp/ /tmp/hwp/
+RUN --network=none pip install --no-index --find-links=/tmp/hwp --require-hashes --no-compile \
+    --target=/opt/hwp -r /tmp/hwp/requirements.lock
+
 FROM backend AS test-tools
 COPY packaging/requirements-test.lock packaging/
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
@@ -24,6 +29,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 FROM backend AS service
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends poppler-utils && \
     rm -rf /var/lib/apt/lists/*
+COPY --from=hwp-deps /opt/hwp/ /usr/local/lib/python3.12/site-packages/
 COPY runtime.lock ./
 COPY packaging/check_runtime.py packaging/
 RUN python packaging/check_runtime.py runtime.lock
@@ -35,7 +41,11 @@ CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM test-tools AS test
 COPY --from=service /opt/jjokgyeol/ ./
+COPY --from=hwp-deps /opt/hwp/ /usr/local/lib/python3.12/site-packages/
 COPY tests/ tests/
+COPY proofs/duplex-running-heads/*.docx proofs/duplex-running-heads/*.hwpx proofs/duplex-running-heads/
+COPY proofs/reference-style/*.docx proofs/reference-style/*.hwpx proofs/reference-style/
+COPY proofs/running-heads/*.docx proofs/running-heads/*.hwpx proofs/running-heads/
 COPY proofs/engine-comparison/LuaLaTeX.pdf proofs/engine-comparison/
 COPY proofs/running-heads/style.json proofs/running-heads/
 ENV PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
