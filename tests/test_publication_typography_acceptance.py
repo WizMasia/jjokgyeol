@@ -62,12 +62,14 @@ def test_report_example_in_browser(editor, tmp_path):
     editor.locator("#style summary").click()
     style = MANUSCRIPT.with_name("style.json")
     reopen_file(editor, style)
-    first = download_proof(editor, tmp_path / "report-11.pdf")
-    editor.locator("#body_pt").fill("16")
-    second = download_proof(editor, tmp_path / "report-16.pdf")
-    for pdf, size in ((first, 11), (second, 16)):
-        pages = read_pages(pdf)
-        assert pages == read_pages(MANUSCRIPT.with_name(f"report-{size}.pdf").read_bytes())
+    choice = editor.locator("#proof-choice")
+    for size in (11, 16):
+        editor.locator("#body_pt").fill(str(size))
+        choice.select_option("model")
+        pages = read_pages(download_proof(editor, tmp_path / f"report-{size}.pdf"))
+        choice.select_option("rule")
+        # The distributed report proofs were printed with rule selection.
+        assert read_pages(save(editor, "#export")) == read_pages(MANUSCRIPT.with_name(f"report-{size}.pdf").read_bytes())
         assert any(line.text.startswith("새벽") for line in pages[0].lines)
         for number, page in enumerate(pages, 1):
             assert any(line.text.strip() == str(number) for line in page.lines)
