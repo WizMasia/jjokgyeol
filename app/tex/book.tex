@@ -2,6 +2,7 @@
 \usepackage{geometry}
 \usepackage{fontspec}
 \usepackage{luatexko}
+\newattribute\BookFrameEnd
 \directlua{book = require("layout"); book.setup()}
 \pagestyle{empty}
 \tracinglostchars=3
@@ -17,7 +18,7 @@
   \ifdim\dimexpr\ht\BookTitleFrame+\dp\BookTitleFrame\relax>\textheight
     \directlua{book.layout_error("frame_height")}%
   \fi
-  \noindent\usebox\BookTitleFrame\spewnotes\BookPar\nopagebreak[1]}
+  \noindent\usebox\BookTitleFrame\spewnotes\BookPar{\BookFrameEnd=1\relax\nobreak}}
 \makeatletter
 \newcommand\BookStyledMarks{\def\@makefnmark{\hbox{\textsuperscript{\@thefnmark}}}}
 \makeatother

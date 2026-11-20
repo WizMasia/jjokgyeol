@@ -107,24 +107,38 @@ def test_wrapping_beyond_page_height_reports_heading_field(tmp_path):
     assert exc.value.field == "text_styles.heading1.frame"
 
 
-def test_page_break_after_tall_frame_keeps_list_inside_margins(tmp_path):
-    style = apply_style(Style(), {
-        "page_mm": [65, 77], "margins_mm": [10] * 4, "body_pt": 15, "leading_pt": 23,
+def report_style(page_mm):
+    return apply_style(Style(), {
+        "page_mm": page_mm, "margins_mm": [10] * 4, "body_pt": 15, "leading_pt": 23,
         "text_styles": {"heading1": {"font_pt": 20, "frame": "box"}},
         "list_levels": [{"expr": "□", "indent_mm": 0, "gap_mm": 2}],
         "section_rules": [{"path": [], "role": "list", "values": {
             "font_pt": 16, "font": "nanum-gothic"}}],
     })
+
+
+@pytest.mark.parametrize("preface", ["", "서문"])
+def test_page_break_after_tall_frame_keeps_list_inside_margins(tmp_path, preface):
+    style = report_style([65, 77])
     title = "구름 바람 " * 6
-    pdf = typeset(parse_md(f"# {title}\n\n- 하늘\n\n본문"), style, tmp_path)
+    source = f"{preface}\n\n# {title}\n\n- 하늘\n\n본문"
+    pdf = typeset(parse_md(source), style, tmp_path)
     pages = read_pages(pdf)
     texts = ["".join(row.text for row in page.lines).replace(" ", "") for page in pages]
-    assert texts == [title.replace(" ", ""), "□하늘본문"]
+    assert texts == ([preface] if preface else []) + [title.replace(" ", ""), "□하늘본문"]
     for page in pages:
         for row in page.lines:
             assert all(10 * BP_PER_MM - .5 <= c.y0 <= c.y1 <= page.height - 10 * BP_PER_MM + .5
                        for c in row.chars)
-    framed_page, _ = extract_pages(BytesIO(pdf))
+    framed_page = list(extract_pages(BytesIO(pdf)))[-2]
     edges = [obj for obj in framed_page if isinstance(obj, LTCurve)]
     assert len(edges) == 4
     assert all(10 * BP_PER_MM - .5 <= e.y0 <= e.y1 <= 67 * BP_PER_MM + .5 for e in edges)
+
+
+def test_short_framed_title_keeps_first_list_line_and_footnote(tmp_path):
+    style = report_style([90, 82])
+    source = "가나다\n\n" * 4 + "# 여름 보고[^1]\n\n- 초록\n\n[^1]: 여름 각주"
+    pages = read_pages(typeset(parse_md(source), style, tmp_path))
+    assert ["".join(row.text for row in page.lines).replace(" ", "") for page in pages] == [
+        "가나다" * 4, "여름보고1□초록1여름각주"]
