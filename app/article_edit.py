@@ -7,58 +7,93 @@ import sys
 from app.document import InputError, heading_title, heading_tokens
 
 
-def _unpin(inline, marked_length):
-    """Cut the visible suffix, retaining closers for emphasis opened in the title."""
-    cut = len(inline.content)
-    closers = []
+def _unpin(inline, text, pin):
+    """Find cuts backwards from the raw end; text before the pin may contain escapes."""
+    content = inline.content
+    raw = len(content)
+    visible = len(text)
+    marker = text.index("{", pin)
+    end = len(text.rstrip())
+    cuts = []
+    closes = []
+    kept = 0
     for token in reversed(inline.children):
-        if marked_length == 0:
-            break
-        if token.nesting:
-            cut -= len(token.markup)
+        if token.type == "memo_ref":
+            if visible <= marker:
+                break  # Keep whitespace on the title side of a memo.
+            raw -= len(token.markup)
+            kept += 1
+        elif token.nesting:
+            start = raw - len(token.markup)
             if token.nesting < 0:
-                closers.append(token.markup)
+                closes.append((start, raw, kept))
             else:
-                closers.pop()
+                left, right, before = closes.pop()
+                if before == kept:
+                    cuts.extend([(start, raw), (left, right)])
+            raw = start
+        elif token.type == "text":
+            start = visible - len(token.content)
+            left, right = max(pin, start), min(end, visible)
+            if left < right:
+                newline = token.content.rfind("\n", left - start, right - start)
+                if newline >= 0:
+                    pin = left = start + newline + 1
+                if left < right:
+                    cuts.append((raw - (visible - left), raw - (visible - right)))
+            kept += len(token.content) - max(0, right - left)
+            raw -= len(token.markup or token.content)
+            visible = start
         else:
-            # Only whitespace and the literal pin can occur in the matched suffix.
-            size = min(marked_length, len(token.content))
-            marked_length -= size
-            cut -= size
-    return cut, "".join(reversed(closers))
+            break  # A gloss or printed note cannot occur within the marker.
+        if visible < pin:
+            break
+
+    # Cuts are confined to the marker line. Copy every other character from the
+    # manuscript, including memo spellings and punctuation consumed by read_escape.
+    cuts.sort()
+    line_start = content.rfind("\n", 0, cuts[0][0]) + 1
+    old = content[line_start:].partition("\n")[0]
+    pieces = []
+    pos = line_start
+    for left, right in cuts:
+        pieces.append(content[pos:left])
+        pos = right
+    pieces.append(content[pos:line_start + len(old)])
+    new = "".join(pieces)
+    closers = "".join(content[a:b] for a, b, _ in reversed(closes)
+                      if line_start <= a < line_start + len(old))
+    return content.count("\n", 0, line_start), old, new, closers
 
 
 def _edit_heading(source, heading, inline, text, pin):
-    # Split only Markdown line endings. Keep every delimiter for exact reassembly.
+    # Edit each affected physical line in place, preserving delimiters and ATX syntax.
     parts = re.split(r"(\r\n|\r|\n)", source)
-    end_row = inline.map[1] - 1
-    while not parts[2 * end_row].strip():
-        end_row -= 1
-    content = inline.content
-    last_line = content.rsplit("\n", 1)[-1].lstrip(" \t")
-    line = parts[2 * end_row]
-    # The parser already removed ATX closing hashes, indentation and trailing spaces.
-    end = line.index(last_line) + len(last_line)
     if pin is None:
         if inline.children[-1].meta.get("unfinished_gloss"):
             raise InputError({"source": "제목 끝의 풀이를 닫은 뒤 번호를 고정하세요."})
-        parts[2 * end_row] = line[:end] + " {번호고정}" + line[end:]
+        index = inline.content.count("\n")
+        old = inline.content.rsplit("\n", 1)[-1]
+        new = old + " {번호고정}"
+        closers = ""
     else:
-        cut, closers = _unpin(inline, len(text) - pin)
-        removed = content[cut:]
-        start_row = end_row - removed.count("\n")
-        if start_row == end_row:
-            title = line[:end - len(removed)] + closers
-            # A literal final hash needs its own ATX closer after removing the pin.
-            if heading.markup.startswith("#") and not line[end:].strip() and re.search(r"[ \t]#+$", title):
-                title += " #"
-            parts[2 * end_row] = title + line[end:]
-        else:
-            # A Setext pin on its own line must take its line with it, up to the underline.
-            previous = parts[2 * start_row]
-            column = len(previous) - len(removed.partition("\n")[0])
-            parts[2 * start_row] = previous[:column] + closers + previous[len(previous.rstrip()):]
-            del parts[2 * start_row + 2:2 * end_row + 2]
+        index, old, new, closers = _unpin(inline, text, pin)
+
+    row = 2 * (inline.map[0] + index)
+    line = parts[row]
+    column = line.index(old)
+    title = line[:column] + new
+    tail = line[column + len(old):]
+    if pin is not None and index and new == closers:
+        # A Setext pin on its own line can also close emphasis in the title.
+        previous = parts[row - 2]
+        body = previous.rstrip(" \t")
+        parts[row - 2] = body + closers + previous[len(body):]
+        del parts[row:row + 2]
+    else:
+        if pin is not None and heading.markup.startswith("#") and not tail.strip() and re.search(r"[ \t]#+$", title):
+            title += " #"
+        parts[row] = title + tail
     return "".join(parts)
 
 

@@ -38,7 +38,9 @@ def read_annotation(state: StateInline, silent: bool) -> bool:
     if match:
         if not silent:
             kind = state.env["notes"].kind(match[1])
-            state.push(kind, "", 0).content = match[1]
+            token = state.push(kind, "", 0)
+            token.content = match[1]
+            token.markup = match[0]
     else:
         match = _GLOSS.match(state.src, state.pos, state.posMax)
         if not match:
