@@ -142,7 +142,7 @@ local function lock(head)
   return head
 end
 
-local function apply(head, style, active, level)
+local function apply(head, literal_spaces, active, level)
   if active then return head end
   local shape = tex.parshape
   local skipped_first = false
@@ -221,7 +221,7 @@ local function apply(head, style, active, level)
   local n = head
   while n do
     local forced = n.id == penalty and n.penalty <= -10000
-    if wordspace(n) or forced or n.id == glue and n.subtype == 15 then
+    if wordspace(n, literal_spaces) or forced or n.id == glue and n.subtype == 15 then
       if first then place(gap, first, n, annotated) end
       annotated = nil
       gap, first = first and n or gap or n, nil
