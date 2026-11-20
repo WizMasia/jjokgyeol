@@ -11,7 +11,8 @@ from app.running_heads import RUNNING_ROLES, SLOTS
 from app.style import Style, apply_style
 
 SETTINGS = read_config(CONFIG_DIR / "style-suggestion.json")
-for key in ("max_request_bytes", "max_request_chars", "max_response_bytes", "max_tokens", "timeout_seconds", "slots"):
+for key in ("max_request_bytes", "max_request_chars", "max_response_bytes", "max_tokens", "timeout_seconds",
+            "worker_memory_bytes", "slots"):
     if type(SETTINGS.get(key)) is not int or SETTINGS[key] <= 0:
         raise ValueError(f"style-suggestion.json: invalid {key}")
 
