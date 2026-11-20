@@ -28,21 +28,49 @@ let manuscriptDirty = false;
 let styleDirty = false;
 let manuscriptRevision = 0;
 let styleRevision = 0;
+const dirtyUpdates = {
+  source: {pending: 0, latest: Promise.resolve(true)},
+  style: {pending: 0, latest: Promise.resolve(true)},
+};
+
+function queueDirtyUpdate(kind, dirty) {
+  const queue = dirtyUpdates[kind];
+  const send = () => kind === "source" ? desktop.setDirty(dirty) : desktop.setStyleDirty(dirty);
+  const update = queue.pending ? queue.latest.then(send) : send();
+  queue.pending++;
+  queue.latest = Promise.resolve(update).then(() => true, error => {
+    errorText.textContent = error.message;
+    return false;
+  }).finally(() => { queue.pending--; });
+  return queue.latest;
+}
+
+async function waitForDirtyUpdate(kind) {
+  const queue = dirtyUpdates[kind];
+  while (true) {
+    const latest = queue.latest;
+    const succeeded = await latest;
+    if (latest !== queue.latest) continue;
+    if (succeeded) return true;
+    const dirty = kind === "source" ? manuscriptDirty : styleDirty;
+    const retry = queueDirtyUpdate(kind, dirty);
+    if (!await retry && retry === queue.latest) return false;
+  }
+}
 
 function markDirty(kind, dirty) {
   const current = kind === "source" ? manuscriptDirty : styleDirty;
   if (current === dirty) return;
   if (kind === "source") manuscriptDirty = dirty;
   else styleDirty = dirty;
-  if (nativeDesktop) {
-    const update = kind === "source" ? desktop.setDirty(dirty) : desktop.setStyleDirty(dirty);
-    update.catch(error => { errorText.textContent = error.message; });
-  }
+  if (nativeDesktop) queueDirtyUpdate(kind, dirty);
 }
 
 async function confirmManuscriptReplacement() {
-  if (!nativeDesktop || !manuscriptDirty) return true;
+  if (!nativeDesktop) return true;
   try {
+    if (!await waitForDirtyUpdate("source")) return false;
+    if (!manuscriptDirty) return true;
     return await desktop.confirmDocumentReplacement();
   } catch (error) {
     errorText.textContent = error.message;
@@ -51,8 +79,10 @@ async function confirmManuscriptReplacement() {
 }
 
 async function confirmStyleReplacement() {
-  if (!nativeDesktop || !styleDirty) return true;
+  if (!nativeDesktop) return true;
   try {
+    if (!await waitForDirtyUpdate("style")) return false;
+    if (!styleDirty) return true;
     return await desktop.confirmStyleReplacement();
   } catch (error) {
     errorText.textContent = error.message;

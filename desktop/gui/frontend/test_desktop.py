@@ -128,3 +128,70 @@ class DesktopTest(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_replacement_waits_for_pending_dirty_clear(self):
+        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(executable_path=os.environ.get('CHROME_PATH'), headless=True)
+                page = browser.new_page()
+                page.add_init_script("""
+                  window.calls = []; window.saveResult = true; window.stallClear = false; window.failNextDirty = false;
+                  window.nativeDirty = false; window.finishClear = null; window.confirmDirtyAtCall = null;
+                  window.__TAURI__ = {core: {invoke: async (command, args) => {
+                    window.calls.push({command, args});
+                    if (command === 'style_convert') return {};
+                    if (command === 'render_proof') throw 'no render';
+                    if (command === 'save_bytes') return window.saveResult;
+                    if (command === 'set_dirty') {
+                      if (args.dirty && window.failNextDirty) {
+                        window.failNextDirty = false;
+                        throw 'IPC failure';
+                      }
+                      if (!args.dirty && window.stallClear) {
+                        return await new Promise(resolve => window.finishClear = () => {
+                          window.nativeDirty = false;
+                          resolve(true);
+                        });
+                      }
+                      window.nativeDirty = args.dirty;
+                      return true;
+                    }
+                    if (command === 'confirm_document_replacement') {
+                      window.confirmDirtyAtCall = window.nativeDirty;
+                      return false;
+                    }
+                  }}};
+                """)
+                page.goto(f'http://127.0.0.1:{server.server_port}/index.html')
+                page.wait_for_function("document.querySelector('#source').value.length > 0")
+                page.locator('#source').fill('before save')
+                page.wait_for_function('window.nativeDirty === true')
+                page.evaluate('window.stallClear = true')
+                page.click('#save')
+                page.wait_for_function('window.finishClear !== null')
+                page.locator('#source').fill('after save')
+                page.locator('#file').set_input_files({'name': 'next.md', 'mimeType': 'text/markdown', 'buffer': b'next'})
+                page.wait_for_timeout(100)
+                self.assertFalse(page.evaluate("window.calls.some(c => c.command === 'confirm_document_replacement')"))
+                page.evaluate('window.finishClear()')
+                page.wait_for_function("window.calls.some(c => c.command === 'confirm_document_replacement')")
+                self.assertTrue(page.evaluate('window.nativeDirty'))
+                self.assertTrue(page.evaluate('window.confirmDirtyAtCall'))
+                self.assertEqual(page.locator('#source').input_value(), 'after save')
+                page.evaluate('window.stallClear = false')
+                page.click('#save')
+                page.wait_for_function('window.nativeDirty === false')
+                page.evaluate('window.failNextDirty = true')
+                page.locator('#source').fill('edit after IPC failure')
+                page.wait_for_function("document.querySelector('#error').textContent.includes('IPC failure')")
+                page.locator('#file').set_input_files({'name': 'last.md', 'mimeType': 'text/markdown', 'buffer': b'last'})
+                page.wait_for_function("window.calls.filter(c => c.command === 'confirm_document_replacement').length === 2")
+                self.assertTrue(page.evaluate('window.nativeDirty'))
+                self.assertTrue(page.evaluate('window.confirmDirtyAtCall'))
+                self.assertEqual(page.locator('#source').input_value(), 'edit after IPC failure')
+                browser.close()
+        finally:
+            server.shutdown()
+            server.server_close()
