@@ -22,6 +22,69 @@ fn worker_path(runtime: &std::path::Path) -> PathBuf {
 }
 
 #[test]
+fn exposes_only_public_validation_error_fields() {
+    let (runtime, root) = setup();
+    let output = root.path().join("결과.pdf");
+    fs::write(&output, b"previous pdf").unwrap();
+    fs::write(root.path().join("원고.md"), "validation_error").unwrap();
+    let error = jjokgyeol_proof::render_with_timeout(
+        &runtime,
+        &root.path().join("원고.md"),
+        &root.path().join("양식.json"),
+        &output,
+        std::time::Duration::from_secs(5),
+    )
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&error).unwrap(),
+        serde_json::json!({"code":"invalid_input", "field":"body_sp", "message":"글자 크기를 확인하세요."})
+    );
+    assert_eq!(fs::read(output).unwrap(), b"previous pdf");
+    let result = Command::new(env!("CARGO_BIN_EXE_jjokgyeol-proof"))
+        .arg("--runtime")
+        .arg(&runtime)
+        .arg("--source")
+        .arg(root.path().join("원고.md"))
+        .arg("--style")
+        .arg(root.path().join("양식.json"))
+        .arg("--output")
+        .arg(root.path().join("결과.pdf"))
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&result.stderr).unwrap(),
+        serde_json::json!({"code":"invalid_input", "field":"body_sp", "message":"글자 크기를 확인하세요."})
+    );
+}
+
+#[test]
+fn hides_internal_malformed_and_large_stderr() {
+    let (runtime, root) = setup();
+    for source in [
+        "internal_error",
+        "malformed_error",
+        "invalid_schema",
+        "large_error",
+    ] {
+        fs::write(root.path().join("원고.md"), source).unwrap();
+        let start = std::time::Instant::now();
+        let error = jjokgyeol_proof::render_with_timeout(
+            &runtime,
+            &root.path().join("원고.md"),
+            &root.path().join("양식.json"),
+            &root.path().join("결과.pdf"),
+            std::time::Duration::from_secs(3),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, "worker failed", "{source}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+}
+
+#[test]
 fn writes_pdf_for_unicode_paths() {
     let (runtime, root) = setup();
     let output = root.path().join("결과.pdf");

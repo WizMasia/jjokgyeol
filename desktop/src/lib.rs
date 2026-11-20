@@ -5,10 +5,12 @@ use std::process::Command;
 use std::{
     error::Error,
     fs,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::Path,
     time::{Duration, Instant},
 };
+
+const WORKER_ERROR_LIMIT: u64 = 16 * 1024;
 
 pub fn render(
     runtime: &Path,
@@ -54,9 +56,10 @@ pub fn render_with_timeout(
     let worker = runtime
         .join("worker")
         .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX));
-    let status = run_worker(&worker, &runtime, work.path(), timeout)?;
+    let mut stderr = tempfile::tempfile()?;
+    let status = run_worker(&worker, &runtime, work.path(), timeout, stderr.try_clone()?)?;
     if !status.success() {
-        return Err("worker failed".into());
+        return Err(worker_error(&mut stderr).into());
     }
     let pdf = read_limited(
         &work.path().join("response.pdf"),
@@ -77,6 +80,37 @@ pub fn render_with_timeout(
     Ok(())
 }
 
+fn worker_error(stderr: &mut fs::File) -> String {
+    let diagnostic = (|| -> Option<String> {
+        stderr.seek(SeekFrom::Start(0)).ok()?;
+        let mut bytes = Vec::new();
+        stderr
+            .take(WORKER_ERROR_LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        if bytes.len() as u64 > WORKER_ERROR_LIMIT {
+            return None;
+        }
+        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        if value.get("code")?.as_str()? != "invalid_input" {
+            return None;
+        }
+        let field = value.get("field")?.as_str()?;
+        let message = value.get("message")?.as_str()?;
+        if field.is_empty()
+            || message.is_empty()
+            || field.chars().chain(message.chars()).any(char::is_control)
+        {
+            return None;
+        }
+        Some(
+            serde_json::json!({"code": "invalid_input", "field": field, "message": message})
+                .to_string(),
+        )
+    })();
+    diagnostic.unwrap_or_else(|| "worker failed".to_owned())
+}
+
 fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut bytes = Vec::new();
     fs::File::open(path)?
@@ -94,6 +128,7 @@ fn run_worker(
     runtime: &Path,
     work: &Path,
     timeout: Duration,
+    stderr: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
     let deadline = Instant::now()
         .checked_add(timeout)
@@ -102,6 +137,7 @@ fn run_worker(
         .arg("--runtime")
         .arg(runtime)
         .current_dir(work)
+        .stderr(stderr)
         .process_group(0)
         .spawn()?;
     loop {
@@ -133,6 +169,7 @@ fn run_worker(
     runtime: &Path,
     work: &Path,
     timeout: Duration,
+    stderr: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
     use windows_spawn::{Command, DropPolicy, SpawnOptions};
 
@@ -143,6 +180,7 @@ fn run_worker(
         .arg("--runtime")
         .arg(runtime)
         .current_dir(work)
+        .stderr(stderr)
         .spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))?;
     loop {
         match child.try_wait() {
@@ -160,6 +198,7 @@ fn run_worker(
     _: &Path,
     _: &Path,
     _: Duration,
+    _: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
     Err("process-tree timeout is not implemented on this platform".into())
 }
