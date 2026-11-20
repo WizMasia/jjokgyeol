@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from time import monotonic
 
 if __name__ == "__main__":
     # -I excludes the request directory. Import only from the installed app.
@@ -53,12 +54,21 @@ def worker():
     except (ValueError, InvalidOperation, RecursionError):
         raise JobError(422) from None
     request.unlink()
-    if not isinstance(payload, dict) or payload.keys() - {"source", "style"}:
+    if not isinstance(payload, dict) or payload.keys() - {"source", "style", "decision"}:
         raise JobError(422)
+    mode = payload.get("decision", "rule")
+    if mode not in ("rule", "model"):
+        raise JobError(422, "decision", "문단 선택 방식을 확인하세요.")
+    status = "rule"
     try:
         doc = parse_md(payload.get("source"))
         style = apply_style(Style(), payload.get("style"))
-        pdf = typeset(doc, style, workdir)
+        if mode == "model" and os.getenv("JJOKGYEOL_DECISION_HOST"):
+            from app.ai.decision import render_choice
+            deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT
+            pdf, status = render_choice(doc, style, workdir, deadline)
+        else:
+            pdf = typeset(doc, style, workdir)
     except InputError as error:
         # Only the public input error crosses the process boundary.
         raise JobError(422, error.field, error.message) from None
@@ -66,6 +76,7 @@ def worker():
     if not pdf.startswith(b"%PDF-") or not pdf[-1024:].rstrip().endswith(b"%%EOF"):
         raise ValueError("incomplete PDF")
     (workdir / "response.pdf").write_bytes(pdf)
+    (workdir / "decision-status").write_text(status, "ascii")
 
 
 def stop_group(process):
@@ -83,11 +94,14 @@ def stop_group(process):
                 break
 
 
-async def render(body):
-    return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf")
+async def render(body, deadline=None):
+    if deadline is None:
+        return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf")
+    return await isolated_job(body, (*WORKER_CMD, str(deadline)), "request.json", "response.pdf",
+                              with_decision=True)
 
 
-async def isolated_job(body, command, request_name, response_name):
+async def isolated_job(body, command, request_name, response_name, *, with_decision=False):
     if sys.platform == "linux":
         # PR_SET_CHILD_SUBREAPER adopts orphaned descendants for group-scoped waitpid.
         if ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) != 0:
@@ -111,7 +125,10 @@ async def isolated_job(body, command, request_name, response_name):
             raise JobError(422, field, message)
         if status != 0:
             raise JobError(500)
-        return (workdir / response_name).read_bytes()
+        data = (workdir / response_name).read_bytes()
+        if with_decision:
+            return data, (workdir / "decision-status").read_text("ascii")
+        return data
 
 
 if __name__ == "__main__":

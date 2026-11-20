@@ -261,3 +261,13 @@ async def test_first_editor_response_uses_bootstrap(api, monkeypatch):
     assert len(scripts) == 1
     assert "<" not in scripts[0]
     assert json.loads(scripts[0]) == data
+
+
+async def test_render_decision_is_opt_in(api, monkeypatch):
+    monkeypatch.delenv("JJOKGYEOL_DECISION_HOST", raising=False)
+    async with api:
+        for options in ({}, {"decision": "rule"}, {"decision": "model"}):
+            response = await render(api, "ok", **options)
+            assert_pdf(response, "ok")
+            assert response.headers["X-Jjokgyeol-Decision"] == "rule"
+        assert_error(await render(api, "ok", decision="https://example.org"), 422, "decision")

@@ -1,0 +1,20 @@
+{
+  "model": "google/gemma-4-e2b",
+  "variant": "google/gemma-4-e2b@4bit",
+  "model_info": {"format": "mlx", "arch": "gemma4", "quant": "4bit"},
+  "runtime": {"name": "mlx-llm-mac-arm64-apple-metal-nax-advsimd", "version": "1.13.1"},
+  "files": {
+    "model.safetensors": "54dfb6c99a9778a68dd5f3300f13930e65b567dab1ac54340001086bcf65a692",
+    "model.safetensors.index.json": "08f854b97fefc68d39c0d2066240e3c9efdf76b9255c18da3065f91cafd01b5d",
+    "config.json": "7bb97d083794a22b94c8481558ac9a7f99d72eb330c2d1e5b3a701255abb0425",
+    "generation_config.json": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de",
+    "processor_config.json": "1bd0d00776284f369c1eff5fb631e865dfcdca861e0b7d60dbef27fcf37436a8",
+    "tokenizer.json": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f",
+    "tokenizer_config.json": "e39f19a54fb1620d89f7b4bd9cf6a00652a6220a38c9e1f6a657ed14e0e69d48",
+    "chat_template.jinja": "781d10940fbc44be40064b5d43a056fc486c84ceaa55538226368b57314132bf"
+  },
+  "decision_seconds": 16,
+  "delivery_reserve_seconds": 1,
+  "max_lines_per_candidate": 64,
+  "max_response_bytes": 262144
+}

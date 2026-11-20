@@ -121,8 +121,9 @@ class DocumentJob:
     async def result(self, request, worker_deadline):
         if self.action == "render":
             body = await read_body(request)
-            result = await while_connected(jobs.render(body), request.receive)
-            return Response(result, media_type="application/pdf", headers=NO_STORE)
+            result, status = await while_connected(jobs.render(body, worker_deadline), request.receive)
+            return Response(result, media_type="application/pdf",
+                            headers={**NO_STORE, "X-Jjokgyeol-Decision": status})
         command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
         body = await read_body(request, self.byte_limit())
         result = await while_connected(
