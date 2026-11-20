@@ -65,14 +65,18 @@
     <section id="style" inert aria-labelledby="style-title">
       <div class="typebar">
         <h2 id="style-title">출판 양식</h2>
-        <label>문단 배치 방식 <select id="paragraph-layout" aria-label="문단 배치 방식"></select></label>
-        <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
-        <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
-        <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
-        <button id="open-suggestion" type="button" aria-controls="style-suggestion" aria-expanded="false">AI 양식 제안</button>
-        <button id="open-reference" type="button" aria-controls="reference-review" aria-expanded="false">참고 문서 서식 가져오기</button>
-        <button id="open-running" type="button" aria-controls="running-editor" aria-expanded="false">머리글·바닥글 편집</button>
-        <button id="legal-options" type="button" aria-expanded="false" aria-controls="article-style">법령 문서 옵션</button>
+        <div class="typebar-fields">
+          <label>문단 배치 방식 <select id="paragraph-layout" aria-label="문단 배치 방식"></select></label>
+          <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
+          <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+          <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+        </div>
+        <div class="typebar-actions">
+          <button id="open-suggestion" type="button" aria-controls="style-suggestion" aria-expanded="false">AI 양식 제안</button>
+          <button id="open-reference" type="button" aria-controls="reference-review" aria-expanded="false">참고 문서 서식 가져오기</button>
+          <button id="open-running" type="button" aria-controls="running-editor" aria-expanded="false">머리글·바닥글 편집</button>
+          <button id="legal-options" type="button" aria-expanded="false" aria-controls="article-style">법령 문서 옵션</button>
+        </div>
       </div>
       <fieldset id="article-style" hidden><legend>법령 문서 · 조 제목</legend>
         <label><input type="checkbox" id="article-numbering"> 조 제목 자동 번호</label>
@@ -118,7 +122,7 @@
           <fieldset id="text-roles"><legend>역할별 글자 모양</legend>
             <label>글자 모양 대상 <select id="text-role" aria-label="글자 모양 대상"></select></label>
             <label>대상 글꼴 <select data-text="font" aria-label="대상 글꼴"></select></label>
-            <label>대상 글자 크기 <input data-text="font_pt" aria-label="대상 글자 크기" type="text" inputmode="decimal"> pt</label>
+            <label>대상 글자 크기 <span class="measure"><input data-text="font_pt" aria-label="대상 글자 크기" type="text" inputmode="decimal"><span>pt</span></span></label>
             <label>대상 글자 색 <input data-text="color" type="text" spellcheck="false"></label>
             <label>대상 굵기 <select data-text="weight" aria-label="대상 굵기"></select></label>
             <label>대상 기울임 <select data-text="slant" aria-label="대상 기울임"></select></label>

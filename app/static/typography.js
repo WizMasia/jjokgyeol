@@ -53,7 +53,7 @@ function typographyEditor(settings) {
     };
     for (const control of controls) {
       const key = control.dataset.text;
-      control.parentElement.hidden = active === "body" && (key === "font" || key === "font_pt");
+      control.closest("label").hidden = active === "body" && (key === "font" || key === "font_pt");
       if (control.tagName === "SELECT") {
         const label = options[key].find(pair => pair[1] === fallback[key])?.[0];
         control.options[0].textContent = label ? "기본 · " + label : "기본";
