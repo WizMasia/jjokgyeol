@@ -34,7 +34,7 @@ REFERENCE_SLOTS = BoundedSemaphore(REFERENCE["slots"])
 SUGGESTION_SLOTS = BoundedSemaphore(SUGGESTION["slots"])
 NO_STORE = {"Cache-Control": "no-store"}
 ERRORS = {
-    413: ("too_large", f"요청은 {MAX_BODY:,}바이트 이하여야 합니다."),
+    413: ("too_large", "요청은 {limit:,}바이트 이하여야 합니다."),
     422: ("invalid_input", "원고와 양식의 입력값을 확인하세요."),
     429: ("busy", f"조판 작업 {LIMITS.render_slots}건이 진행 중입니다. 잠시 뒤 다시 시도하세요."),
     500: ("engine_failed", "PDF를 만들 수 없습니다."),
@@ -43,8 +43,10 @@ ERRORS = {
 }
 
 
-def failure(status, field=None, message=None):
+def failure(status, field=None, message=None, *, byte_limit=None):
     code, fallback = ERRORS[status]
+    if status == 413 and not message:
+        fallback = fallback.format(limit=MAX_BODY if byte_limit is None else byte_limit)
     return JSONResponse({"code": code, "field": field, "message": message or fallback},
                         status_code=status, headers=NO_STORE)
 
@@ -124,12 +126,12 @@ class DocumentJob:
     def __init__(self, action):
         self.action = action
 
-    def error(self, status, field=None, message=None):
+    def error(self, status, byte_limit, field=None, message=None):
         if self.action == "suggest":
             if status == 500:
                 status = 502
             message = message or {
-                413: f'양식 제안 요청은 {self.byte_limit():,}바이트 이하여야 합니다.',
+                413: f'양식 제안 요청은 {byte_limit:,}바이트 이하여야 합니다.',
                 422: "요청과 현재 양식을 확인하세요.",
                 429: "다른 양식 제안을 처리 중입니다. 잠시 뒤 다시 시도하세요.",
                 504: "양식 제안 시간이 초과되었습니다.",
@@ -138,23 +140,29 @@ class DocumentJob:
         if self.action != "render" and not message:
             field = "reference" if self.action == "analyze" else "source"
             message = {
-                413: f"파일은 {self.byte_limit():,}바이트 이하여야 합니다.",
+                413: f"파일은 {byte_limit:,}바이트 이하여야 합니다.",
                 429: "다른 문서를 처리 중입니다. 잠시 뒤 다시 시도하세요.",
                 500: "문서를 읽지 못했습니다.",
                 504: "문서 분석 시간이 초과되었습니다.",
             }.get(status)
-        return failure(status, field, message)
+        return failure(status, field, message, byte_limit=byte_limit)
 
-    def byte_limit(self):
-        if self.action == "import":
-            return IMPORT_MAX_BYTES
-        if self.action == "suggest":
-            return SUGGESTION["max_request_bytes"]
-        return REFERENCE["max_bytes"] if self.action == "analyze" else MAX_BODY
-
-    async def result(self, request, worker_deadline):
+    def limits(self):
         if self.action == "render":
-            body = await read_body(request)
+            return MAX_BODY, SLOTS, jobs.TIMEOUT
+        if self.action == "import":
+            return IMPORT_MAX_BYTES, SLOTS, jobs.TIMEOUT
+        if self.action == "targets":
+            return MAX_BODY, TARGET_SLOTS, jobs.TIMEOUT
+        if self.action == "analyze":
+            return REFERENCE["max_bytes"], REFERENCE_SLOTS, REFERENCE["timeout_seconds"]
+        if self.action == "suggest":
+            return SUGGESTION["max_request_bytes"], SUGGESTION_SLOTS, SUGGESTION["timeout_seconds"]
+        raise KeyError(self.action)
+
+    async def result(self, request, worker_deadline, byte_limit):
+        if self.action == "render":
+            body = await read_body(request, byte_limit)
             compare = request.headers.get("accept", "").strip().lower() == "multipart/form-data"
             result, status = await while_connected(
                 jobs.render(body, worker_deadline, compare=compare), request.receive)
@@ -172,34 +180,30 @@ class DocumentJob:
             command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"))
         else:
             command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
-        body = await read_body(request, self.byte_limit())
+        body = await read_body(request, byte_limit)
         result = await while_connected(
             jobs.isolated_job(body, command, "request.bin", "response.json"), request.receive)
         return Response(result, media_type="application/json", headers=NO_STORE)
 
     async def __call__(self, scope, receive, send):
-        slots = {"render": SLOTS, "import": SLOTS, "analyze": REFERENCE_SLOTS,
-                 "targets": TARGET_SLOTS, "suggest": SUGGESTION_SLOTS}[self.action]
+        byte_limit, slots, timeout = self.limits()
         if not slots.acquire(blocking=False):
-            await self.error(429)(scope, receive, send)
+            await self.error(429, byte_limit)(scope, receive, send)
             return
         try:
-            timeout = REFERENCE["timeout_seconds"] if self.action == "analyze" else jobs.TIMEOUT
-            if self.action == "suggest":
-                timeout = SUGGESTION["timeout_seconds"]
             worker_deadline = monotonic() + timeout
             deadline = asyncio.get_running_loop().time() + timeout
             try:
                 async with asyncio.timeout_at(deadline):
-                    response = await self.result(Request(scope, receive), worker_deadline)
+                    response = await self.result(Request(scope, receive), worker_deadline, byte_limit)
             except ClientDisconnect:
                 return
             except TimeoutError:
-                response = self.error(504)
+                response = self.error(504, byte_limit)
             except jobs.JobError as error:
-                response = self.error(error.status, error.field, error.message)
+                response = self.error(error.status, byte_limit, error.field, error.message)
             except OSError:
-                response = self.error(500)
+                response = self.error(500, byte_limit)
             # Once headers go out a deadline must close the transfer.
             if response.status_code != 200:
                 deadline = asyncio.get_running_loop().time() + jobs.TIMEOUT

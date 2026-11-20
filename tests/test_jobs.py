@@ -110,10 +110,14 @@ async def test_capacity(api, tmp_path):
         try:
             await asyncio.gather(*(marker(tmp_path, n) for n in ("first", "second")))
             assert_error(await render(api, "third"), 429)
+            imported = await api.post("/api/import?name=note.txt", content=b"note")
+            assert_error(imported, 429, "source")
         finally:
             (tmp_path / "release").touch()
             await asyncio.gather(*tasks)
         assert_pdf(await render(api, "retry"), "retry")
+        imported = await api.post("/api/import?name=note.txt", content=b"note")
+        assert imported.status_code == 200 and imported.json()["markdown"] == "note"
 
 
 @pytest.mark.parametrize("accept", ["application/pdf", "multipart/form-data"])

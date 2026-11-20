@@ -62,6 +62,21 @@ async def test_import_checks_declared_and_streamed_bytes(api):
         assert f"{limit:,}" in response.json()["message"]
 
 
+async def test_import_reports_the_limit_used_for_its_request(api, monkeypatch):
+    monkeypatch.setattr(server, "IMPORT_MAX_BYTES", 4)
+    path = "/api/import?name=short.txt"
+
+    async def text():
+        monkeypatch.setattr(server, "IMPORT_MAX_BYTES", 10)
+        yield b"hello"
+
+    response = await api.post(path, content=text())
+    assert response.status_code == 413
+    assert response.json()["message"] == "파일은 4바이트 이하여야 합니다."
+    retry = await api.post(path, content=b"hello")
+    assert retry.status_code == 200 and retry.json()["markdown"] == "hello"
+
+
 async def test_import_bounds_slow_upload_and_releases_slot(api, monkeypatch):
     monkeypatch.setattr(server, "SLOTS", BoundedSemaphore(1))
     monkeypatch.setattr(jobs, "TIMEOUT", 0.5)
