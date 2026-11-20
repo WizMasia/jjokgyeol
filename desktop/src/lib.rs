@@ -1,11 +1,12 @@
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(unix)]
+use std::process::Command;
 use std::{
     error::Error,
     fs,
     io::{Read, Write},
     path::Path,
-    process::Command,
     time::{Duration, Instant},
 };
 
@@ -126,7 +127,34 @@ fn run_worker(
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn run_worker(
+    worker: &Path,
+    runtime: &Path,
+    work: &Path,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, Box<dyn Error>> {
+    use windows_spawn::{Command, DropPolicy, SpawnOptions};
+
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or("invalid timeout")?;
+    let mut child = Command::new(worker)
+        .arg("--runtime")
+        .arg(runtime)
+        .current_dir(work)
+        .spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            Err(error) => return Err(error.into()),
+            _ => return Err("worker timed out".into()),
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn run_worker(
     _: &Path,
     _: &Path,

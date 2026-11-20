@@ -8,7 +8,7 @@ fn main() {
     }
     assert_eq!(args[1], "--runtime");
     let request = fs::read_to_string("request.json").unwrap();
-    if request.contains("timeout") {
+    if request.contains("timeout") || request.contains("descendant") {
         let marker = std::path::Path::new(&args[2])
             .parent()
             .unwrap()
@@ -18,8 +18,10 @@ fn main() {
             .arg(marker)
             .spawn()
             .unwrap();
-        thread::sleep(Duration::from_secs(3));
-        return;
+        if request.contains("timeout") {
+            thread::sleep(Duration::from_secs(3));
+            return;
+        }
     }
     if request.contains("oversize") {
         use std::io::{Seek, SeekFrom, Write};
@@ -36,7 +38,7 @@ fn main() {
         fs::write("response.pdf", b"%PDF-1.4\n").unwrap();
         return;
     }
-    assert!(request.contains("안녕하세요"));
+    assert!(request.contains("안녕하세요") || request.contains("descendant"));
     assert!(request.contains("65536"));
     fs::write("response.pdf", b"%PDF-1.4\n%%EOF\n").unwrap();
 }
