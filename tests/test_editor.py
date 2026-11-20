@@ -57,7 +57,8 @@ class Desk:
         elif url == ORIGIN + "/":
             route.fulfill(content_type="text/html; charset=utf-8", body=server.editor_html())
         else:
-            files = {"/static/editor.css": "editor.css",
+            files = {"/static/editor.css": "editor.css", "/static/indent-units.js": "indent-units.js",
+                     "/static/style-suggestion.js": "style-suggestion.js",
                      "/static/typography.js": "typography.js", "/static/list-style.js": "list-style.js", "/static/editor.js": "editor.js", "/static/style-file.js": "style-file.js"}
             for path, name in files.items():
                 if url == ORIGIN + path and (STATIC / name).is_file():

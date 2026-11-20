@@ -77,6 +77,7 @@ const margins = stylePanel.querySelectorAll('[name="margins_mm"]');
 const [pageWidth] = stylePanel.querySelectorAll('[name="page_mm"]');
 let marginSplit;
 const indentKeys = ["first_indent_mm", "rest_indent_mm"];
+const indents = indentEditor(settings.indent_units, indentKeys);
 const listStyle = listLevelEditor(settings, () => edited("style"));
 const articleNumbering = byId("article-numbering");
 const articleExpr = byId("article-expr");
@@ -180,7 +181,7 @@ function marginGeometry(values) {
 function applyMarginGeometry(geometry) {
   pageWidth.value = geometry.page_mm[0];
   for (const i of [1, 3]) margins[i].value = geometry.margins_mm[i];
-  for (const key of indentKeys) byId(key).value = geometry[key];
+  indents.set(geometry, true);
   let index = 0;
   sectionRules = sectionRules?.map(rule => indentKeys.some(key => Object.hasOwn(rule.values, key))
     ? {...rule, values: {...rule.values, ...geometry.section_rules[index++].values}} : rule);
@@ -242,7 +243,7 @@ async function validatedMarginRestore(draft, current, gutterSp) {
 
 const typography = typographyEditor(settings);
 let sectionRules;
-const styleFields = Object.keys(settings.defaults).filter(name => !["list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct", "paragraph_layout"].includes(name)).map(name => [
+const styleFields = Object.keys(settings.defaults).filter(name => ![...indentKeys, "list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct", "paragraph_layout"].includes(name)).map(name => [
   name, stylePanel.querySelectorAll(`[name="${CSS.escape(name)}"]`),
 ]);
 const styleForm = {
@@ -255,7 +256,7 @@ const styleForm = {
     if (articleNumbering.checked) values.article_expr = articleExpr.value;
     if (sectionRules !== undefined) values.section_rules = structuredClone(sectionRules);
     if (!gutter.disabled) values.gutter_mm = gutter.value;
-    return Object.assign(values, typography.get());
+    return Object.assign(values, indents.get(), typography.get());
   },
   set(values, {preserveDraft = false, inactiveArticleExpr = settings.default_article_expr ?? ""} = {}) {
     for (const [name, controls] of styleFields) {
@@ -264,6 +265,7 @@ const styleForm = {
         control.value = Array.isArray(value) ? value[index] : value;
       });
     }
+    indents.set(values, preserveDraft);
     if (!preserveDraft || !matchesSplit()) marginSplit = undefined;
     setMarginMode(values.gutter_mm !== undefined, values.gutter_mm);
     sectionRules = structuredClone(values.section_rules);

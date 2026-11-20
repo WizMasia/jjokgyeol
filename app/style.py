@@ -770,6 +770,8 @@ def editor_bootstrap() -> dict:
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
         "defaults": Style().to_editor(),
+        "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,
+                        "sp_per_mm_denominator": DENOMINATOR},
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],
         "new_spacing": {key: new[key] for key in publication.NEW_SPACING},
