@@ -9,6 +9,15 @@
 \newcommand\BookPar{\par}
 \newcommand\bookheading[3]{%
   {\sffamily\bfseries\fontsize{#1}{#2}\selectfont #3\BookPar}\nobreak}
+\newsavebox\BookTitleFrame
+\newcommand\bookframedheading[3]{%
+  \savenotes
+  \sbox\BookTitleFrame{\fbox{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{%
+    \centering\bookheading{#1}{#2}{#3}}}}%
+  \ifdim\dimexpr\ht\BookTitleFrame+\dp\BookTitleFrame\relax>\textheight
+    \directlua{book.layout_error("frame_height")}%
+  \fi
+  \noindent\usebox\BookTitleFrame\spewnotes\BookPar\nobreak}
 \makeatletter
 \newcommand\BookStyledMarks{\def\@makefnmark{\hbox{\textsuperscript{\@thefnmark}}}}
 \makeatother

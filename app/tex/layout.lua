@@ -83,6 +83,7 @@ function book.setup()
   if has_color then
     emit("\\usepackage{xcolor}\\AddToHook{cmd/@makefntext/before}{\\normalcolor}")
   end
+  if roles.heading1 and roles.heading1.frame == "box" then emit("\\usepackage{footnote}") end
   if next(data.footnotes) then
     emit("\\AddToHook{cmd/@makefntext/before}{\\directlua{book.note_style()}}")
     if next(roles) or defaults.weight ~= "normal" or defaults.slant ~= "normal" or defaults.heading_weight ~= "bold" then
@@ -155,6 +156,13 @@ end, "jjokgyeol.line_spacing")
 
 local gloss_style = roles.gloss or {}
 
+function book.layout_error(reason)
+  local marker = assert(io.open("layout-error.txt", "wb"))
+  marker:write(reason)
+  marker:close()
+  error(reason)
+end
+
 function book.gloss()
   local surrounding = font.getfont(font.current()).size
   local size = gloss_style.font_sp
@@ -163,10 +171,7 @@ function book.gloss()
       defaults.gloss_per_10000 + fixed.RATIO_UNIT // 2) // fixed.RATIO_UNIT))
   end
   if size < 1 then
-    local marker = assert(io.open("layout-error.txt", "wb"))
-    marker:write("gloss_size")
-    marker:close()
-    error("gloss_size")
+    book.layout_error("gloss_size")
   end
   appearance(gloss_style)
   emit("\\fontsize{" .. sp(size) .. "}{\\baselineskip}\\selectfont")
@@ -252,7 +257,8 @@ function book.blocks()
     if block.kind == "heading" then
       local size = values.font_sp or scaled_size(style.body_sp, policy.heading_per_10000[block.level])
       local leading = values.leading_sp or scaled_size(size, policy.heading_leading_per_10000)
-      emit("\\bookheading{" .. sp(size) .. "}{" .. sp(leading) .. "}{")
+      local command = values.frame == "box" and "\\bookframedheading" or "\\bookheading"
+      emit(command .. "{" .. sp(size) .. "}{" .. sp(leading) .. "}{")
       appearance(values)
       if block.preserve_spaces then emit("\\leavevmode") end
       inlines(block.inlines, block.preserve_spaces)

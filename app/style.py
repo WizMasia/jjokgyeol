@@ -380,6 +380,9 @@ def _text_styles(current, patch, stored, context, scale, errors):
                 if role != "body" and key == size_key:
                     value = _point_size(key, value, stored, context)
                     key = "font_sp"
+                elif role == "heading1" and key == "frame":
+                    if value != "box":
+                        raise ValueError("제목 틀은 box를 지정하세요.")
                 elif key in ("color", "weight", "slant") or (role != "body" and key == "font"):
                     value = _text_attribute(key, value)
                 else:
