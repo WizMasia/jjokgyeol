@@ -67,6 +67,7 @@ def test_report_example_in_browser(editor, tmp_path):
     second = download_proof(editor, tmp_path / "report-16.pdf")
     for pdf, size in ((first, 11), (second, 16)):
         pages = read_pages(pdf)
+        assert pages == read_pages(MANUSCRIPT.with_name(f"report-{size}.pdf").read_bytes())
         assert any(line.text.startswith("새벽") for line in pages[0].lines)
         for number, page in enumerate(pages, 1):
             assert any(line.text.strip() == str(number) for line in page.lines)
