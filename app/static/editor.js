@@ -3,6 +3,9 @@
 const byId = id => document.getElementById(id);
 const source = byId("source");
 const preview = byId("preview");
+const proofChoice = byId("proof-choice");
+proofChoice.add(new Option("모델 우선", "model"));
+proofChoice.add(new Option("규칙", "rule"));
 const inlinePdf = navigator.pdfViewerEnabled !== false;
 // A viewerless browser would download every iframe navigation automatically.
 if (!inlinePdf) preview.setAttribute("sandbox", "");
@@ -10,7 +13,7 @@ const statusText = byId("status");
 const errorText = byId("error");
 let version = 0;
 let displayedVersion = -1;
-let pdfUrl = "";
+let displayedProof = null;
 let pending = null;
 const fileLoads = {source: null, style: null};
 let initialPreviewNeeded = false;
@@ -301,7 +304,7 @@ byId("open-running").addEventListener("click", () => {
 function changed() {
   version++;
   referenceStateChanged();
-  statusText.textContent = pdfUrl ? "이전 버전 · 갱신 필요" : "갱신 필요";
+  statusText.textContent = displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
   byId("placeholder").textContent = "미리보기를 갱신하면 조판된 지면이 열립니다.";
 }
 
@@ -352,9 +355,9 @@ const httpMessages = {
   504: "조판 시간이 초과되었습니다. 다시 시도하세요.",
 };
 
-async function fetchPdf(style, signal) {
+async function fetchProof(style, signal) {
   const response = await fetch("/api/render", {
-    method: "POST", headers: {"Content-Type": "application/json"}, signal,
+    method: "POST", headers: {"Content-Type": "application/json", Accept: "multipart/form-data"}, signal,
     body: JSON.stringify({source: sourceText(), style}), redirect: "error",
   });
   if (!response.ok) {
@@ -363,11 +366,41 @@ async function fetchPdf(style, signal) {
     error.field = detail?.field;
     throw error;
   }
-  const pdf = await response.blob();
-  if (pdf.type.split(";")[0] !== "application/pdf" || !pdf.size) {
-    throw new Error("서버에서 PDF를 받지 못했습니다. 다시 갱신하세요.");
+  const type = response.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
+  const decision = response.headers.get("X-Jjokgyeol-Decision");
+  const validPdf = file => file instanceof Blob && file.type.split(";")[0] === "application/pdf" && file.size > 0;
+  if (type === "application/pdf" && (decision === null || decision === "rule")) {
+    const rule = await response.blob();
+    if (validPdf(rule)) return {rule};
   }
-  return pdf;
+  if (type === "multipart/form-data" && (decision === "model" || decision === "mixed")) {
+    const parts = await response.formData().catch(() => null);
+    const rule = parts?.get("rule");
+    const model = parts?.get("model");
+    if (validPdf(rule) && validPdf(model)) return {rule, model, decision};
+  }
+  throw new Error("서버에서 올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
+}
+
+// Only current responses acquire URLs. A reference trial transfers these URLs on apply.
+class ProofUrls {
+  constructor({rule, model, decision}) {
+    this.rule = URL.createObjectURL(rule);
+    this.model = model && URL.createObjectURL(model);
+    this.decision = decision;
+  }
+
+  get selected() {
+    const useModel = this.model && proofChoice.value === "model";
+    let label = this.model ? "규칙 조판" : "규칙 조판 · 모델 결과 없음";
+    if (useModel) label = this.decision === "mixed" ? "혼합 조판 · 일부 문단에 모델 적용" : "모델 조판";
+    return {href: (useModel ? this.model : this.rule) + "#navpanes=0&view=FitH", label};
+  }
+
+  release() {
+    URL.revokeObjectURL(this.rule);
+    if (this.model) URL.revokeObjectURL(this.model);
+  }
 }
 
 function spacingCaption(style) {
@@ -381,15 +414,24 @@ function spacingCaption(style) {
   return `표시 중인 PDF의 양끝맞춤 설정 · 기본 한글 자간 ${base} · ${tracking} · 어절 공백 ${spaces} 허용`;
 }
 
-function showPdf(url, style) {
-  const oldUrl = pdfUrl;
-  pdfUrl = url;
-  preview.src = pdfUrl + "#navpanes=0&view=FitH";
+function displaySelectedProof() {
+  if (!displayedProof) return;
+  const {href, label} = displayedProof.selected;
+  if (preview.src !== href) preview.src = href;
+  byId("proof-decision").textContent = "표시 중 · " + label;
+}
+
+proofChoice.addEventListener("change", displaySelectedProof);
+
+function showProof(proof, style) {
+  const previous = displayedProof;
+  displayedProof = proof;
+  displaySelectedProof();
+  previous?.release();
   preview.hidden = !inlinePdf;
   byId("viewer-fallback").hidden = inlinePdf;
   byId("placeholder").hidden = true;
   displayedVersion = version;
-  if (oldUrl) URL.revokeObjectURL(oldUrl);
   byId("proof-size").textContent = `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt`;
   byId("applied-ratios").textContent = spacingCaption(style);
   statusText.textContent = "최신 버전";
@@ -398,9 +440,9 @@ function showPdf(url, style) {
 async function render(job) {
   const style = styleForm.get();
   try {
-    const pdf = await fetchPdf(style);
+    const files = await fetchProof(style);
     if (pending !== job || version !== job.version) return;
-    showPdf(URL.createObjectURL(pdf), style);
+    showProof(new ProofUrls(files), style);
     if (job.exporting) exportPdf();
   } catch (error) {
     if (pending !== job || version !== job.version) return;
@@ -411,7 +453,7 @@ async function render(job) {
     typography.error(field, message);
     errorText.textContent = field ? `${field} · ${message}` : message;
     statusText.textContent = displayedVersion === version ? "현재 지면 · 갱신 실패" :
-      pdfUrl ? "이전 버전 · 조판 실패" : "조판 실패";
+      displayedProof ? "이전 버전 · 조판 실패" : "조판 실패";
     byId("placeholder").textContent = "원고와 양식을 확인한 뒤 미리보기를 갱신하세요.";
   } finally {
     if (pending === job) pending = null;
@@ -431,7 +473,7 @@ function requestPdf(exporting) {
   pending = {version, exporting};
   errorText.textContent = "";
   marginError();
-  statusText.textContent = pdfUrl && displayedVersion !== version ? "이전 버전 · 조판 중" : "조판 중";
+  statusText.textContent = displayedProof && displayedVersion !== version ? "이전 버전 · 조판 중" : "조판 중";
   byId("placeholder").textContent = "첫 지면을 조판하고 있습니다.";
   render(pending);
 }
@@ -464,7 +506,7 @@ function finishFileOpen(kind, token) {
   updateFileActions();
   if (fileLoads.source || fileLoads.style) return;
   statusText.textContent = displayedVersion === version ? "최신 버전" :
-    pdfUrl ? "이전 버전 · 갱신 필요" : "갱신 필요";
+    displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
   if (initialPreviewNeeded) {
     initialPreviewNeeded = false;
     if (!errorText.textContent) requestPdf(false);
@@ -516,7 +558,7 @@ function openMarkdown(file) {
   }, () => {
     errorText.textContent = file ? "원고를 열지 못했습니다. UTF-8 파일인지 확인하세요." :
       "샘플을 불러오지 못했습니다. 원고를 열거나 직접 입력하세요.";
-    if (!pdfUrl) {
+    if (!displayedProof) {
       statusText.textContent = "원고 열기 실패";
       byId("placeholder").textContent = "원고를 입력하고 미리보기를 갱신하세요.";
     }

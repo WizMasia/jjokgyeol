@@ -49,6 +49,7 @@ h2 { font: 700 clamp(1.12rem, 1.6vw, 1.65rem)/1.3 var(--serif); letter-spacing: 
 .sheet, .proof-stage { height: clamp(28rem, 59vh, 62rem); border: 1px solid var(--line); }
 .sheet { background: var(--paper); border-top: 2px solid var(--ink); }
 #source { display: block; width: 100%; height: 100%; resize: none; border: 0; background: transparent; padding: clamp(1.25rem, 2.5vw, 3rem); font: 1.06rem/1.95 var(--serif); tab-size: 4; }
+.proof .panel-head, .proof .folio { flex-wrap: wrap; }
 .proof-stage { background: #dddcd2; display: grid; place-items: center; }
 #preview { width: 100%; height: 100%; border: 0; }
 #placeholder { padding: 1rem; color: #56594f; }

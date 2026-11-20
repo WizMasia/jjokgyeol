@@ -33,6 +33,13 @@ let savedRules = "";
 let bindings = [];
 let attempt;
 let proof;
+const trialView = byId("reference-proof");
+const trialLink = byId("trial-pdf");
+const trialFrame = inlinePdf ? node("iframe") : null;
+if (trialFrame) {
+  trialFrame.title = "시험 조판 미리보기";
+  trialLink.before(trialFrame);
+}
 const choices = new Map();
 const widths = new Map();
 const unitsPerView = 12;
@@ -83,8 +90,10 @@ async function jsonRequest(url, options) {
 function discardProof() {
   if (attempt) attempt.abort();
   attempt = null;
-  byId("reference-proof").replaceChildren();
-  if (proof) URL.revokeObjectURL(proof.url);
+  trialView.hidden = true;
+  trialFrame?.removeAttribute("src");
+  trialLink.removeAttribute("href");
+  proof?.urls.release();
   proof = null;
   byId("reference-apply").disabled = true;
 }
@@ -1029,21 +1038,16 @@ function draftStyle(strict = true, suggestions) {
   return style;
 }
 
-function displayTrial(url) {
-  const container = byId("reference-proof");
-  const href = url + "#navpanes=0&view=FitH";
-  if (inlinePdf) {
-    const frame = node("iframe");
-    frame.title = "시험 조판 미리보기";
-    frame.src = href;
-    container.append(frame);
-  }
-  const link = node("a", "시험 PDF 열기");
-  link.href = href;
-  link.target = "_blank";
-  link.rel = "noopener";
-  container.append(link);
+function displayTrial() {
+  if (!proof) return;
+  const {href, label} = proof.urls.selected;
+  byId("trial-decision").textContent = label;
+  trialLink.href = href;
+  if (trialFrame && trialFrame.src !== href) trialFrame.src = href;
+  trialView.hidden = false;
 }
+
+proofChoice.addEventListener("change", displayTrial);
 
 async function trial() {
   revised();
@@ -1056,10 +1060,10 @@ async function trial() {
     style = draftStyle();
     limits();
     message.textContent = "선택한 서식으로 시험 조판 중…";
-    const blob = await fetchPdf(style, controller.signal);
+    const files = await fetchProof(style, controller.signal);
     if (attempt !== controller || revision !== version || busy()) return;
-    proof = {url: URL.createObjectURL(blob), style, revision};
-    displayTrial(proof.url);
+    proof = {urls: new ProofUrls(files), style, revision};
+    displayTrial();
     byId("reference-apply").disabled = false;
     message.textContent = "시험 PDF를 확인한 뒤 적용하세요.";
   } catch (error) {
@@ -1130,11 +1134,11 @@ byId("reference-targets").addEventListener("click", () => { revised(); readTarge
 byId("reference-cancel").addEventListener("click", closeReview);
 byId("reference-apply").addEventListener("click", () => {
   if (!proof || proof.revision !== version || busy()) return;
-  const {url, style} = proof;
-  proof = null; // The committed preview takes ownership of this blob URL.
+  const {urls, style} = proof;
+  proof = null; // The committed preview takes ownership of both proof URLs.
   closeReview();
   pending = null;
   styleForm.set(style, {preserveDraft: true});
   edited("style");
-  showPdf(url, style);
+  showProof(urls, style);
 });
