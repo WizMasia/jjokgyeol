@@ -360,12 +360,15 @@ def test_report_style(tmp_path):
     for word in "봄달":
         assert_appearance(matching(chars, word), 11, "NanumMyeongjo", ink("222222"))
     assert_appearance(matching(chars, "측"), 9, "NanumGothicBold", ink("714126"))
-    assert matching(chars, "기")
+    heading_y = matching(chars, "능")[0].matrix[5]
+    header = sorted((c for c in chars if c.matrix[5] > heading_y), key=lambda c: c.x0)
+    assert "".join(c.get_text() for c in header) == "기관"
     assert matching(chars, "서")[0].matrix[2] > matching(chars, "봄")[0].matrix[2]
     ref, note, folio = matching(chars, "1")
-    assert color(ref) == pytest.approx(ink("222222"), abs=.001)
-    assert color(note) == pytest.approx(ink("714126"), abs=.001)
-    assert note.fontname.endswith("NanumGothicBold") and ref.fontname.endswith("NanumMyeongjo")
+    assert_appearance([ref], 7.7, "NanumMyeongjo", ink("222222"))
+    assert_appearance([note], 6, "NanumGothicBold", ink("714126"))
+    assert ref.matrix[5] > matching(chars, "산")[0].matrix[5]
+    assert note.matrix[5] > matching(chars, "측")[0].matrix[5]
     assert color(folio) == (0, 0, 0)
 
 
@@ -385,3 +388,63 @@ def test_scoped_heading_preserves_other_role_attributes(tmp_path):
     assert matching(chars, "산")[0].matrix[2] > 0
     for c in ("①", "길", "물"):
         assert matching(chars, c)[0].fontname.endswith("NanumMyeongjoBold")
+
+
+def test_unused_heading_style_preserves_footnote_geometry(tmp_path):
+    from app.document import parse_md
+    from app.style import Style, apply_style
+    from app.typeset import typeset
+    from test_reference_typeset import glyphs
+
+    doc = parse_md("들[^주]끝\n\n[^주]: 밭")
+    layouts = []
+    for name, patch in [("legacy", {}), ("styled", {"text_styles": {"heading3": {"color": "#112233"}}})]:
+        work = tmp_path / name
+        work.mkdir()
+        chars = glyphs(typeset(doc, apply_style(Style(), patch), work))
+        layouts.append([(c.get_text(), c.fontname.split("+")[-1], c.size, c.bbox) for c in chars])
+    assert layouts[1] == layouts[0]
+
+
+def test_footnote_marks_follow_installed_weight_and_slant(tmp_path, monkeypatch):
+    from app.document import parse_md
+    from app.style import Style, TEXT_DEFAULTS, apply_style
+    from app.typeset import typeset
+    from test_reference_typeset import glyphs, matching
+
+    monkeypatch.setitem(TEXT_DEFAULTS, "weight", "bold")
+    monkeypatch.setitem(TEXT_DEFAULTS, "slant", "italic")
+    style = apply_style(Style(), {"section_rules": [
+        {"path": [], "role": "body", "values": {"font": "nanum-gothic"}}]})
+    chars = glyphs(typeset(parse_md("들[^주]\n\n[^주]: 밭"), style, tmp_path))
+    ref, label = matching(chars, "1")
+    for mark, letter, face in [(ref, "들", "NanumGothicBold"), (label, "밭", "NanumMyeongjoBold")]:
+        adjacent, = matching(chars, letter)
+        assert mark.fontname.endswith(face) and adjacent.fontname.endswith(face)
+        assert mark.matrix[2] == adjacent.matrix[2] > 0
+        assert mark.size < adjacent.size and mark.matrix[5] > adjacent.matrix[5]
+
+
+@pytest.mark.parametrize("levels", [(1, 2, 3, 4, 5, 6), (2,)])
+def test_direct_heading_styles_after_fences(tmp_path, levels):
+    from app.document import parse_md
+    from app.style import Style, apply_style
+    from app.typeset import typeset
+    from test_reference_typeset import assert_appearance, color, glyphs, matching
+
+    titles = "솔달별숲꽃잎"
+    headings = ["솔\n===", "달\n---", "### 별", "#### 숲", "##### 꽃", "###### 잎"]
+    doc = parse_md("\n\n".join("~~~\n표본\n~~~\n" + heading for heading in headings))
+    styles = {f"heading{level}": {"font_pt": 12 + level, "color": "#0000FF"} for level in levels}
+    chars = glyphs(typeset(doc, apply_style(Style(), {"text_styles": styles}), tmp_path))
+    fences = matching(chars, "~")
+    assert fences and all(color(c) == (0, 0, 0) for c in fences)
+    fence_rows = {c.matrix[5] for c in fences}
+    for level, title in enumerate(titles, 1):
+        letter, = matching(chars, title)
+        if level in levels:
+            assert_appearance([letter], 12 + level, "NanumGothicBold", (0, 0, 1))
+            assert letter.matrix[5] not in fence_rows
+        elif level == 1:
+            # A legacy Setext level still shares the closing fence's printed line.
+            assert letter.matrix[5] in fence_rows

@@ -84,7 +84,9 @@ function book.setup()
   end
   if next(data.footnotes) then
     emit("\\AddToHook{cmd/@makefntext/before}{\\directlua{book.note_style()}}")
-    if next(roles) then emit("\\AtBeginDocument{\\BookStyledMarks}") end
+    if next(roles) or defaults.weight ~= "normal" or defaults.slant ~= "normal" or defaults.heading_weight ~= "bold" then
+      emit("\\AtBeginDocument{\\BookStyledMarks}")
+    end
   end
 end
 
