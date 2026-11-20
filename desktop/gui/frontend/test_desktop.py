@@ -166,6 +166,7 @@ class DesktopTest(unittest.TestCase):
                 """)
                 page.goto(f'http://127.0.0.1:{server.server_port}/index.html')
                 page.wait_for_function("document.querySelector('#source').value.length > 0")
+                self.assertFalse(page.evaluate("window.calls.some(c => c.command === 'set_dirty')"))
                 page.locator('#source').fill('before save')
                 page.wait_for_function('window.nativeDirty === true')
                 page.evaluate('window.stallClear = true')
