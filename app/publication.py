@@ -2,7 +2,7 @@
 
 import re
 from decimal import Decimal, localcontext
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from app.configuration import APP_DIR, CONFIG_DIR, read_config
 from app.list_marks import format_mark
@@ -34,7 +34,7 @@ def _load_fonts(choices, locked):
             path = record.get("path") if isinstance(record, dict) else None
             if not isinstance(path, str) or not path.startswith("/"):
                 raise ValueError(f"runtime.lock fonts.{identifier}.{face}.path must be absolute")
-            filepath = Path(path)
+            filepath = PurePosixPath(path)
             if (str(filepath) != path or ".." in filepath.parts or "\x00" in path
                     or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*\.ttf", filepath.name)):
                 raise ValueError(f"runtime.lock fonts.{identifier}.{face}.path has an invalid font name")
@@ -44,7 +44,7 @@ def _load_fonts(choices, locked):
             files[identifier][face] = filepath.name
     if labels.keys() != locked.keys():
         raise ValueError(f"publication.json fonts missing {sorted(locked.keys() - labels.keys())}")
-    return labels, files, directory
+    return labels, files, Path(str(directory))
 
 
 def _positive_ratio(value, field):

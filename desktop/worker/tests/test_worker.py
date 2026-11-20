@@ -1,7 +1,7 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 
@@ -33,7 +33,7 @@ def runtime_dir(tmp_path):
     lock = json.loads((ROOT / 'runtime.lock').read_text())
     for faces in lock['fonts'].values():
         for face in faces.values():
-            (runtime / 'fonts' / Path(face['path']).name).write_bytes(b'font')
+            (runtime / 'fonts' / PurePosixPath(face['path']).name).write_bytes(b'font')
     (runtime / 'engine').write_bytes(b'engine')
     (runtime / 'runtime.json').write_text(json.dumps({'engine': 'engine', 'font_dir': 'fonts'}))
     return runtime
@@ -188,3 +188,16 @@ def test_style_modes_are_mutually_exclusive(tmp_path):
                             input=b'{}', cwd=tmp_path, env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True)
     assert result.returncode != 0
     assert json.loads(result.stderr)['code'] == 'worker_error'
+
+
+def test_locked_font_paths_use_posix_syntax_on_windows(monkeypatch):
+    from pathlib import PureWindowsPath
+    from app import publication
+    choices = json.loads((ROOT / 'app/config/publication.json').read_text())['fonts']
+    lock = json.loads((ROOT / 'runtime.lock').read_text())['fonts']
+    monkeypatch.setattr(publication, 'Path', PureWindowsPath)
+    labels, faces, directory = publication._load_fonts(choices, lock)
+    assert labels['nanum-myeongjo']
+    assert faces['nanum-myeongjo']['regular'] == 'NanumMyeongjo.ttf'
+    assert directory == PureWindowsPath('/usr/share/fonts/truetype/nanum')
+    assert isinstance(directory, PureWindowsPath)
