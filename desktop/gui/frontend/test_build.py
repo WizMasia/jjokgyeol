@@ -11,6 +11,13 @@ class BuildTest(unittest.TestCase):
     def test_desktop_bundle_contains_offline_editor(self):
         html = (DIST / 'index.html').read_text()
         self.assertIn('id="editor-settings"', html)
+        for marker in (
+            'id="open-settings"',
+            '<dialog id="settings-dialog"',
+            'id="apply-settings"',
+            'id="close-settings"',
+        ):
+            self.assertIn(marker, html)
         self.assertNotIn('<!--EDITOR_SETTINGS-->', html)
         self.assertNotIn('src="/static/', html)
         self.assertTrue((DIST / 'sample.md').is_file())
