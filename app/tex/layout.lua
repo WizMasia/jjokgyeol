@@ -38,6 +38,23 @@ local function sp(n)
   return string.format("%dsp", assert(math.tointeger(n)))
 end
 
+local function setup_frame_breaks()
+  local after_frame = luatexbase.attributes.BookFrameEnd
+  local hlist, penalty = node.id("hlist"), node.id("penalty")
+  luatexbase.add_to_callback("buildpage_filter", function(group)
+    -- A moved frame returns to the contribution list after TeX ships a page.
+    if group ~= "penalty" and group ~= "after_output" then return end
+    local pending = tex.lists.contrib_head
+    for p in node.traverse_id(penalty, pending) do
+      if node.has_attribute(p, after_frame) then
+        local lines = node.count(hlist, tex.lists.page_head) + node.count(hlist, pending, p)
+        -- When the frame is already first, moving it again gains no room.
+        if lines == 1 then p.penalty = tex.count["@highpenalty"] end
+      end
+    end
+  end, "jjokgyeol.frame_break")
+end
+
 function book.setup()
   local m, p = style.margins_sp, style.page_sp
   emit(string.format("\\geometry{%spaperwidth=%s,paperheight=%s,top=%s,right=%s,bottom=%s,left=%s,noheadfoot}",
@@ -83,7 +100,10 @@ function book.setup()
   if has_color then
     emit("\\usepackage{xcolor}\\AddToHook{cmd/@makefntext/before}{\\normalcolor}")
   end
-  if roles.heading1 and roles.heading1.frame == "box" then emit("\\usepackage{footnote}") end
+  if roles.heading1 and roles.heading1.frame == "box" then
+    emit("\\usepackage{footnote}")
+    setup_frame_breaks()
+  end
   if next(data.footnotes) then
     emit("\\AddToHook{cmd/@makefntext/before}{\\directlua{book.note_style()}}")
     if next(roles) or defaults.weight ~= "normal" or defaults.slant ~= "normal" or defaults.heading_weight ~= "bold" then
