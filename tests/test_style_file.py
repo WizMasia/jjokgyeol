@@ -45,6 +45,22 @@ async def test_style_file_round_trip():
 
 
 @pytest.mark.anyio
+async def test_sparse_typography_through_style_file_api():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+        old = (await client.post("/api/style/export", json={})).json()
+        opened = (await client.post("/api/style/open", json=old)).json()
+        assert "text_styles" not in opened and "ko_tracking_bounds_pct" not in opened
+        assert (await client.post("/api/style/export", json=opened)).json() == old
+        edited = {**opened, "text_styles": {"heading3": {"color": "#17365D"}, "note": {"font_pt": "8.5"}},
+                  "ko_tracking_bounds_pct": ["-7", "0"]}
+        saved = await client.post("/api/style/export", json=edited)
+        assert saved.status_code == 200, saved.text
+        assert saved.json() == {**old, "text_styles": {"heading3": {"color": "#17365D"}, "note": {"font_sp": 557056}},
+                                "ko_tracking_bounds_per_10000": [-700, 0]}
+        assert (await client.post("/api/style/open", json=saved.json())).json() == edited
+
+
+@pytest.mark.anyio
 async def test_running_areas_round_trip_selected_fields_through_style_api():
     rules = [
         {"path": [], "role": "footer", "values": {"visible": True, "center": "{현재쪽}", "font_pt": "9.25"}},

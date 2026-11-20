@@ -18,6 +18,10 @@
   "space_pct_range": [70, 130],
   "heading_per_10000": [16000, 15000, 14000, 13000, 12000, 11000],
   "heading_leading_per_10000": 12500,
+  "text_defaults": {
+    "color": "#000000", "weight": "normal", "heading_weight": "bold", "slant": "normal",
+    "note_pt": 8, "gloss_per_10000": 8000
+  },
   "running_defaults": {
     "visible": false, "left": "", "center": "", "right": "",
     "font": "nanum-myeongjo", "color": "#000000", "font_pt": 9, "offset_mm": 8

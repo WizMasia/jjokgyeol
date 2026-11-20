@@ -42,7 +42,14 @@ EDITOR_UNITS = {
     "ko_tracking_pct": ("ko_tracking_per_10000", 100 * DENOMINATOR),
     "space_pct": ("space_per_10000", 100 * DENOMINATOR),
 }
-ARRAY_LENGTHS = {"page_sp": 2, "margins_sp": 4, "space_per_10000": 2}
+OPTIONAL_UNITS = {
+    "gutter_mm": ("gutter_sp", MM_NUMERATOR),
+    "ko_tracking_bounds_pct": ("ko_tracking_bounds_per_10000", 100 * DENOMINATOR),
+}
+ARRAY_LENGTHS = {"page_sp": 2, "margins_sp": 4, "space_per_10000": 2, "ko_tracking_bounds_per_10000": 2}
+HEADING_ROLES = tuple(f"heading{level}" for level in range(1, len(publication.HEADINGS) + 1))
+TEXT_ROLES = ("body", *HEADING_ROLES, "note", "gloss")
+
 FONTS = ("body_font", "heading_font")
 PAGE_ERROR = f"판형의 폭과 높이는 0보다 크고 {MAX_PAGE_MM}mm 이하여야 합니다."
 
@@ -68,6 +75,10 @@ def _number(value, stored, context):
     # Two operands may be multiplied. Keep all their input digits plus unit factors.
     context.prec = max(context.prec, 2 * len(number.as_tuple().digits) + 32)
     return number
+
+
+def _pt(sp):
+    return format(Decimal(sp) / SP_PER_PT, "f")
 
 
 def _map_numbers(key, value, convert):
@@ -168,7 +179,7 @@ def _editor_rule_values(fields):
     for key, value in fields:
         if key.endswith("_sp"):
             if key in ("font_sp", "leading_sp"):
-                value = format(Decimal(value) / SP_PER_PT, "f")
+                value = _pt(value)
             else:
                 value = _mm(value, 0 if key == "offset_sp" else 6)
             key = _editor_rule_key(key)
@@ -181,7 +192,8 @@ def _check_rule_fit(key, amount, base, scale):
         if _line_clearance(base["page_sp"][0], base["margins_sp"], base.get("gutter_sp"), amount) <= 0:
             raise ValueError("구간 들여쓰기를 줄여 본문 폭을 확보하세요.")
     if key == "font_sp":
-        ratio = max(abs(base["ko_tracking_per_10000"]), base["space_per_10000"][1])
+        bounds = base.get("ko_tracking_bounds_per_10000") or (base["ko_tracking_per_10000"],)
+        ratio = max(*map(abs, bounds), base["space_per_10000"][1])
         if amount * ratio > MAX_DIMENSION_PT * SP_PER_PT * publication.RATIO_UNIT * scale * scale:
             raise ValueError("구간 글자 크기와 자간·공백의 조합이 조판 범위를 벗어났습니다.")
 
@@ -200,16 +212,30 @@ def _check_existing_rules(base, scale, stored):
                 raise InputError({f"section_rules[{index}].values.{field}": str(error)}) from None
 
 
-def _rule_value(role, key, value, stored, context, base):
-    if key == "font":
-        if not isinstance(value, str) or value not in publication.FONT_LABELS:
-            raise ValueError("지원하는 글꼴 ID를 선택하세요.")
-        return key, value
-    if key == "color":
-        if not isinstance(value, str) or not _COLOR.fullmatch(value):
-            raise ValueError("색상은 #RRGGBB로 입력하세요.")
-        return key, value
+def _text_attribute(key, value):
+    if key == "weight" and value not in ("normal", "bold"):
+        raise ValueError("글자 굵기는 normal 또는 bold여야 합니다.")
+    if key == "slant" and value not in ("normal", "italic"):
+        raise ValueError("글자 기울기는 normal 또는 italic이어야 합니다.")
+    if key == "font" and (not isinstance(value, str) or value not in publication.FONT_LABELS):
+        raise ValueError("지원하는 글꼴 ID를 선택하세요.")
+    if key == "color" and (not isinstance(value, str) or not _COLOR.fullmatch(value)):
+        raise ValueError("색상은 #RRGGBB로 입력하세요.")
+    return value
 
+
+def _point_size(key, value, stored, context):
+    maximum = 2048 * SP_PER_PT - 1 if key.startswith("font_") else MAX_DIMENSION_PT * SP_PER_PT
+    scale = 1 if stored else DENOMINATOR
+    amount = _number(value, stored, context) * (1 if stored else SP_PER_PT * scale)
+    if not scale <= amount <= maximum * scale:
+        raise ValueError("글자 크기와 행간의 단위와 범위를 확인하세요.")
+    return amount
+
+
+def _rule_value(role, key, value, stored, context, base):
+    if key in ("font", "color"):
+        return key, _text_attribute(key, value)
     pt_unit, mm_unit = ("sp", "sp") if stored else ("pt", "mm")
     running = role in RUNNING_ROLES
     if running:
@@ -223,10 +249,7 @@ def _rule_value(role, key, value, stored, context, base):
         if key not in (f"font_{pt_unit}", f"offset_{mm_unit}"):
             raise ValueError("머리글·바닥글에서 적용할 수 없는 속성입니다.")
     if key in (f"font_{pt_unit}", f"leading_{pt_unit}"):
-        multiplier = SP_PER_PT * DENOMINATOR
-        # Local font sizes are absolute; no heading multiplier is applied to them.
-        max_sp = 2048 * SP_PER_PT - 1 if key.startswith("font_") else MAX_DIMENSION_PT * SP_PER_PT
-        minimum, maximum = (1, max_sp) if stored else (DENOMINATOR, max_sp * DENOMINATOR)
+        amount = _point_size(key, value, stored, context)
     else:
         level = _LEVEL_KEY.fullmatch(key) if role == "list" else None
         if level and level[1] == "expr":
@@ -235,14 +258,9 @@ def _rule_value(role, key, value, stored, context, base):
         indent = role in ("body", "list") and key in (f"first_indent_{mm_unit}", f"rest_indent_{mm_unit}")
         if not (running or indent or level and level[1] in (f"indent_{mm_unit}", f"gap_{mm_unit}")):
             raise ValueError("이 역할에서 적용할 수 없는 속성입니다.")
-        multiplier = MM_NUMERATOR
-        minimum, maximum = 0, _whole_mm(MAX_PAGE_MM) if stored else MAX_PAGE_MM * multiplier
-
-    # Keep the exact common numerator until metric inputs and the page width
-    # have been checked together. The caller rechecks the rounded geometry.
-    amount = _number(value, stored, context) * (1 if stored else multiplier)
-    if not minimum <= amount <= maximum:
-        raise ValueError
+        amount = _number(value, stored, context) * (1 if stored else MM_NUMERATOR)
+        if not 0 <= amount <= (_whole_mm(MAX_PAGE_MM) if stored else MAX_PAGE_MM * MM_NUMERATOR):
+            raise ValueError
     canonical = key.rsplit("_", 1)[0] + "_sp"
     if not running:
         _check_rule_fit(canonical, amount, base, 1 if stored else DENOMINATOR)
@@ -300,7 +318,64 @@ def _section_rules(rows, stored, context, base):
     return tuple(rules) or None
 
 
-def _validate(values, scale, errors):
+def _text_styles(current, patch, stored, context, scale, errors):
+    # Work on a fresh role map. Keep font sizes in the same exact units as body_sp until validation.
+    styles = {role: dict(fields) for role, fields in current or ()}
+    for fields in styles.values():
+        if "font_sp" in fields:
+            fields["font_sp"] *= scale
+    if not isinstance(patch, dict):
+        errors["text_styles"] = "글자 모양은 역할별 속성 객체여야 합니다."
+        return styles
+    size_key = "font_sp" if stored else "font_pt"
+    for role, row in patch.items():
+        path = f"text_styles.{role}"
+        if role not in TEXT_ROLES or not isinstance(row, dict):
+            errors[path] = "지원하는 역할과 속성 객체를 지정하세요."
+            continue
+        for key, value in row.items():
+            try:
+                if role != "body" and key == size_key:
+                    value = _point_size(key, value, stored, context)
+                    key = "font_sp"
+                elif key in ("color", "weight", "slant") or (role != "body" and key == "font"):
+                    value = _text_attribute(key, value)
+                else:
+                    raise ValueError("이 역할에서 적용할 수 없는 속성입니다.")
+            except (ValueError, InvalidOperation) as error:
+                errors[f"{path}.{key}"] = str(error) or "속성 값의 단위와 범위를 확인하세요."
+            else:
+                styles.setdefault(role, {})[key] = value
+    return styles
+
+
+def _installed_text_defaults():
+    fields = publication.TEXT_DEFAULTS
+    expected = {"color", "weight", "heading_weight", "slant", "note_pt", "gloss_per_10000"}
+    if not isinstance(fields, dict) or fields.keys() != expected:
+        raise ValueError(f"publication.json text_defaults requires {sorted(expected)}")
+    result = {}
+    for key, value in fields.items():
+        try:
+            if key == "note_pt":
+                with localcontext() as context:
+                    amount = _point_size("font_pt", value, False, context)
+                    result["note_sp"] = _rounded(amount, DENOMINATOR)
+            elif key == "gloss_per_10000":
+                if type(value) is not int or not 0 < value < publication.RATIO_UNIT:
+                    raise ValueError("a gloss must be smaller than its body text")
+                result[key] = value
+            else:
+                result[key] = _text_attribute(key.removeprefix("heading_"), value)
+        except (ValueError, InvalidOperation) as error:
+            raise ValueError(f"publication.json text_defaults.{key}: {error}") from error
+    return result
+
+
+TEXT_DEFAULTS = _installed_text_defaults()
+
+
+def _validate(values, scale, errors, *, tracking_supplied, stored):
     width, height = values["page_sp"]
     max_page = _whole_mm(MAX_PAGE_MM) if scale == 1 else MAX_PAGE_MM * MM_NUMERATOR
     if min(width, height) <= 0 or max(width, height) > max_page:
@@ -336,20 +411,44 @@ def _validate(values, scale, errors):
         bounds = "~".join(format(Decimal(n).scaleb(-2).normalize(), "f") for n in (minimum, maximum))
         errors.setdefault("space_per_10000", f"{bounds}% 안에서 최소와 최대를 순서대로 지정하세요.")
 
-    if "body_sp" not in errors:
-        unit = publication.RATIO_UNIT
-        heading = _rounded(values["body_sp"] * max(publication.HEADINGS), unit * scale)
-        leading = _rounded(heading * publication.HEADING_LEADING, unit)
-        smallest = _rounded(values["body_sp"] * min(publication.HEADINGS), unit * scale)
-        if leading > MAX_DIMENSION_PT * SP_PER_PT or _rounded(smallest * publication.HEADING_LEADING, unit) < 1:
-            errors.setdefault("body_sp", "현재 제목 배율과 행간으로 조판할 수 없는 본문 크기입니다.")
-        # Body, heading and fixed 8pt footnotes all participate in the tracking rule.
-        largest = max(heading * scale, values["body_sp"], 8 * SP_PER_PT * scale)
-        limit = MAX_DIMENSION_PT * SP_PER_PT * unit * scale * scale
-        if largest * abs(values["ko_tracking_per_10000"]) > limit:
-            errors.setdefault("ko_tracking_per_10000", "현재 본문 크기로 조판할 수 있는 자간 범위를 벗어났습니다.")
-        if largest * high > limit:
-            errors.setdefault("space_per_10000", "현재 본문 크기로 조판할 수 있는 공백 범위를 벗어났습니다.")
+    _validate_typography(values, scale, errors, tracking_supplied, stored)
+
+
+def _validate_typography(values, scale, errors, tracking_supplied, stored):
+    tracking = values["ko_tracking_per_10000"]
+    bounds = values.get("ko_tracking_bounds_per_10000")
+    if bounds:
+        if bounds[0] > bounds[1]:
+            errors.setdefault("ko_tracking_bounds_per_10000", "최종 자간의 하한과 상한을 순서대로 지정하세요.")
+        elif not bounds[0] <= tracking <= bounds[1]:
+            key = "ko_tracking_per_10000" if tracking_supplied else "ko_tracking_bounds_per_10000"
+            errors.setdefault(key, "기본 자간은 최종 자간의 하한과 상한 사이여야 합니다.")
+
+    if "body_sp" in errors:
+        return
+    unit = publication.RATIO_UNIT
+    body = values["body_sp"]
+    styles = values["text_styles"]
+    largest = max(body, styles.get("note", {}).get("font_sp", TEXT_DEFAULTS["note_sp"] * scale),
+                  styles.get("gloss", {}).get("font_sp", 0))
+    for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
+        size = styles.get(role, {}).get("font_sp")
+        if size is None:
+            size = _rounded(body * ratio, unit * scale) * scale
+            field = "body_sp"
+        else:
+            field = f"text_styles.{role}." + ("font_sp" if stored else "font_pt")
+        leading = _rounded(size * publication.HEADING_LEADING, unit * scale)
+        if not 1 <= leading <= MAX_DIMENSION_PT * SP_PER_PT:
+            errors.setdefault(field, "설정된 제목 행간 배율로 조판할 수 없는 글자 크기입니다.")
+        largest = max(largest, size)
+    limit = MAX_DIMENSION_PT * SP_PER_PT * unit * scale * scale
+    if largest * abs(tracking) > limit:
+        errors.setdefault("ko_tracking_per_10000", "현재 글자 크기로 조판할 수 있는 자간 범위를 벗어났습니다.")
+    if bounds and largest * max(map(abs, bounds)) > limit:
+        errors.setdefault("ko_tracking_bounds_per_10000", "현재 글자 크기로 조판할 수 있는 자간 범위를 벗어났습니다.")
+    if largest * values["space_per_10000"][1] > limit:
+        errors.setdefault("space_per_10000", "현재 글자 크기로 조판할 수 있는 공백 범위를 벗어났습니다.")
 
 
 def _load(current, patch, *, stored):
@@ -357,12 +456,13 @@ def _load(current, patch, *, stored):
         raise InputError({"style": "양식은 필드와 값으로 된 객체여야 합니다."})
     values = current.copy()
     scale = 1 if stored else DENOMINATOR
-    units = {key: (key, 1) for key, _ in EDITOR_UNITS.values()} if stored else EDITOR_UNITS
-    gutter_field = "gutter_sp" if stored else "gutter_mm"
-    units = {**units, gutter_field: ("gutter_sp", 1 if stored else MM_NUMERATOR)}
+    units = {**EDITOR_UNITS, **OPTIONAL_UNITS}
+    optional = {key for key, _ in OPTIONAL_UNITS.values()}
+    if stored:
+        units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    if patch.keys() - units.keys() - set(FONTS) - {"list_levels", "article_expr", "section_rules"}:
+    if patch.keys() - units.keys() - set(FONTS) - {"list_levels", "article_expr", "section_rules", "text_styles"}:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "article_expr" in patch:
         expr = patch["article_expr"]
@@ -385,7 +485,7 @@ def _load(current, patch, *, stored):
             if values.get(key) is not None:
                 values[key] = _map_numbers(key, values[key], lambda n: n * scale)
             if external not in patch:
-                if stored and key != "gutter_sp":
+                if stored and key not in optional:
                     errors[key] = "저장된 양식에 필수 필드가 없습니다."
                 continue
             try:
@@ -414,7 +514,10 @@ def _load(current, patch, *, stored):
 
         if not current and errors:
             raise InputError({names.get(key, key): msg for key, msg in errors.items()})
-        _validate(values, scale, errors)
+        values["text_styles"] = _text_styles(values.get("text_styles"), patch.get("text_styles", {}),
+                                            stored, context, scale, errors)
+        tracking_supplied = names["ko_tracking_per_10000"] in patch
+        _validate(values, scale, errors, tracking_supplied=tracking_supplied, stored=stored)
         if not errors:
             if "section_rules" in patch:
                 values["section_rules"] = _section_rules(patch["section_rules"], stored, context, values)
@@ -424,12 +527,18 @@ def _load(current, patch, *, stored):
             for key in names:
                 if values.get(key) is not None:
                     values[key] = _map_numbers(key, values[key], lambda n: _rounded(n, scale))
-            _validate(values, 1, errors)
+            for fields in values["text_styles"].values():
+                if "font_sp" in fields:
+                    fields["font_sp"] = _rounded(fields["font_sp"], scale)
+            _validate(values, 1, errors, tracking_supplied=tracking_supplied, stored=False)
             if not errors:
                 _check_existing_rules(values, 1, stored=False)
 
     if errors:
         raise InputError({names.get(key, key): message for key, message in errors.items()})
+    values["text_styles"] = tuple(
+        (role, tuple(sorted(row.items()))) for role, row in sorted(values["text_styles"].items())
+    ) or None
     return values
 
 
@@ -478,6 +587,8 @@ class Style:
     article_expr: str | None = None
     section_rules: tuple[SectionRule, ...] | None = None
     gutter_sp: int | None = None
+    text_styles: tuple[tuple[str, tuple[tuple[str, str | int], ...]], ...] | None = None
+    ko_tracking_bounds_per_10000: tuple[int, int] | None = None
 
     def resolved_list_levels(self) -> tuple[ListLevel, ...]:
         if self.list_levels is None:
@@ -487,6 +598,8 @@ class Style:
     def to_stored(self) -> dict:
         values = {key: list(value) if isinstance(value, tuple) else value
                   for key, value in vars(self).items() if value is not None}
+        if self.text_styles:
+            values["text_styles"] = {role: dict(fields) for role, fields in self.text_styles}
         if self.list_levels is not None:
             values["list_levels"] = [asdict(row) for row in self.list_levels]
         if self.section_rules:
@@ -497,6 +610,12 @@ class Style:
         with localcontext() as context:
             context.prec = 40
             values = _editor_values(self)
+            if self.text_styles:
+                values["text_styles"] = {role: _editor_rule_values(fields) for role, fields in self.text_styles}
+            if self.ko_tracking_bounds_per_10000 is not None:
+                values["ko_tracking_bounds_pct"] = [
+                    format(Decimal(n) / 100, "f") for n in self.ko_tracking_bounds_per_10000
+                ]
             if self.article_expr is not None:
                 values["article_expr"] = self.article_expr
             if self.list_levels is not None:
@@ -535,8 +654,8 @@ def _editor_values(style):
         "margins_mm": [_mm(n, places) for n in style.margins_sp],
         "first_indent_mm": _mm(style.first_indent_sp, places),
         "rest_indent_mm": _mm(style.rest_indent_sp, places),
-        "body_pt": format(Decimal(style.body_sp) / SP_PER_PT, "f"),
-        "leading_pt": format(Decimal(style.leading_sp) / SP_PER_PT, "f"),
+        "body_pt": _pt(style.body_sp),
+        "leading_pt": _pt(style.leading_sp),
         "body_font": style.body_font,
         "heading_font": style.heading_font,
         "ko_tracking_pct": format(Decimal(style.ko_tracking_per_10000) / 100, "f"),
@@ -561,8 +680,18 @@ def editor_bootstrap() -> dict:
     with localcontext() as context:
         context.prec = 40
         running = _editor_rule_values(RUNNING_DEFAULTS)
+        new_text_styles = {}
+        for role, ratio in zip(HEADING_ROLES, publication.HEADINGS):
+            sp = _rounded(_DEFAULT_FIELDS["body_sp"] * ratio, publication.RATIO_UNIT)
+            new_text_styles[role] = {"font_pt": _pt(sp)}
+        text_defaults = dict(TEXT_DEFAULTS)
+        text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
         "defaults": Style().to_editor(),
+        "new_text_styles": new_text_styles,
+        "text_defaults": text_defaults,
+        "heading_per_10000": list(publication.HEADINGS),
+        "heading_leading_per_10000": publication.HEADING_LEADING,
         "fonts": [{"id": key, "label": label} for key, label in publication.FONT_LABELS.items()],
         "list_presets": {name: [row.to_editor() for row in levels] for name, levels in _LIST_PRESETS.items()},
         "default_list_preset": publication.DEFAULT_LIST_PRESET,
