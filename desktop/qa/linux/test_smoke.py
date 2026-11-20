@@ -26,6 +26,20 @@ class SmokeTest(unittest.TestCase):
         with patch.object(smoke, 'query', side_effect=lambda *args: tree if '-tree' in args else props.replace('쪽결', '쪽결 extra') if args[0] == 'xprop' else '  Map State: IsViewable\n'):
             self.assertFalse(smoke.window_found(123))
 
+    def test_finds_distinct_settings_window_only_for_same_process(self):
+        tree = '  0x100001 "main"\n  0x200002 "settings"\n'
+        def command(*args):
+            if '-tree' in args:
+                return tree
+            if args[0] == 'xprop':
+                title = '쪽결' if args[2] == '0x100001' else '출판 설정'
+                return f'_NET_WM_NAME(UTF8_STRING) = "{title}"\n_NET_WM_PID(CARDINAL) = 123\n'
+            return '  Map State: IsViewable\n'
+        with patch.object(smoke, 'query', side_effect=command):
+            self.assertEqual(smoke.find_window(123, '쪽결'), '0x100001')
+            self.assertEqual(smoke.find_window(123, '출판 설정'), '0x200002')
+            self.assertIsNone(smoke.find_window(124, '출판 설정'))
+
     def test_window_manager_requires_supporting_window(self):
         with patch.object(smoke, 'query', return_value='_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x200001\n'):
             self.assertTrue(smoke.wm_ready())
