@@ -339,3 +339,49 @@ else:
     raise AssertionError("spacing exceeds a TeX dimension")
 """)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_report_style(tmp_path):
+    from app.document import parse_md
+    from app.style import Style, apply_style
+    from app.typeset import typeset
+    from test_reference_typeset import assert_appearance, color, glyphs, matching
+
+    style = apply_style(Style(), {"heading_font": "nanum-myeongjo",
+        "text_styles": {"body": {"color": "#222222"}, "heading1": {
+            "font": "nanum-gothic", "font_pt": 18, "weight": "bold", "color": "#17365D"},
+            "note": {"font": "nanum-gothic", "font_pt": 9, "weight": "bold", "color": "#714126"}},
+        "section_rules": [{"path": [], "role": "header", "values": {"visible": True, "left": "기관"}},
+                          {"path": [], "role": "footer", "values": {"visible": True, "center": "{현재쪽}"}}]})
+    source = "# 능선\n\n봄 바람 *서풍* 산[^바람] \n\n- 달빛\n\n[^바람]: 측정 기록"
+    chars = glyphs(typeset(parse_md(source), style, tmp_path))
+    ink = lambda code: tuple(int(code[n:n+2], 16) / 255 for n in (0, 2, 4))
+    assert_appearance(matching(chars, "능"), 18, "NanumGothicBold", ink("17365D"))
+    for word in "봄달":
+        assert_appearance(matching(chars, word), 11, "NanumMyeongjo", ink("222222"))
+    assert_appearance(matching(chars, "측"), 9, "NanumGothicBold", ink("714126"))
+    assert matching(chars, "기")
+    assert matching(chars, "서")[0].matrix[2] > matching(chars, "봄")[0].matrix[2]
+    ref, note, folio = matching(chars, "1")
+    assert color(ref) == pytest.approx(ink("222222"), abs=.001)
+    assert color(note) == pytest.approx(ink("714126"), abs=.001)
+    assert note.fontname.endswith("NanumGothicBold") and ref.fontname.endswith("NanumMyeongjo")
+    assert color(folio) == (0, 0, 0)
+
+
+def test_scoped_heading_preserves_other_role_attributes(tmp_path):
+    from app.document import parse_md
+    from app.style import Style, apply_style
+    from app.typeset import typeset
+    from test_reference_typeset import assert_appearance, matching, glyphs
+
+    style = apply_style(Style(), {"heading_font": "nanum-myeongjo", "text_styles": {
+        "heading1": {"font_pt": 19, "weight": "normal", "slant": "italic", "color": "#335577"},
+        "body": {"weight": "bold"}}, "section_rules": [
+            {"path": ["산"], "role": "heading", "values": {"font_pt": 14, "color": "#ff0000"}}]})
+    chars = glyphs(typeset(parse_md("# 달\n\n- 길\n\n# 산\n\n물"), style, tmp_path))
+    assert_appearance(matching(chars, "산"), 14, "NanumMyeongjo", (1, 0, 0))
+    assert_appearance(matching(chars, "달"), 19, "NanumMyeongjo", (0.2, 1/3, 7/15))
+    assert matching(chars, "산")[0].matrix[2] > 0
+    for c in ("①", "길", "물"):
+        assert matching(chars, c)[0].fontname.endswith("NanumMyeongjoBold")

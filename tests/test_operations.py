@@ -100,10 +100,12 @@ async def check_live_limits():
         bootstrap = json.loads(first.text.split(prefix, 1)[1].split("</script>", 1)[0])
         assert set(bootstrap) == {
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
+            "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
         }
         assert bootstrap["default_list_preset"] == "legal"
         assert "list_levels" not in bootstrap["defaults"]
         assert bootstrap["defaults"]["body_pt"] == "12.5"
+        assert bootstrap["new_text_styles"]["heading1"] == {"font_pt": "20"}
         stored = await api.post("/api/style/export", json={})
         assert stored.json()["body_sp"] == 819200
         body = b'{"source":"test","style":{}}'.ljust(128)
