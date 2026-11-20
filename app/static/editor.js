@@ -223,7 +223,7 @@ async function validatedMarginRestore(draft, current, gutterSp) {
 
 const typography = typographyEditor(settings);
 let sectionRules;
-const styleFields = Object.keys(settings.defaults).filter(name => !["list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct"].includes(name)).map(name => [
+const styleFields = Object.keys(settings.defaults).filter(name => !["list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct", "paragraph_layout"].includes(name)).map(name => [
   name, stylePanel.querySelectorAll(`[name="${CSS.escape(name)}"]`),
 ]);
 const styleForm = {
@@ -260,7 +260,7 @@ const styleForm = {
 for (const select of stylePanel.querySelectorAll("select[name]")) {
   for (const font of settings.fonts) select.add(new Option(font.label, font.id));
 }
-styleForm.set({...settings.defaults, text_styles: settings.new_text_styles});
+styleForm.set({...settings.defaults, text_styles: settings.new_text_styles, paragraph_layout: settings.new_paragraph_layout});
 stylePanel.inert = false;
 
 function showReferenceError() {

@@ -21,7 +21,7 @@ NEW_TEXT = {f"heading{i}": {"font_pt": value} for i, value in enumerate((
     "14.3000030517578125", "13.1999969482421875", "12.100006103515625",
 ), 1)}
 DEFAULTS = {
-    "text_styles": NEW_TEXT,
+    "text_styles": NEW_TEXT, "paragraph_layout": "balanced",
     "page_mm": ["148", "210"], "margins_mm": ["20", "18", "20", "18"],
     "first_indent_mm": "0", "rest_indent_mm": "0",
     "body_pt": "11", "leading_pt": "17", "body_font": "nanum-myeongjo",
@@ -254,7 +254,7 @@ def test_changed_bootstrap_precedes_sample(desk, monkeypatch):
     # Older bootstrap responses contain only the original defaults and fonts.
     settings = {}
     defaults = {
-        **{k: v for k, v in DEFAULTS.items() if k != "text_styles"}, "body_pt": "13.125", "body_font": "proof",
+        **{k: v for k, v in DEFAULTS.items() if k not in {"text_styles", "paragraph_layout"}}, "body_pt": "13.125", "body_font": "proof",
         "margins_mm": ["9.50", "17", "8.75", "15"], "space_pct": ["84", "116"],
     }
     settings.update(defaults=defaults, fonts=[{"id": "proof", "label": "교정 서체"},
@@ -632,3 +632,26 @@ def test_role_edits_and_optional_tracking_bounds(desk):
     expect(desk.frame).to_have_attribute("src", BLOB)
     page.get_by_label("최종 자간 한계 지정", exact=True).uncheck()
     assert page.evaluate("styleForm.get().ko_tracking_bounds_pct") is None
+
+
+def test_new_paragraph_mode_survives_save_without_upgrading_an_opened_style(desk):
+    page = desk.page
+    expect(desk.frame).to_have_attribute("src", BLOB)
+    page.locator("#style summary").click()
+    control = page.get_by_label("문단 전체 배치 비교", exact=True)
+    expect(control).to_be_checked()
+    assert desk.requests[0]["style"]["paragraph_layout"] == "balanced"
+    legacy = dict(DEFAULTS)
+    legacy.pop("paragraph_layout", None)
+    legacy.pop("text_styles", None)
+    page.evaluate("values => styleForm.set(values)", legacy)
+    expect(control).not_to_be_checked()
+    assert page.evaluate("styleForm.get()") == legacy
+    page.get_by_label("최종 자간 한계 지정", exact=True).check()
+    expect(control).to_be_checked()
+    expect(control).to_be_disabled()
+    assert page.evaluate("styleForm.get().paragraph_layout") is None
+    page.get_by_label("최종 자간 한계 지정", exact=True).uncheck()
+    expect(control).not_to_be_checked()
+    control.check()
+    assert page.evaluate("styleForm.get()") == {**legacy, "paragraph_layout": "balanced"}
