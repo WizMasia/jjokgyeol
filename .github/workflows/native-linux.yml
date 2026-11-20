@@ -1,0 +1,86 @@
+name: Native Linux verification
+on:
+  push:
+    branches: [feature/native-desktop]
+    paths:
+      - .github/workflows/native-linux.yml
+      - .dockerignore
+      - Dockerfile
+      - runtime.lock
+      - app/**
+      - '!app/**/*.md'
+      - desktop/**
+      - '!desktop/**/*.md'
+      - proofs/numbering/**
+      - proofs/engine-comparison/manuscript.md
+      - tests/pdf_metrics.py
+permissions:
+  contents: read
+jobs:
+  ubuntu-gui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Tauri and X11 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb xdotool xauth
+      - name: Frontend and native tests and build
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p "$RUNNER_TEMP/linux-gui"
+          {
+            python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/requirements.lock
+            python -m unittest discover -s desktop/qa/linux -p 'test_*.py'
+            (cd desktop/gui/frontend && npm ci && npm run build && npm test)
+            cargo test --locked --manifest-path desktop/Cargo.toml
+            cargo test --locked --manifest-path desktop/gui/Cargo.toml
+            cargo build --locked --manifest-path desktop/gui/Cargo.toml
+          } 2>&1 | tee "$RUNNER_TEMP/linux-gui/build.log"
+        # A failure in any command inside the logging group must fail the step.
+      - name: Launch GTK WebKit window under Xvfb
+        shell: bash
+        run: |
+          set -o pipefail
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          xvfb-run -a python desktop/qa/linux/smoke.py desktop/gui/target/debug/jjokgyeol-desktop 2>&1 | tee "$RUNNER_TEMP/linux-gui/smoke.log"
+      - name: Save GUI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-ubuntu-gui-logs
+          path: ${{ runner.temp }}/linux-gui/
+          if-no-files-found: warn
+          retention-days: 7
+  debian-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run x86_64 packaged worker and CLI with Debian engine
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p "$RUNNER_TEMP/linux-proof"
+          docker build --platform linux/amd64 --target engine -t jjokgyeol-linux-engine . 2>&1 | tee "$RUNNER_TEMP/linux-proof/engine-build.log"
+          docker run --rm --platform linux/amd64 -v "$GITHUB_WORKSPACE:/src:ro" -v "$RUNNER_TEMP/linux-proof:/results" jjokgyeol-linux-engine sh /src/desktop/qa/linux/proof.sh 2>&1 | tee "$RUNNER_TEMP/linux-proof/proof.log"
+      - name: Make container outputs readable by the runner
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/linux-proof" ]; then sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/linux-proof"; fi
+      - name: Save proof and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-debian-x86-proof
+          path: ${{ runner.temp }}/linux-proof/
+          if-no-files-found: warn
+          retention-days: 7

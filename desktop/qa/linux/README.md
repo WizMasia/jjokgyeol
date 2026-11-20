@@ -1,0 +1,9 @@
+# Linux x86_64 development verification
+
+`.github/workflows/native-linux.yml` runs independently on pushes to `feature/native-desktop`. The Ubuntu 24.04 job installs development dependencies, uses Python 3.12 and `npm ci`, builds the frontend, runs both locked Rust crate test suites, builds the Tauri GTK/WebKit executable, and requires its own visible window under Xvfb. It tests startup, not editor interactions or rendering in the GUI.
+
+The separate Debian amd64 container uses the existing Dockerfile `engine` target and its installed TeX Live and Nanum fonts. It builds the PyInstaller worker and Rust CLI inside that container, runs the numbering fixture through both, and compares its PDF against `proofs/numbering/odd-even.pdf` with the existing geometry comparator. The copied engine binary still uses the container's system TeX tree and libraries: this is a calibration proof, **not** a portable Linux runtime or installer test. The GUI job does not use that container's runtime. The proof requires downloads and build tools during CI; no assertion is made about an offline released build. No Linux installer is published.
+
+Logs and the generated PDF are retained as separate GitHub Actions artifacts for seven days, accessible according to repository Actions permissions; use a private repository for private artifacts. Artifacts may be incomplete when a step fails.
+
+Run the portable smoke helper test with `python -m unittest discover -s desktop/qa/linux -p 'test_*.py'`. On a Docker host, build the engine target and mount the checkout read-only at `/src` and a writable results directory at `/results`, then run `sh /src/desktop/qa/linux/proof.sh` with `--platform linux/amd64`. On arm64 this may be emulated and is not a native x86_64 performance or launch check.
