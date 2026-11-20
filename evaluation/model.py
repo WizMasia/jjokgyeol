@@ -1,15 +1,15 @@
 """Freeze editor revisions and bind genuine T13 selections to the PDF under review."""
 import fcntl
-import importlib
+import json
+import math
 import re
 import tempfile
-from copy import deepcopy
 from pathlib import Path
 
 from tests.pdf_metrics import read_pages
 
 from evaluation.packet import (
-    PAGE, RNG, add_pdf, blind_pdf, compact, corpus, digest, measured, new_group,
+    PAGE, RNG, add_pdf, blind_pdf, compact, corpus, digest, new_group,
     new_run, paragraphs, read_json, save_json, verify_split,
 )
 
@@ -91,67 +91,113 @@ def final_reference(root, ms):
     return pdf, history
 
 
-def load_provider():
-    try:
-        return importlib.import_module("app.ai.evaluation")
-    except ModuleNotFoundError as exc:
-        if exc.name not in {"app.ai", "app.ai.evaluation"}:
-            raise
-        raise ValueError("T13 adapter app.ai.evaluation required") from exc
+def selected_lines(rows, ms, mode):
+    parts = paragraphs(ms["source"])
+    if len(rows) != len(parts):
+        raise ValueError("missing paragraph log")
+    choices, ends, catalog, violations = [], [], [], []
+    base = 0
+    different = False
+    for block, (row, part) in enumerate(zip(rows, parts, strict=True), 1):
+        if not isinstance(row, dict) or type(row.get("block")) is not int or row["block"] != block:
+            raise ValueError("invalid paragraph block")
+        items = row.get("candidates")
+        if not isinstance(items, list) or not all(isinstance(c, dict) and isinstance(c.get("id"), str)
+                                                  and c["id"].strip() for c in items):
+            raise ValueError("invalid candidate list")
+        by_id = {c["id"]: c.get("lines") for c in items}
+        rule, chosen = row.get("rule_id"), row.get("selected_id")
+        if len(by_id) != len(items) or rule not in by_id or chosen not in by_id:
+            raise ValueError("unknown or duplicate candidate ID")
+        different |= chosen != rule
+        catalog.append((rule, by_id))
+        choices.append(chosen)
+        lines = by_id[chosen]
+        if not isinstance(lines, list) or not lines:
+            raise ValueError("missing selected lines")
+        previous = 0
+        for i, line in enumerate(lines, 1):
+            fields = ("end_glyph", "available_sp", "remaining_sp", "tracking_per_10000", "space_per_10000")
+            if not isinstance(line, dict) or not all(type(line.get(k)) is int for k in fields):
+                raise ValueError("missing integer line measurements")
+            end, width, left, tracking, space = [line[k] for k in fields]
+            if end <= previous:
+                raise ValueError("invalid cumulative end_glyph")
+            previous = end
+            ends.append(base + end)
+            for field, ok in [("width", width > 0 and 0 <= left <= width),
+                              ("tracking", -700 <= tracking <= 0), ("space", 7000 <= space <= 13000)]:
+                if not ok:
+                    violations.append(f"block {block}, line {i}: {field}")
+        if previous != len(compact(part)):
+            raise ValueError("end_glyph does not cover manuscript paragraph")
+        base += previous
+    if different != (mode == "model"):
+        raise ValueError("missing distinct model selection or non-rule baseline")
+    return catalog, {"choices": choices, "selected_ends": ends, "constraint_violations": violations}
 
 
-def check_result(result, ms, mode, model_hash):
-    if not isinstance(result, dict) or result.get("applied") != mode:
-        raise ValueError("missing T13 result or fallback")
-    if (result.get("style") != MODEL_STYLE or result.get("source_sha256") != digest(ms["source"].encode())
-            or result.get("model_sha256") != (model_hash if mode == "model" else None)):
-        raise ValueError("wrong T13 style, source or model")
-    choices = result.get("choices")
-    if (not isinstance(choices, list) or len(choices) != len(paragraphs(ms["source"]))
-            or not all(isinstance(c, str) and c.strip() for c in choices)):
-        raise ValueError("missing paragraph selections")
-    found = pdf_ends(result.get("pdf"), ms)
-    ends = result.get("selected_ends")
-    if (not isinstance(ends, list) or not ends or not all(type(e) is int and e > 0 for e in ends)
-            or ends != sorted(set(ends)) or ends[-1] != found[-1]):
-        raise ValueError("invalid selected line ends")
-    violations = result.get("constraint_violations")
-    if not isinstance(violations, list) or not all(isinstance(v, str) and v.strip() for v in violations):
-        raise ValueError("missing constraint audit")
-    return {"applied": mode, "style": MODEL_STYLE, "choices": choices, "selected_ends": ends,
-            "pdf_ends": found, "end_mismatches": max(len(set(ends)-set(found)), len(set(found)-set(ends))),
-            "constraint_violations": violations}
+def load_arm(folder, ms, mode, model_hash):
+    receipt = read_json(folder / "measurement.json")
+    pdf = (folder / "render.pdf").read_bytes()
+    log = (folder / "paragraph-candidates.jsonl").read_bytes()
+    if (not isinstance(receipt, dict) or receipt.get("applied") != mode or receipt.get("style") != MODEL_STYLE
+            or receipt.get("source_sha256") != digest(ms["source"].encode())
+            or receipt.get("model_sha256") != (model_hash if mode == "model" else None)
+            or receipt.get("pdf_sha256") != digest(pdf) or receipt.get("log_sha256") != digest(log)):
+        raise ValueError("T13 measurement differs from source, mode, runtime, style or artifacts")
+    elapsed = receipt.get("elapsed_ms")
+    if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
+        raise ValueError("missing positive measured elapsed_ms")
+    rows = [json.loads(line) for line in log.decode("utf-8").splitlines()]
+    catalog, evidence = selected_lines(rows, ms, mode)
+    found = pdf_ends(pdf, ms)
+    selected = set(evidence["selected_ends"])
+    evidence.update(applied=mode, style=MODEL_STYLE, ms=elapsed, pdf_ends=found,
+                    end_mismatches=max(len(selected-set(found)), len(set(found)-selected)))
+    return pdf, log, receipt, catalog, evidence
 
 
-def model_pairs(dest, references):
-    provider = load_provider()
-    inventory = provider.inventory()
-    if (not isinstance(inventory, dict) or not isinstance(inventory.get("development"), list)
-            or not isinstance(inventory.get("runtime"), str) or not inventory["runtime"].strip()
-            or not isinstance(inventory.get("model_sha256"), str)
-            or not re.fullmatch("[0-9a-f]{64}", inventory["model_sha256"])):
+def model_pairs(dest, references, bundle):
+    bundle = Path(bundle)
+    if not (bundle / "manifest.json").is_file():
+        raise ValueError("T13 measured bundle required")
+    manifest = read_json(bundle / "manifest.json")
+    if (not isinstance(manifest, dict) or not isinstance(manifest.get("development"), list)
+            or not isinstance(manifest.get("runtime"), str) or not manifest["runtime"].strip()
+            or not isinstance(manifest.get("model_sha256"), str)
+            or not re.fullmatch("[0-9a-f]{64}", manifest["model_sha256"])):
         raise ValueError("missing model runtime/hash or complete development inventory")
     manuscripts = corpus()
-    verify_split(manuscripts, inventory["development"])
+    verify_split(manuscripts, manifest["development"])
     cases = [r for r in manuscripts if r["split"] == "model"]
     frozen = {ms["group"]: final_reference(references, ms) for ms in cases}
     RNG.shuffle(cases)
     with new_run(dest, "model") as (tmp, key):
-        key["runtime"] = inventory["runtime"]
-        key["model_sha256"] = inventory["model_sha256"]
+        key["runtime"] = manifest["runtime"]
+        key["model_sha256"] = manifest["model_sha256"]
         key["development"] = [{"group": r["group"], "split": r["split"], "sha256": digest(r["source"].encode())}
-                              for r in inventory["development"]]
+                              for r in manifest["development"]]
         for ms in cases:
             gid, group = new_group(key, ms)
             ref, group["reference"] = frozen[ms["group"]]
             ref_name = "ref-" + gid + ".pdf"
             (tmp / "private" / ref_name).write_bytes(ref)
             (tmp / "reader" / ref_name).write_bytes(blind_pdf(ref))
-            pages = set()
+            pages, catalogs = set(), []
             for mode in RNG.sample(["rules", "model"], 2):
-                result, ms_elapsed = measured(provider.render, ms["source"], deepcopy(MODEL_STYLE), mode)
-                evidence = check_result(result, ms, mode, inventory["model_sha256"])
-                pages.add(add_pdf(tmp, group, result["pdf"], {**evidence, "ms": ms_elapsed}))
+                try:
+                    pdf, log, receipt, catalog, evidence = load_arm(bundle / ms["group"] / mode, ms, mode,
+                                                                    key["model_sha256"])
+                except FileNotFoundError as exc:
+                    raise ValueError(f"missing T13 {mode} output: {exc.filename}") from exc
+                prefix = tmp / "private" / (gid + "-" + mode)
+                prefix.with_suffix(".jsonl").write_bytes(log)
+                save_json(prefix.with_suffix(".json"), receipt)
+                catalogs.append(catalog)
+                pages.add(add_pdf(tmp, group, pdf, evidence))
+            if catalogs[0] != catalogs[1]:
+                raise ValueError("T13 candidate sets or rule choices differ")
             if len(pages) != 2:
                 raise ValueError("identical rendered model and rules pages")
 

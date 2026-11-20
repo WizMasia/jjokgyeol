@@ -100,17 +100,6 @@ def model_inputs(spacing_run):
     return ms, pdfs
 
 
-def test_missing_provider(tmp_path, monkeypatch):
-    import sys
-    from evaluation.model import model_pairs
-
-    monkeypatch.setitem(sys.modules, "app.ai.evaluation", None)
-
-    with pytest.raises(ValueError, match="T13"):
-        model_pairs(tmp_path / "absent", tmp_path / "refs")
-    assert not (tmp_path / "absent").exists()
-
-
 def test_reference_history(tmp_path, monkeypatch, model_inputs):
     from evaluation import model
 
@@ -131,70 +120,116 @@ def test_reference_history(tmp_path, monkeypatch, model_inputs):
 
 
 @pytest.fixture
-def contract(tmp_path, monkeypatch, model_inputs):
-    from types import SimpleNamespace
+def contract(tmp_path, monkeypatch, model_inputs, spacing_run):
+    from itertools import accumulate
+    from pdf_metrics import read_pages
     from evaluation import model
-    from evaluation.packet import digest
+    from evaluation.packet import compact, digest, paragraphs, read_json, save_json
 
     ms, pdfs = model_inputs
     monkeypatch.setattr(model, "corpus", lambda: [ms])
     refs = tmp_path / "refs"
     model.revision(refs, ms["group"], pdfs[0], "unit-test", "1", "fixture", True)
-    inventory = {"runtime": "unit-test", "model_sha256": "e"*64, "development": []}
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    save_json(bundle / "manifest.json", {"runtime": "unit-test", "model_sha256": "a"*64, "development": []})
+    parts = paragraphs(ms["source"])
+    rows = [{"block": i, "rule_id": "R", "candidates": []} for i in range(1, len(parts)+1)]
+    samples = [s for g in read_json(spacing_run / "private/key.json")["groups"].values() for s in g["samples"].values()]
+    for pct, choice in [(0, "R"), (-3, "M")]:
+        lines = [line.text for page in read_pages(pdfs[pct]) for line in page.lines]
+        offsets = list(accumulate(len(compact(line)) for line in lines))
+        base = 0
+        for row, part in zip(rows, parts, strict=True):
+            last = base + len(compact(part))
+            candidate = [{"end_glyph": end-base, "available_sp": 100, "remaining_sp": 0,
+                          "tracking_per_10000": pct*100, "space_per_10000": 10000} for end in offsets if base < end <= last]
+            row["candidates"].append({"id": choice, "lines": candidate})
+            base = last
+    for pct, mode, choice in [(0, "rules", "R"), (-3, "model", "M")]:
+        folder = bundle / ms["group"] / mode
+        folder.mkdir(parents=True)
+        (folder / "render.pdf").write_bytes(pdfs[pct])
+        log = "".join(json.dumps({**row, "selected_id": choice}) + "\n" for row in rows).encode()
+        (folder / "paragraph-candidates.jsonl").write_bytes(log)
+        elapsed = next(s["ms"] for s in samples if s["style"]["ko_tracking_pct"] == pct)
+        save_json(folder / "measurement.json", {
+            "applied": mode, "source_sha256": digest(ms["source"].encode()), "style": model.MODEL_STYLE,
+            "model_sha256": "a"*64 if mode == "model" else None, "elapsed_ms": elapsed,
+            "pdf_sha256": digest(pdfs[pct]), "log_sha256": digest(log),
+        })
+    return refs, bundle, ms
 
-    def render(source, style, mode):
-        pdf = pdfs[0 if mode == "rules" else -3]
-        ends = model.pdf_ends(pdf, ms)
-        return {"pdf": pdf, "source_sha256": digest(source.encode()), "style": style, "applied": mode,
-                "model_sha256": inventory["model_sha256"] if mode == "model" else None,
-                "choices": ["fixture"] * 3, "selected_ends": ends, "constraint_violations": []}
 
-    provider = SimpleNamespace(inventory=lambda: inventory, render=render)
-    monkeypatch.setattr(model, "load_provider", lambda: provider)
-    return refs, provider, ms
+def alter_log(folder, change):
+    from evaluation.packet import digest, read_json, save_json
+
+    log = folder / "paragraph-candidates.jsonl"
+    rows = [json.loads(s) for s in log.read_text().splitlines()]
+    change(rows)
+    log.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    receipt = folder / "measurement.json"
+    save_json(receipt, {**read_json(receipt), "log_sha256": digest(log.read_bytes())})
 
 
-@pytest.mark.parametrize("fault", ["overlap", "no-inventory", "identical", "fallback", "no-pdf",
-                                   "wrong-model", "missing-choice", "no-reference", "bad-ends"])
-def test_model_refuses(tmp_path, contract, fault):
+def test_missing_bundle(tmp_path):
     from evaluation.model import model_pairs
 
-    refs, provider, ms = contract
-    render = provider.render
+    with pytest.raises(ValueError, match="T13"):
+        model_pairs(tmp_path / "trial", tmp_path / "refs", tmp_path / "missing")
+    assert not (tmp_path / "trial").exists()
 
-    def bad(source, style, mode):
-        result = render(source, style, mode)
-        if mode == "model":
-            if fault == "identical":
-                # Different bytes, same pages, even after PDF metadata changes.
-                from io import BytesIO
-                from pypdf import PdfWriter
-                doc = PdfWriter(clone_from=BytesIO(render(source, style, "rules")["pdf"]))
-                doc.add_metadata({"/Title": "test-only"})
-                out = BytesIO()
-                doc.write(out)
-                result["pdf"] = out.getvalue()
-            if fault == "fallback":
-                result["applied"] = "rules"
-            if fault == "no-pdf":
-                result["pdf"] = None
-            if fault == "wrong-model":
-                result["model_sha256"] = "b"*64
-            if fault == "missing-choice":
-                result["choices"].pop()
-            if fault == "bad-ends":
-                result["selected_ends"] = [True]
-        return result
 
-    provider.render = bad
+@pytest.mark.parametrize("fault", ["overlap", "no-inventory", "identical", "fallback", "no-pdf", "wrong-hash",
+                                   "wrong-model", "missing-block", "no-reference", "bad-ends", "candidate-set",
+                                   "no-change", "no-timing", "invalid-id"])
+def test_model_refuses(tmp_path, contract, fault):
+    from io import BytesIO
+    from pypdf import PdfWriter
+    from evaluation.model import model_pairs
+    from evaluation.packet import digest, read_json, save_json
+
+    refs, bundle, ms = contract
+    folder = bundle / ms["group"] / "model"
+    receipt = read_json(folder / "measurement.json")
+    if fault == "identical":
+        doc = PdfWriter(clone_from=folder.parent / "rules/render.pdf")
+        doc.add_metadata({"/Title": "test-only"})
+        out = BytesIO()
+        doc.write(out)
+        (folder / "render.pdf").write_bytes(out.getvalue())
+        receipt["pdf_sha256"] = digest(out.getvalue())
+    if fault in ("fallback", "wrong-model", "wrong-hash", "no-timing"):
+        field, value = {"fallback": ("applied", "rules"), "wrong-model": ("model_sha256", "b"*64),
+                        "wrong-hash": ("log_sha256", "b"*64), "no-timing": ("elapsed_ms", 0)}[fault]
+        receipt[field] = value
+    save_json(folder / "measurement.json", receipt)
+    if fault == "no-pdf":
+        (folder / "render.pdf").unlink()
+    if fault in ("missing-block", "bad-ends", "candidate-set", "no-change", "invalid-id"):
+        def mutate(rows):
+            if fault == "missing-block":
+                rows.pop()
+            elif fault == "bad-ends":
+                rows[0]["candidates"][1]["lines"][0]["end_glyph"] = True
+            elif fault == "candidate-set":
+                rows[0]["candidates"][1]["id"] = rows[0]["selected_id"] = "different"
+            elif fault == "no-change":
+                for row in rows:
+                    row["selected_id"] = row["rule_id"]
+            else:
+                rows[0]["selected_id"] = "unknown"
+        alter_log(folder, mutate)
+    manifest = read_json(bundle / "manifest.json")
     if fault == "overlap":
-        provider.inventory()["development"] = [{**ms, "split": "dev"}]
+        manifest["development"] = [{**ms, "split": "dev"}]
     if fault == "no-inventory":
-        del provider.inventory()["development"]
+        del manifest["development"]
+    save_json(bundle / "manifest.json", manifest)
     if fault == "no-reference":
         refs = tmp_path / "none"
     with pytest.raises(ValueError):
-        model_pairs(tmp_path / "trial", refs)
+        model_pairs(tmp_path / "trial", refs, bundle)
     assert not (tmp_path / "trial").exists()
 
 
@@ -202,19 +237,15 @@ def test_model_pair(tmp_path, contract):
     from evaluation.model import model_pairs
     from evaluation.packet import read_json
 
-    refs, provider, ms = contract
-    render = provider.render
-
-    def mismatched(source, style, mode):
-        result = render(source, style, mode)
-        if mode == "model":
-            result["selected_ends"].pop(0)
-            result["constraint_violations"].append("fixture: paragraph 1, gap 1")
-        return result
-
-    provider.render = mismatched
+    refs, bundle, ms = contract
+    def mismatch(rows):
+        lines = rows[0]["candidates"][1]["lines"]
+        lines.pop(0)
+        lines[0]["remaining_sp"] = -1
+    for mode in ("rules", "model"):
+        alter_log(bundle / ms["group"] / mode, mismatch)
     dest = tmp_path / "study"
-    model_pairs(dest, refs)
+    model_pairs(dest, refs, bundle)
     key = read_json(dest / "private/key.json")
     (gid, group), = key["groups"].items()
     assert group["manuscript"] == ms["group"] and group["reference"][-1]["final"]
@@ -222,7 +253,9 @@ def test_model_pair(tmp_path, contract):
     assert len(list((dest / "reader").glob("*.pdf"))) == 3
     arms = {sample["applied"]: sample for sample in group["samples"].values()}
     assert arms["model"]["end_mismatches"] == 1 and arms["rules"]["end_mismatches"] == 0
-    assert arms["model"]["constraint_violations"] == ["fixture: paragraph 1, gap 1"]
-    assert arms["model"]["ms"] > 0 and arms["rules"]["ms"] > 0
+    assert len(arms["model"]["constraint_violations"]) == 1
+    for mode, arm in arms.items():
+        receipt = read_json(bundle / ms["group"] / mode / "measurement.json")
+        assert arm["ms"] == receipt["elapsed_ms"]
     assert "runtime" not in (dest / "reader/reading-sheet.csv").read_text()
 
