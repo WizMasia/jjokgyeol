@@ -116,10 +116,12 @@ async def test_capacity(api, tmp_path):
         assert_pdf(await render(api, "retry"), "retry")
 
 
+@pytest.mark.parametrize("accept", ["application/pdf", "multipart/form-data"])
 @pytest.mark.parametrize("mode", ["crash", "partial", "timeout", "cancel", "disconnect"])
-async def test_cleanup_and_retry(api, tmp_path, monkeypatch, mode):
+async def test_cleanup_and_retry(api, tmp_path, monkeypatch, mode, accept):
     from app import jobs, server
 
+    api.headers["Accept"] = accept
     source = mode if mode in {"crash", "partial"} else "stall"
     if mode == "timeout":
         monkeypatch.setattr(jobs, "TIMEOUT", 1.5)
@@ -132,7 +134,7 @@ async def test_cleanup_and_retry(api, tmp_path, monkeypatch, mode):
             async def send(event):
                 sent.append(event)
             scope = {"type": "http", "method": "POST", "path": "/api/render",
-                     "root_path": "", "headers": [], "query_string": b""}
+                     "root_path": "", "headers": [(b"accept", accept.encode())], "query_string": b""}
             task = asyncio.create_task(server.app(scope, incoming.get, send))
         else:
             task = asyncio.create_task(render(api, source))
@@ -265,7 +267,9 @@ async def test_first_editor_response_uses_bootstrap(api, monkeypatch):
     assert json.loads(scripts[0]) == data
 
 
-async def test_render_decision_is_opt_in(api, monkeypatch):
+@pytest.mark.parametrize("accept", ["application/pdf", "multipart/form-data"])
+async def test_render_without_model_returns_rule_pdf(api, monkeypatch, accept):
+    api.headers["Accept"] = accept
     monkeypatch.delenv("JJOKGYEOL_DECISION_HOST", raising=False)
     async with api:
         for options in ({}, {"decision": "rule"}, {"decision": "model"}):
