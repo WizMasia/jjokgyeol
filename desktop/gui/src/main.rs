@@ -9,11 +9,11 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::Semaphore;
 #[cfg(windows)]
 use windows_spawn::{Command, DropPolicy, SpawnOptions, Stdio};
@@ -29,6 +29,125 @@ struct Limits {
 struct DirtyState {
     manuscript: AtomicBool,
     style: AtomicBool,
+}
+
+#[derive(Default)]
+struct SettingsState {
+    snapshot: Option<serde_json::Value>,
+}
+
+#[derive(Default)]
+struct SettingsOpenLock(tokio::sync::Mutex<()>);
+
+fn validate_snapshot(snapshot: &serde_json::Value, limit: u64) -> Result<(), String> {
+    if !snapshot.is_object() || !snapshot["style"].is_object() || !snapshot["dirty"].is_boolean() {
+        return Err("invalid settings snapshot".into());
+    }
+    let bytes = serde_json::to_vec(snapshot).map_err(|e| e.to_string())?;
+    if !safety::within_limit(&bytes, limit) {
+        return Err("request exceeds limit".into());
+    }
+    Ok(())
+}
+
+impl SettingsState {
+    fn open(
+        &mut self,
+        snapshot: serde_json::Value,
+        exists: bool,
+        limit: u64,
+    ) -> Result<(), String> {
+        validate_snapshot(&snapshot, limit)?;
+        if !exists {
+            self.snapshot = Some(snapshot);
+        }
+        Ok(())
+    }
+}
+
+fn require_window(window: &WebviewWindow, label: &str) -> Result<(), String> {
+    if window.label() == label {
+        Ok(())
+    } else {
+        Err("unauthorized window".into())
+    }
+}
+
+#[tauri::command]
+async fn open_settings_window(
+    window: WebviewWindow,
+    state: State<'_, Mutex<SettingsState>>,
+    open_lock: State<'_, SettingsOpenLock>,
+    limits: State<'_, Limits>,
+    snapshot: serde_json::Value,
+) -> Result<(), String> {
+    require_window(&window, "main")?;
+    let app = window.app_handle();
+    let _opening = open_lock.0.lock().await;
+    let existing = app.get_webview_window("settings");
+    state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .open(snapshot, existing.is_some(), limits.request)?;
+    if let Some(settings) = existing {
+        return settings.set_focus().map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("index.html?view=settings".into()),
+    )
+    .title("출판 설정")
+    .inner_size(920.0, 720.0)
+    .min_inner_size(360.0, 500.0)
+    .parent(&window)
+    .map_err(|e| e.to_string())?
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn settings_snapshot(
+    window: WebviewWindow,
+    state: State<'_, Mutex<SettingsState>>,
+) -> Result<serde_json::Value, String> {
+    require_window(&window, "settings")?;
+    state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .snapshot
+        .clone()
+        .ok_or_else(|| "settings snapshot unavailable".into())
+}
+
+#[tauri::command]
+fn apply_settings(
+    window: WebviewWindow,
+    limits: State<'_, Limits>,
+    snapshot: serde_json::Value,
+) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    validate_snapshot(&snapshot, limits.request)?;
+    let main = window
+        .app_handle()
+        .get_webview_window("main")
+        .ok_or("main window unavailable")?;
+    main.emit_to("main", "settings-applied", snapshot)
+        .map_err(|e| e.to_string())?;
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn cancel_settings(window: WebviewWindow) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn confirm_settings_replacement(window: WebviewWindow) -> Result<bool, String> {
+    require_window(&window, "settings")?;
+    Ok(confirm_discard())
 }
 
 impl DirtyState {
@@ -47,23 +166,43 @@ fn confirm_discard() -> bool {
 }
 
 #[tauri::command]
-fn set_dirty(state: State<'_, DirtyState>, dirty: bool) {
+fn set_dirty(
+    window: WebviewWindow,
+    state: State<'_, DirtyState>,
+    dirty: bool,
+) -> Result<(), String> {
+    require_window(&window, "main")?;
     state.manuscript.store(dirty, Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]
-fn set_style_dirty(state: State<'_, DirtyState>, dirty: bool) {
+fn set_style_dirty(
+    window: WebviewWindow,
+    state: State<'_, DirtyState>,
+    dirty: bool,
+) -> Result<(), String> {
+    require_window(&window, "main")?;
     state.style.store(dirty, Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]
-fn confirm_document_replacement(state: State<'_, DirtyState>) -> bool {
-    !state.manuscript.load(Ordering::Relaxed) || confirm_discard()
+fn confirm_document_replacement(
+    window: WebviewWindow,
+    state: State<'_, DirtyState>,
+) -> Result<bool, String> {
+    require_window(&window, "main")?;
+    Ok(!state.manuscript.load(Ordering::Relaxed) || confirm_discard())
 }
 
 #[tauri::command]
-fn confirm_style_replacement(state: State<'_, DirtyState>) -> bool {
-    !state.style.load(Ordering::Relaxed) || confirm_discard()
+fn confirm_style_replacement(
+    window: WebviewWindow,
+    state: State<'_, DirtyState>,
+) -> Result<bool, String> {
+    require_window(&window, "main")?;
+    Ok(!state.style.load(Ordering::Relaxed) || confirm_discard())
 }
 
 fn limits() -> Limits {
@@ -287,7 +426,14 @@ fn main() {
     tauri::Builder::default()
         .manage(limits())
         .manage(DirtyState::default())
+        .manage(Mutex::new(SettingsState::default()))
+        .manage(SettingsOpenLock::default())
         .invoke_handler(tauri::generate_handler![
+            open_settings_window,
+            settings_snapshot,
+            apply_settings,
+            cancel_settings,
+            confirm_settings_replacement,
             style_convert,
             render_proof,
             save_bytes,
@@ -297,9 +443,19 @@ fn main() {
             confirm_style_replacement
         ])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.state::<DirtyState>().is_dirty() && !confirm_discard() {
-                    api.prevent_close();
+            if window.label() == "main" {
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        if window.state::<DirtyState>().is_dirty() && !confirm_discard() {
+                            api.prevent_close();
+                        }
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        if let Some(settings) = window.app_handle().get_webview_window("settings") {
+                            let _ = settings.destroy();
+                        }
+                    }
+                    _ => {}
                 }
             }
         })
@@ -311,6 +467,36 @@ fn main() {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn settings_snapshot_keeps_existing_draft_and_replaces_after_close() {
+        let mut state = SettingsState::default();
+        let first = serde_json::json!({"style": {"name": "first"}, "dirty": true});
+        let next = serde_json::json!({"style": {"name": "next"}, "dirty": false});
+        state.open(first.clone(), false, 1024).unwrap();
+        state.open(next.clone(), true, 1024).unwrap();
+        assert_eq!(state.snapshot, Some(first));
+        state.open(next.clone(), false, 1024).unwrap();
+        assert_eq!(state.snapshot, Some(next));
+    }
+
+    #[test]
+    fn settings_rejects_invalid_or_oversized_snapshots_without_overwriting() {
+        let mut state = SettingsState::default();
+        let first = serde_json::json!({"style": {}, "dirty": false});
+        state.open(first.clone(), false, 1024).unwrap();
+        assert!(state
+            .open(
+                serde_json::json!({"style": {}, "dirty": "yes"}),
+                false,
+                1024
+            )
+            .is_err());
+        assert!(state
+            .open(serde_json::json!({"style": {}, "dirty": false}), false, 2)
+            .is_err());
+        assert_eq!(state.snapshot, Some(first));
+    }
 
     #[test]
     fn manuscript_and_style_dirty_states_clear_independently() {

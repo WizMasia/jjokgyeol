@@ -5,6 +5,10 @@ const source = byId("source");
 const preview = byId("preview");
 const proofChoice = byId("proof-choice");
 const nativeDesktop = typeof desktop !== "undefined";
+const settingsView = nativeDesktop && new URLSearchParams(location.search).get("view") === "settings";
+if (settingsView) document.documentElement.classList.add("settings-window");
+const settingsDialog = byId("settings-dialog");
+const settingsError = byId("settings-error");
 if (!nativeDesktop) proofChoice.add(new Option("모델 우선", "model"));
 proofChoice.add(new Option("규칙", "rule"));
 const inlinePdf = navigator.pdfViewerEnabled !== false;
@@ -63,7 +67,7 @@ function markDirty(kind, dirty) {
   if (current === dirty) return;
   if (kind === "source") manuscriptDirty = dirty;
   else styleDirty = dirty;
-  if (nativeDesktop) queueDirtyUpdate(kind, dirty);
+  if (nativeDesktop && !settingsView) queueDirtyUpdate(kind, dirty);
 }
 
 async function confirmManuscriptReplacement() {
@@ -81,6 +85,7 @@ async function confirmManuscriptReplacement() {
 async function confirmStyleReplacement() {
   if (!nativeDesktop) return true;
   try {
+    if (settingsView) return !styleDirty || await desktop.invoke("confirm_settings_replacement");
     if (!await waitForDirtyUpdate("style")) return false;
     if (!styleDirty) return true;
     return await desktop.confirmStyleReplacement();
@@ -413,7 +418,7 @@ function download(url, name) {
 function saveBlob(blob, name) {
   if (nativeDesktop) {
     return desktop.save(blob, name).catch(error => {
-      errorText.textContent = error.message;
+      (settingsDialog.open ? settingsError : errorText).textContent = error.message;
       return false;
     });
   }
@@ -607,6 +612,7 @@ function beginFileOpen(kind) {
   referenceStateChanged();
   pending = null;
   errorText.textContent = "";
+  if (kind === "style") settingsError.textContent = "";
   updateFileActions();
   return token;
 }
@@ -715,6 +721,7 @@ function edited(kind) {
   fileLoads[kind] = null;
   initialPreviewNeeded = false;
   errorText.textContent = "";
+  if (kind === "style") settingsError.textContent = "";
   changed();
   updateFileActions();
 }
@@ -832,4 +839,76 @@ byId("save").addEventListener("click", async () => {
     markDirty("source", false);
   }
 });
-openMarkdown(null);
+if (!settingsView) openMarkdown(null);
+
+const settingsSnapshot = () => ({
+  style: styleForm.get(), dirty: styleDirty, inactiveArticleExpr: articleExpr.value,
+  baseRevision: styleRevision,
+});
+
+if (settingsView) {
+  settingsDialog.showModal();
+  const applyButton = byId("apply-settings");
+  const closeButton = byId("close-settings");
+  stylePanel.inert = true;
+  applyButton.disabled = true;
+  let initialSnapshot;
+  desktop.invoke("settings_snapshot").then(snapshot => {
+    initialSnapshot = snapshot;
+    styleForm.set(snapshot.style, {inactiveArticleExpr: snapshot.inactiveArticleExpr});
+    styleDirty = snapshot.dirty;
+    stylePanel.inert = false;
+    applyButton.disabled = false;
+  }).catch(error => showStyleError(error));
+  const cancel = () => desktop.invoke("cancel_settings").catch(error => showStyleError(error));
+  closeButton.addEventListener("click", cancel);
+  settingsDialog.addEventListener("cancel", event => { event.preventDefault(); if (!closeButton.disabled) cancel(); });
+  applyButton.addEventListener("click", async () => {
+    if (fileLoads.style || styleSavesPending) return;
+    const revision = styleRevision;
+    const snapshot = {...initialSnapshot, ...settingsSnapshot(), baseRevision: initialSnapshot.baseRevision};
+    applyButton.disabled = true;
+    closeButton.disabled = true;
+    stylePanel.inert = true;
+    settingsError.textContent = "";
+    try {
+      const stored = await requestStyle("export", JSON.stringify(snapshot.style));
+      await requestStyle("open", JSON.stringify(stored));
+      if (revision !== styleRevision || fileLoads.style) return;
+      await desktop.invoke("apply_settings", {snapshot});
+    } catch (error) {
+      if (revision === styleRevision) {
+        showStyleFieldError(error.field, error.message, {clearMargin: true});
+        showStyleError(error);
+      }
+    } finally {
+      stylePanel.inert = false;
+      closeButton.disabled = false;
+      applyButton.disabled = false;
+    }
+  });
+} else if (nativeDesktop) {
+  const listener = window.__TAURI__.event?.listen?.("settings-applied", event => {
+    const snapshot = event.payload;
+    if (snapshot.baseRevision !== styleRevision) {
+      errorText.textContent = "설정창을 연 뒤 양식이 바뀌어 적용하지 못했습니다. 다시 열어 확인하세요.";
+      return;
+    }
+    const changedStyle = JSON.stringify(styleForm.get()) !== JSON.stringify(snapshot.style);
+    styleForm.set(snapshot.style, {preserveDraft: true, inactiveArticleExpr: snapshot.inactiveArticleExpr});
+    if (changedStyle) {
+      styleRevision++;
+      changed();
+    }
+    markDirty("style", snapshot.dirty);
+  }) ?? Promise.resolve();
+  byId("open-settings").addEventListener("click", async () => {
+    try {
+      await listener;
+      await desktop.invoke("open_settings_window", {snapshot: settingsSnapshot()});
+    } catch (error) { errorText.textContent = error.message; }
+  });
+} else {
+  byId("open-settings").addEventListener("click", () => settingsDialog.showModal());
+  byId("close-settings").addEventListener("click", () => settingsDialog.close());
+}

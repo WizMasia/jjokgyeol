@@ -25,13 +25,21 @@ class EditorLayoutTest(unittest.TestCase):
                 )
                 try:
                     page = browser.new_page(viewport={"width": 1440, "height": 1000})
-                    page.add_init_script(
-                        "window.__TAURI__ = {core: {invoke: async command => { "
-                        "if (command === 'style_convert') return {}; "
-                        "throw 'layout-only test'; }}};"
-                    )
+                    # Exercise the web dialog using the same built markup and styles.
+                    for asset in ('desktop.js', 'desktop.css'):
+                        page.route('**/static/' + asset, lambda route: route.fulfill(body=''))
                     page.goto(f"http://127.0.0.1:{server.server_port}/index.html")
                     page.wait_for_function("document.querySelector('#style').inert === false")
+                    opening = page.locator("#open-settings")
+                    dialog = page.locator("#settings-dialog")
+                    self.assertFalse(dialog.is_visible())
+                    opening.click()
+                    self.assertTrue(dialog.evaluate("element => element.matches(':modal')"))
+                    self.assertFalse(page.locator("#apply-settings").is_visible())
+                    page.keyboard.press("Escape")
+                    self.assertFalse(dialog.is_visible())
+                    self.assertTrue(opening.evaluate("button => button === document.activeElement"))
+                    opening.click()
                     page.locator("details > summary").click()
                     font_size = page.locator("#text-roles [data-text='font_pt']")
                     self.assertTrue(

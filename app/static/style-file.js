@@ -1,5 +1,6 @@
 "use strict";
 
+let styleSavesPending = 0;
 async function requestStyle(action, body) {
   if (nativeDesktop) return desktop.style(action, body);
   const response = await fetch("/api/style/" + action, {
@@ -16,7 +17,7 @@ async function requestStyle(action, body) {
 }
 
 function showStyleError(error) {
-  errorText.textContent = error.message || "양식을 처리할 수 없습니다.";
+  (settingsDialog.open ? settingsError : errorText).textContent = error.message || "양식을 처리할 수 없습니다.";
 }
 
 bindFilePicker("open-style", "style-file", async file => {
@@ -30,6 +31,7 @@ bindFilePicker("open-style", "style-file", async file => {
 byId("save-style").addEventListener("click", async () => {
   const values = styleForm.get();
   const revision = styleRevision;
+  styleSavesPending++;
   try {
     const result = await requestStyle("export", JSON.stringify(values));
     const blob = new Blob([JSON.stringify(result, null, 2) + "\n"], {type: "application/json"});
@@ -38,5 +40,5 @@ byId("save-style").addEventListener("click", async () => {
     if (JSON.stringify(styleForm.get()) !== JSON.stringify(values)) return;
     showStyleFieldError(error.field, error.message);
     showStyleError(error);
-  }
+  } finally { styleSavesPending--; }
 });

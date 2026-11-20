@@ -19,6 +19,7 @@
   <header class="masthead">
     <h1><span class="mark" aria-hidden="true"></span><b>쪽결</b><span class="product">원고 편집기</span></h1>
     <div class="actions">
+      <button id="open-settings" type="button" aria-controls="settings-dialog">설정</button>
       <button id="refresh" type="button"><span aria-hidden="true">↻</span> 미리보기 갱신</button>
       <button id="export" class="primary" type="button"><span aria-hidden="true">↓</span> <span>PDF 다운로드</span></button>
     </div>
@@ -62,9 +63,18 @@
         <footer class="folio"><span id="proof-size">PDF</span><span id="proof-decision" aria-live="polite"></span></footer>
       </section>
     </div>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <header class="settings-head">
+        <h2 id="settings-title">출판 설정</h2>
+        <div class="settings-actions">
+          <button id="close-settings" type="button" aria-label="출판 설정 닫기">닫기</button>
+          <button id="apply-settings" class="primary" type="button">적용</button>
+        </div>
+      </header>
+      <p id="settings-error" role="alert"></p>
     <section id="style" inert aria-labelledby="style-title">
       <div class="typebar">
-        <h2 id="style-title">출판 양식</h2>
+        <h2 id="style-title" class="sr-only">출판 양식</h2>
         <div class="typebar-fields">
           <label>문단 배치 방식 <select id="paragraph-layout" aria-label="문단 배치 방식"></select></label>
           <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
@@ -225,6 +235,7 @@
         <button id="reference-cancel" type="button">취소</button>
       </div>
     </section>
+    </dialog>
   </main>
 </body>
 </html>

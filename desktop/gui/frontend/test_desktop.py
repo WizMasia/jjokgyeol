@@ -73,7 +73,7 @@ class DesktopTest(unittest.TestCase):
                 page.add_init_script("""
                   window.calls = []; window.saveResult = false; window.confirmResult = false;
                   window.confirm = () => window.confirmResult;
-                  window.__TAURI__ = {core: {invoke: async (command, args) => {
+                  window.__TAURI__ = {event: {listen: async (name, fn) => { window.applied = fn; }}, core: {invoke: async (command, args) => {
                     window.calls.push({command, args});
                     if (command === 'style_convert') return {};
                     if (command === 'confirm_document_replacement') return window.confirmResult;
@@ -94,11 +94,19 @@ class DesktopTest(unittest.TestCase):
                 page.wait_for_function("window.calls.some(c => c.command === 'confirm_document_replacement')")
                 page.wait_for_timeout(50)
                 self.assertEqual(page.locator('#source').input_value(), 'edited')
-                page.locator('#style summary').click()
-                page.locator('#body_pt').fill('15')
-                page.evaluate('window.saveResult = true')
-                page.click('#save-style')
-                page.wait_for_function("window.calls.filter(c => c.command === 'save_bytes').length === 1")
+                page.click('#open-settings')
+                page.wait_for_function("window.calls.some(c => c.command === 'open_settings_window')")
+                page.evaluate("""() => {
+                    const snapshot = window.calls.filter(c => c.command === 'open_settings_window').at(-1).args.snapshot;
+                    window.applied({payload: {...snapshot, dirty: true, style: {...snapshot.style, body_pt: '15'}}});
+                }""")
+                page.wait_for_function("window.calls.filter(c => c.command === 'set_style_dirty').at(-1)?.args.dirty === true")
+                page.click('#open-settings')
+                page.wait_for_function("window.calls.filter(c => c.command === 'open_settings_window').length === 2")
+                page.evaluate("""() => {
+                    const saved = window.calls.filter(c => c.command === 'open_settings_window').at(-1).args.snapshot;
+                    window.applied({payload: {...saved, dirty: false}});
+                }""")
                 page.wait_for_function("window.calls.filter(c => c.command === 'set_style_dirty').at(-1)?.args.dirty === false")
                 self.assertTrue(page.evaluate("window.calls.filter(c => c.command === 'set_dirty').at(-1).args.dirty"))
                 page.evaluate('window.saveResult = false')
