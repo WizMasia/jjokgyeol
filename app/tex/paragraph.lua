@@ -4,6 +4,9 @@ local breaks = require("wordbreak")
 local glyph, disc = node.id("glyph"), node.id("disc")
 local glue, penalty = node.id("glue"), node.id("penalty")
 local unit = fixed.RATIO_UNIT
+local ucd = require("lua-uni-parse")
+local whitespace = ucd.parse_file("PropList", lpeg.Cg(ucd.fields(ucd.codepoint_range,
+  lpeg.P"White_Space" * lpeg.Cc(true))) + ucd.ignore_line, ucd.multiset)
 
 local function width(a, b, tracking, space)
   return b.width - a.width + fixed.scaled(b.tracking - a.tracking, tracking)
@@ -22,11 +25,13 @@ local function scan(first, stop, prior)
     else
       m.width = m.width + node.dimensions(n, n.next)
     end
-    if n.id == glyph then
+    if n.id == glyph and not whitespace[n.char] then
       left, right, m.glyphs = left or n.char, n.char, m.glyphs + 1
     elseif n.id == disc and n.replace then
       for g in node.traverse_id(glyph, n.replace) do
-        left, right, m.glyphs = left or g.char, g.char, m.glyphs + 1
+        if not whitespace[g.char] then
+          left, right, m.glyphs = left or g.char, g.char, m.glyphs + 1
+        end
       end
     end
     n = n.next
@@ -239,7 +244,7 @@ local function apply(head, style, block, request)
   local low_space, high_space = table.unpack(style.space_per_10000)
   local natural = math.max(low_space, math.min(unit, high_space))
   local parts = boundaries(head, shapes, low, low_space)
-  if not parts or #parts == 0 then return breaks.apply(head, style) end
+  if not parts or #parts == 0 then return breaks.apply(head, true) end
   local options, seen, rule, replay = {}, {}
   local function consider(ends, spread)
     local option = candidate(parts, shapes, ends, style, spread)

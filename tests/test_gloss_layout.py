@@ -2,7 +2,7 @@
 import pytest
 
 from app.document import parse_md
-from app.style import Style
+from app.style import Style, apply_style
 from app.typeset import typeset
 from pdf_metrics import read_pages
 from test_breaks import BP_PER_MM, assert_fits, render, text
@@ -34,6 +34,24 @@ def test_first_gloss_moves_to_wider_continuation(tmp_path):
     assert list(map(text, lines)) == ["가나다(기록)"]
     assert lines[0].chars[0].x0 == pytest.approx(10 * BP_PER_MM, abs=.05)
     assert_fits(lines, 30)
+
+
+@pytest.mark.parametrize("layout", [{}, {"paragraph_layout": "balanced"}], ids=["legacy", "balanced"])
+def test_heading_follows_gloss_to_next_page(tmp_path, layout):
+    source = "도입\n\n도입\n\n# 표제\n\n[판형]{풀이=책의 크기}"
+    style = apply_style(Style(), {"page_mm": [55, 48], "margins_mm": [10] * 4,
+                                  "first_indent_mm": 23, **layout})
+    pages = read_pages(typeset(parse_md(source), style, tmp_path))
+    assert [list(map(text, page.lines)) for page in pages] == [["도입", "도입"], ["표제", "판형(책의크기)"]]
+
+
+def test_gloss_fallback_keeps_quotes_across_literal_spaces(tmp_path):
+    lines = render("한강   “  여름  ”   끝 [산]{풀이=뫼}", tmp_path, 17, paragraph_layout="balanced")
+    assert list(map(text, lines)) == ["한강", "“여름”", "끝산(뫼)"]
+    assert_fits(lines, 17)
+    quote, first, last, close = (c for c in lines[1].chars if not c.text.isspace())
+    for left, right in [(quote, first), (last, close)]:
+        assert right.x0 - left.x0 - left.advance == pytest.approx(2 * left.size * 307 / 1024, abs=.04)
 
 
 def test_list_mark_follows_first_gloss_to_wider_line(tmp_path):

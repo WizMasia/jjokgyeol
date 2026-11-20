@@ -154,7 +154,7 @@ STYLE = {"page_mm": [58, 100], "margins_mm": [10] * 4, "ko_tracking_pct": -3,
          "space_pct": [100, 100], "body_pt": 11, "leading_pt": 17}
 
 
-def scan(pdf):
+def scan(pdf, indent=""):
     page, = read_pages(pdf)
     words = ["풀잎", "사이", "Dew", "은빛", "이슬"]
     body, note, markers = [], [], []
@@ -169,6 +169,9 @@ def scan(pdf):
             elif c not in run:
                 note.append(c)
     assert "".join(c.text for row in body for c in row) == "".join(words)
+    # NanumMyeongjo advances U+3000 by 973/1024 em, including on replay.
+    first = body[0][0]
+    assert first.x0 == pytest.approx(10 * 72 / 25.4 + len(indent) * first.size * 973 / 1024, abs=.05)
     assert "".join(c.text for c in note) == "아침수집함."
     assert len(markers) == 2 and min(c.baseline for c in body[-1]) > note[0].baseline
     ref = max(markers, key=lambda c: c.baseline)
@@ -189,8 +192,9 @@ def scan(pdf):
     return ends, [(c.text, c.x0, c.baseline) for c in note]
 
 
-def test_choice_reaches_pdf(installed, monkeypatch, tmp_path):
-    doc, style = parse_md(SOURCE), apply_style(Style(), STYLE)
+@pytest.mark.parametrize("indent", ["", "\u3000"], ids=["plain", "ideographic"])
+def test_choice_reaches_pdf(installed, monkeypatch, tmp_path, indent):
+    doc, style = parse_md(indent + SOURCE), apply_style(Style(), STYLE)
     measure = tmp_path / "measure"
     measure.mkdir()
     typeset(doc, style, measure, collect_candidates=True)
@@ -210,8 +214,9 @@ def test_choice_reaches_pdf(installed, monkeypatch, tmp_path):
             job.mkdir()
             pdf, status = decision.render_choice(doc, style, job, time.monotonic() + 25)
             assert status == "model"
-            printed, note = scan(pdf)
+            printed, note = scan(pdf, indent)
             assert printed == [line["end_glyph"] for line in candidate["lines"]]
+            assert candidate["lines"][0]["first_char"] == ord("풀")
             pdfs.append(pdf)
             prints.append((printed, note))
     assert pdfs[0] != pdfs[1] and prints[0][0] != prints[1][0]

@@ -131,22 +131,24 @@ luatexbase.add_to_callback("pre_linebreak_filter", function(head)
   if paragraph_index and not active then
     head, skipped_first = paragraph.apply(head, style, paragraph_index, data.paragraphs)
   else
-    head, skipped_first = wordbreak.apply(head, style, active, item and item.level)
+    head, skipped_first = wordbreak.apply(head, false, active, item and item.level)
   end
   return head
 end, "jjokgyeol.wordspacing")
 luatexbase.add_to_callback("post_linebreak_filter", function(head)
   head = fixed.finish(head)
-  if item and item.first then
-    local start = head
-    if skipped_first then
-      for line in node.traverse_id(node.id("hlist"), head) do
-        start = line.next
-        break
-      end
+  local start = head
+  if skipped_first then
+    for line in node.traverse_id(node.id("hlist"), head) do
+      start = line.next
+      -- Keep the empty indentation line with the first printed gloss line.
+      local keep = node.new("penalty")
+      keep.penalty = 10000
+      head = node.insert_after(head, line, keep)
+      break
     end
-    lists.attach(start, item)
   end
+  if item and item.first then lists.attach(start, item) end
   if book.running and book.running.in_par then book.running.lines(head) end
   return head
 end, "jjokgyeol.line_spacing")
