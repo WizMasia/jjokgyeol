@@ -325,13 +325,17 @@ function currentValue(style, path, role, key, face, parity, firstDepth) {
   const value = inheritedValue(style, path, role, key, face, parity, firstDepth);
   if (value !== undefined) return value;
   if (isRunning(role)) return key === "visible" ? false : settings.running_defaults?.[key];
+  const headingLevel = role === "heading" && targets.find(t => t.count === 1 && JSON.stringify(t.path) === path)?.level;
+  const textRole = headingLevel ? "heading" + headingLevel : ["body", "list"].includes(role) ? "body" : null;
+  const direct = style.text_styles?.[textRole];
+  if (direct?.[key] !== undefined) return direct[key];
   if (role === "heading" && ["font_pt", "leading_pt"].includes(key)) {
-    const level = targets.find(t => t.count === 1 && JSON.stringify(t.path) === path)?.level;
+    const level = headingLevel;
     const scale = config?.heading_per_10000?.[level - 1];
     if (!scale || !config.heading_leading_per_10000) return "제목 단계별 자동";
     // The engine rounds to a TeX scaled point after each multiplication.
     const sp = 65536;
-    const size = inheritedValue(style, path, role, "font_pt");
+    const size = inheritedValue(style, path, role, "font_pt") ?? direct?.font_pt;
     const sizeSp = size === undefined ? Math.round(Math.round(Number(style.body_pt) * sp) * scale / 10000)
       : Math.round(Number(size) * sp);
     const measured = key === "font_pt" ? sizeSp : Math.round(sizeSp * config.heading_leading_per_10000 / 10000);
@@ -341,7 +345,7 @@ function currentValue(style, path, role, key, face, parity, firstDepth) {
   if (Object.hasOwn(style, key)) return style[key];
   if (key === "font") return style[role === "heading" ? "heading_font" : "body_font"];
   if (key === "font_pt") return style.body_pt;
-  if (key === "color") return "#000000";
+  if (key === "color") return settings.text_defaults?.color ?? "#000000";
   const level = levelKey.exec(key);
   if (level) {
     const levels = style.list_levels || settings.list_presets?.[settings.default_list_preset] || [];

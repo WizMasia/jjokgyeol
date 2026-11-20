@@ -16,7 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "app/static"
 SAMPLE = "# 첫 교정\n\n종이와 Ink.\n"
 ORIGIN = "http://127.0.0.1"
+NEW_TEXT = {f"heading{i}": {"font_pt": value} for i, value in enumerate((
+    "17.600006103515625", "16.5", "15.399993896484375",
+    "14.3000030517578125", "13.1999969482421875", "12.100006103515625",
+), 1)}
 DEFAULTS = {
+    "text_styles": NEW_TEXT,
     "page_mm": ["148", "210"], "margins_mm": ["20", "18", "20", "18"],
     "first_indent_mm": "0", "rest_indent_mm": "0",
     "body_pt": "11", "leading_pt": "17", "body_font": "nanum-myeongjo",
@@ -53,7 +58,7 @@ class Desk:
             route.fulfill(content_type="text/html; charset=utf-8", body=server.editor_html())
         else:
             files = {"/static/editor.css": "editor.css",
-                     "/static/list-style.js": "list-style.js", "/static/editor.js": "editor.js", "/static/style-file.js": "style-file.js"}
+                     "/static/typography.js": "typography.js", "/static/list-style.js": "list-style.js", "/static/editor.js": "editor.js", "/static/style-file.js": "style-file.js"}
             for path, name in files.items():
                 if url == ORIGIN + path and (STATIC / name).is_file():
                     route.fulfill(path=STATIC / name)
@@ -249,7 +254,7 @@ def test_changed_bootstrap_precedes_sample(desk, monkeypatch):
     # Older bootstrap responses contain only the original defaults and fonts.
     settings = {}
     defaults = {
-        **DEFAULTS, "body_pt": "13.125", "body_font": "proof",
+        **{k: v for k, v in DEFAULTS.items() if k != "text_styles"}, "body_pt": "13.125", "body_font": "proof",
         "margins_mm": ["9.50", "17", "8.75", "15"], "space_pct": ["84", "116"],
     }
     settings.update(defaults=defaults, fonts=[{"id": "proof", "label": "교정 서체"},
@@ -599,3 +604,31 @@ def test_article_style_file_round_trip(browser, server_url):
             expect(enabled).not_to_be_checked()
             assert json.loads(save().read_bytes()) == json.loads(legacy.read_bytes())
         expect(page.locator("#source")).to_have_value(manuscript)
+
+
+def test_role_edits_and_optional_tracking_bounds(desk):
+    page = desk.page
+    expect(desk.frame).to_have_attribute("src", BLOB)
+    page.locator("#style summary").click()
+    role = page.get_by_label("글자 모양 대상", exact=True)
+    role.select_option("heading1")
+    size = page.get_by_label("대상 글자 크기", exact=True)
+    size.fill("18")
+    page.locator("#body_pt").fill("16")
+    role.select_option("note")
+    page.get_by_label("대상 글자 색", exact=True).fill("#713344")
+    role.select_option("heading1")
+    expect(size).to_have_value("18")
+    assert page.evaluate("styleForm.get().text_styles.note") == {"color": "#713344"}
+    page.get_by_label("최종 자간 한계 지정", exact=True).check()
+    page.get_by_label("최종 자간 하한", exact=True).fill("-7")
+    page.get_by_label("최종 자간 상한", exact=True).fill("0")
+    desk.submit(desk.refresh)
+    received = desk.requests[-1]["style"]
+    assert received["body_pt"] == "16" and received["text_styles"]["heading1"] == {"font_pt": "18"}
+    assert received["ko_tracking_bounds_pct"] == ["-7", "0"]
+    desk.reply(0, {"field": "ko_tracking_bounds_pct", "message": "자간 한계를 확인하세요."}, 422)
+    expect(page.get_by_label("최종 자간 하한", exact=True)).to_have_attribute("aria-invalid", "true")
+    expect(desk.frame).to_have_attribute("src", BLOB)
+    page.get_by_label("최종 자간 한계 지정", exact=True).uncheck()
+    assert page.evaluate("styleForm.get().ko_tracking_bounds_pct") is None

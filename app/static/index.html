@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/editor.css">
   <!--EDITOR_SETTINGS-->
   <script src="/static/list-style.js" defer></script>
+  <script src="/static/typography.js" defer></script>
   <script src="/static/editor.js" defer></script>
   <script src="/static/style-file.js" defer></script>
 </head>
@@ -83,6 +84,20 @@
           <fieldset><legend>활자</legend>
             <label>제목 글꼴 <select id="heading_font" name="heading_font"></select></label>
             <label>한글 자간 (%) <input id="ko_tracking_pct" name="ko_tracking_pct" type="text" inputmode="decimal"></label>
+          </fieldset>
+          <fieldset id="tracking-limits"><legend>줄별 자간 보정 (%)</legend>
+            <label><input type="checkbox" id="tracking-enabled"> 최종 자간 한계 지정</label>
+            <label>최종 자간 하한 <input id="tracking-lower" type="text" inputmode="decimal" disabled></label>
+            <label>최종 자간 상한 <input id="tracking-upper" type="text" inputmode="decimal" disabled></label>
+          </fieldset>
+          <fieldset id="text-roles"><legend>역할별 글자 모양</legend>
+            <label>글자 모양 대상 <select id="text-role" aria-label="글자 모양 대상"></select></label>
+            <label>대상 글꼴 <select data-text="font" aria-label="대상 글꼴"></select></label>
+            <label>대상 글자 크기 <input data-text="font_pt" aria-label="대상 글자 크기" type="text" inputmode="decimal"> pt</label>
+            <label>대상 글자 색 <input data-text="color" type="text" spellcheck="false"></label>
+            <label>대상 굵기 <select data-text="weight" aria-label="대상 굵기"></select></label>
+            <label>대상 기울임 <select data-text="slant" aria-label="대상 기울임"></select></label>
+            <span id="typography-error" aria-live="polite"></span>
           </fieldset>
           <fieldset><legend>어절 공백 (%)</legend>
             <label>최소 <input name="space_pct" type="text" inputmode="decimal"></label>
