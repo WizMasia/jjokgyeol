@@ -12,6 +12,7 @@ from unicodedata import category
 
 from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.document import InputError
+from app.jobs import complete_pdf
 from app.style import Style
 from app.typeset import typeset
 
@@ -107,7 +108,7 @@ class LocalModel:
 
 def features(lines, style, final_glyph):
     track = style.ko_tracking_bounds_per_10000 or (style.ko_tracking_per_10000,) * 2
-    if not isinstance(lines, list) or not 1 <= len(lines) <= PIN["max_lines_per_candidate"]:
+    if not isinstance(lines, list) or not lines:
         return None
     result = []
     previous = 0
@@ -154,6 +155,8 @@ class ParagraphDecision:
                 key = candidate["id"]
                 if not isinstance(key, str) or key in options:
                     return self.rule_id
+                if not isinstance(candidate["lines"], list) or len(candidate["lines"]) > PIN["max_lines_per_candidate"]:
+                    continue
                 lines = features(candidate["lines"], self.style, total)
                 if lines:
                     options[key] = lines
@@ -176,9 +179,71 @@ def expire(signum, frame):
 
 
 def measured_rows(folder):
+    previous = 0
     with (folder / "paragraph-candidates.jsonl").open(encoding="utf-8") as stream:
         for line in stream:
-            yield json.loads(line)
+            row = json.loads(line, object_pairs_hook=unique_fields)
+            block = row["block"]
+            if type(block) is not int or block <= previous:
+                raise ValueError("invalid paragraph block order")
+            previous = block
+            yield row
+
+
+def candidate_catalog(row):
+    """One block's rule and measurements, keyed by opaque ID as in T14."""
+    candidates = row["candidates"]
+    if not isinstance(candidates, list):
+        raise ValueError("invalid candidates")
+    by_id = {}
+    for candidate in candidates:
+        key = candidate["id"]
+        if not isinstance(key, str) or not key.strip() or key in by_id:
+            raise ValueError("invalid or duplicate candidate ID")
+        by_id[key] = candidate["lines"]
+    rule = row["rule_id"]
+    if rule not in by_id or row["selected_id"] not in by_id:
+        raise ValueError("unmeasured rule or selection")
+    return rule, by_id
+
+
+def replay_status(doc, style, measure, replay, choices, mixed):
+    honored = 0
+    catalog_changed = False
+    for before, after in zip(measured_rows(measure), measured_rows(replay), strict=True):
+        block = before["block"]
+        old_rule, old = candidate_catalog(before)
+        rule, fresh = candidate_catalog(after)
+        if block != after["block"] or before["selected_id"] != old_rule:
+            return "rule"
+        # A surviving ID must still describe exactly what the selector saw.
+        if any(old[key] != fresh[key] for key in old.keys() & fresh.keys()):
+            return "rule"
+        total = old[old_rule][-1]["end_glyph"]
+        if any(features(lines, style, total) is None for lines in fresh.values()):
+            return "rule"
+        if old == fresh and rule != old_rule:
+            return "rule"
+        catalog_changed |= old != fresh
+        selected = after["selected_id"]
+        if selected == choices.get(block):
+            honored += 1
+        elif selected != rule:
+            return "rule"
+    if not honored:
+        return "rule"
+    if catalog_changed:
+        # IDs can expire. Independently reproduce the current rule and catalog
+        # before accepting a partial replay with a different measurement set.
+        check = replay.parent / "rule-check"
+        check.mkdir()
+        if not complete_pdf(typeset(doc, style, check, collect_candidates=True)):
+            return "rule"
+        for proof, after in zip(measured_rows(check), measured_rows(replay), strict=True):
+            if (proof["block"] != after["block"] or proof["selected_id"] != proof["rule_id"]
+                    or candidate_catalog(proof) != candidate_catalog(after)):
+                return "rule"
+    return "mixed" if mixed or honored < len(choices) else "model"
 
 
 def render_choice(doc, style, workdir, deadline):
@@ -198,6 +263,10 @@ def render_choice(doc, style, workdir, deadline):
         choices = {}
         mixed = False
         for row in measured_rows(measure):
+            rule, catalog = candidate_catalog(row)
+            total = catalog[rule][-1]["end_glyph"]
+            if row["selected_id"] != rule or any(features(lines, style, total) is None for lines in catalog.values()):
+                return fallback
             if len(row["candidates"]) < 2:
                 continue
             if model is None:
@@ -215,10 +284,11 @@ def render_choice(doc, style, workdir, deadline):
         replay = workdir / "replay"
         replay.mkdir()
         pdf = typeset(doc, style, replay, paragraph_choices=choices, collect_candidates=True)
-        applied = {row["block"]: row["selected_id"] for row in measured_rows(replay)
-                   if row["block"] in choices}
-        if applied == choices:
-            return pdf, "mixed" if mixed else "model"
+        if not complete_pdf(pdf):
+            return fallback
+        status = replay_status(doc, style, measure, replay, choices, mixed)
+        if status != "rule":
+            return pdf, status
     except (*MODEL_ERRORS, DecisionExpired, subprocess.CalledProcessError, InputError):
         pass
     finally:
