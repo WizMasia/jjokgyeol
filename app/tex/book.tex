@@ -17,7 +17,7 @@
   \ifdim\dimexpr\ht\BookTitleFrame+\dp\BookTitleFrame\relax>\textheight
     \directlua{book.layout_error("frame_height")}%
   \fi
-  \noindent\usebox\BookTitleFrame\spewnotes\BookPar\nobreak}
+  \noindent\usebox\BookTitleFrame\spewnotes\BookPar\nopagebreak[1]}
 \makeatletter
 \newcommand\BookStyledMarks{\def\@makefnmark{\hbox{\textsuperscript{\@thefnmark}}}}
 \makeatother
