@@ -193,3 +193,63 @@ fn timeout_terminates_descendants_and_preserves_output() {
     assert!(!root.path().join("descendant-survived").exists());
     assert_eq!(fs::read(&output).unwrap(), b"previous pdf");
 }
+
+#[test]
+fn fixture_diagnostics_are_opt_in_and_bounded() {
+    let (runtime, root) = setup();
+    let source = root.path().join("원고.md");
+    let style = root.path().join("양식.json");
+    fs::write(
+        &source,
+        include_str!("../../proofs/numbering/manuscript.md")
+            .replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .replace("\n", "\r\n"),
+    )
+    .unwrap();
+    fs::write(&style, include_str!("../../proofs/numbering/odd-even.json")).unwrap();
+    let invoke = |enabled: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_jjokgyeol-proof"));
+        cmd.arg("--runtime")
+            .arg(&runtime)
+            .arg("--source")
+            .arg(&source)
+            .arg("--style")
+            .arg(&style)
+            .arg("--output")
+            .arg(root.path().join("결과.pdf"));
+        if enabled {
+            cmd.env("JJOKGYEOL_TEST_DIAGNOSTICS", "1");
+        } else {
+            cmd.env_remove("JJOKGYEOL_TEST_DIAGNOSTICS");
+        }
+        cmd.output().unwrap()
+    };
+    let disabled = invoke(false);
+    assert_eq!(
+        String::from_utf8_lossy(&disabled.stderr).trim(),
+        "worker failed"
+    );
+    let enabled = invoke(true);
+    let err = String::from_utf8_lossy(&enabled.stderr);
+    assert!(err.contains("fixture worker diagnostic"), "{err}");
+    assert!(err.contains("fixture exception"), "{err}");
+    assert!(err.len() < 17 * 1024);
+    fs::write(&source, "internal_error").unwrap();
+    let private = invoke(true);
+    assert_eq!(
+        String::from_utf8_lossy(&private.stderr).trim(),
+        "worker failed"
+    );
+    fs::write(
+        &source,
+        include_str!("../../proofs/numbering/manuscript.md"),
+    )
+    .unwrap();
+    fs::write(&style, "{}").unwrap();
+    let other_style = invoke(true);
+    assert_eq!(
+        String::from_utf8_lossy(&other_style.stderr).trim(),
+        "worker failed"
+    );
+}

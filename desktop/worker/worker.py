@@ -4,6 +4,7 @@ import hashlib
 from decimal import Decimal
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import sys
@@ -33,6 +34,17 @@ def limit_worker_files(max_bytes):
         resource.setrlimit(resource.RLIMIT_FSIZE, (min(soft, max_bytes) if soft != resource.RLIM_INFINITY else max_bytes, hard))
 
 
+def engine_path(path):
+    value = str(path)
+    if value.startswith('\\\\?\\UNC\\'):
+        ordinary = '\\\\' + value[8:]
+    elif re.match(r'^\\\\\?\\[A-Za-z]:\\', value):
+        ordinary = value[4:]
+    else:
+        return value
+    return ordinary if len(ordinary) < 260 else value
+
+
 def prepare_external_engine():
     if sys.platform == 'win32' and getattr(sys, 'frozen', False):
         import ctypes
@@ -51,6 +63,8 @@ def record_exception(diagnostic):
 def fixture_diagnostics(request):
     if os.environ.get('JJOKGYEOL_TEST_DIAGNOSTICS') != '1':
         return False
+    if isinstance(request, dict) and isinstance(request.get('source'), str):
+        request = {**request, 'source': request['source'].replace('\r\n', '\n').replace('\r', '\n')}
     encoded = json.dumps(request, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
     # Only the checked-in numbering fixture may expose test diagnostics.
     return hashlib.sha256(encoded).hexdigest() == 'cec7fb87b42035bc00d42b44ff647e0441039367cd130b962a3cffc902b94ad9'
@@ -105,7 +119,7 @@ def main():
         prepare_external_engine()
         with tempfile.TemporaryDirectory(dir='.') as folder:
             try:
-                pdf = typeset(doc, style, Path(folder), engine=engine, font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
+                pdf = typeset(doc, style, Path(folder), engine=Path(engine_path(engine)), font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
             finally:
                 log = Path(folder) / 'book.log'
                 if diagnostic and log.is_file():

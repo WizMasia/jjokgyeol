@@ -29,10 +29,27 @@ try {
     Copy-Item -Recurse dist/jjokgyeol-worker (Join-Path $Work 'runtime/worker')
     # Ensure LuaTeX cannot read caches from a user's TeX installation.
     $env:TEXMFCACHE = Join-Path $Work 'runtime/texlive/texmf-var'
+    $renderCompleted = $false
+    $renderError = $null
+    $previousDiagnostics = $env:JJOKGYEOL_TEST_DIAGNOSTICS
+    $env:JJOKGYEOL_TEST_DIAGNOSTICS = '1'
     try {
         Run-Check 'render' { cargo run --locked --manifest-path desktop/Cargo.toml -- --runtime (Join-Path $Work 'runtime') --source proofs/numbering/manuscript.md --style proofs/numbering/odd-even.json --output (Join-Path $results 'odd-even.pdf') }
+        $renderCompleted = $true
     } catch {
         $renderError = $_
+    } finally {
+        if ($null -eq $previousDiagnostics) { Remove-Item Env:JJOKGYEOL_TEST_DIAGNOSTICS -ErrorAction SilentlyContinue }
+        else { $env:JJOKGYEOL_TEST_DIAGNOSTICS = $previousDiagnostics }
+    }
+    if ($renderCompleted) {
+        try { Run-Check 'compare' { python desktop/qa/compare_pdfs.py (Join-Path $results 'odd-even.pdf') proofs/numbering/odd-even.pdf } }
+        catch {
+            $failed = $true
+            "$_" | Tee-Object -FilePath (Join-Path $results 'compare-failure.txt')
+        }
+    } else {
+        $failed = $true
         $job = Join-Path $Work 'diagnostic-job'
         $packagedJob = Join-Path $Work 'packaged-diagnostic-job'
         try {
@@ -57,9 +74,8 @@ try {
         } catch {
             "Could not collect diagnostics: $_" | Tee-Object -FilePath (Join-Path $results 'diagnostic-collection-failure.txt')
         }
-        throw $renderError
+        "$renderError" | Tee-Object -FilePath (Join-Path $results 'render-failure.txt')
     }
-    Run-Check 'compare' { python desktop/qa/compare_pdfs.py (Join-Path $results 'odd-even.pdf') proofs/numbering/odd-even.pdf }
     'NOT RUN: GUI build did not complete' | Set-Content (Join-Path $results 'gui-smoke-status.txt')
     $env:JJOKGYEOL_NATIVE_RUNTIME = Join-Path $Work 'runtime'
     Push-Location desktop/gui/frontend

@@ -250,3 +250,16 @@ def test_tex_paths_strip_extended_windows_prefix():
     from app.typeset import _tex_path
     assert _tex_path(PureWindowsPath(r'\\?\C:\Program Files\worker\book.tex')) == 'C:/Program Files/worker/book.tex'
     assert _tex_path(PureWindowsPath(r'\\?\UNC\server\share\book.tex')) == '//server/share/book.tex'
+
+
+def test_engine_path_removes_windows_verbatim_prefix():
+    from pathlib import PureWindowsPath
+    assert worker.engine_path(PureWindowsPath(r'\\?\C:\TeX Live\bin\lualatex.exe')) == r'C:\TeX Live\bin\lualatex.exe'
+    assert worker.engine_path(PureWindowsPath(r'\\?\UNC\server\share\lualatex.exe')) == r'\\server\share\lualatex.exe'
+    assert worker.engine_path(PureWindowsPath(r'\\?\Volume{123}\lualatex.exe')) == r'\\?\Volume{123}\lualatex.exe'
+
+
+def test_fixture_diagnostics_accepts_windows_line_endings(monkeypatch):
+    source = (ROOT / 'proofs/numbering/manuscript.md').read_text(encoding='utf-8').replace('\n', '\r\n')
+    monkeypatch.setenv('JJOKGYEOL_TEST_DIAGNOSTICS', '1')
+    assert worker.fixture_diagnostics({'source': source, 'style': STYLE})

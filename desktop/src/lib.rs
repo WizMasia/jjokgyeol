@@ -43,6 +43,16 @@ pub fn render_with_timeout(
         .ok_or("invalid request limit")?;
     let source = String::from_utf8(read_limited(source, request_limit)?)?;
     let style: serde_json::Value = serde_json::from_slice(&read_limited(style, request_limit)?)?;
+    let qa_diagnostics = std::env::var_os("JJOKGYEOL_TEST_DIAGNOSTICS").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+        && source.replace("\r\n", "\n").replace('\r', "\n")
+            == include_str!("../../proofs/numbering/manuscript.md")
+                .replace("\r\n", "\n")
+                .replace('\r', "\n")
+        && style
+            == serde_json::from_str::<serde_json::Value>(include_str!(
+                "../../proofs/numbering/odd-even.json"
+            ))?;
     let request = serde_json::to_vec(&serde_json::json!({"source": source, "style": style}))?;
     if request.len() as u64
         > operations["request_body_bytes"]
@@ -59,6 +69,9 @@ pub fn render_with_timeout(
     let mut stderr = tempfile::tempfile()?;
     let status = run_worker(&worker, &runtime, work.path(), timeout, stderr.try_clone()?)?;
     if !status.success() {
+        if qa_diagnostics {
+            emit_qa_diagnostics(&mut stderr, work.path(), status);
+        }
         return Err(worker_error(&mut stderr).into());
     }
     let pdf = read_limited(
@@ -78,6 +91,31 @@ pub fn render_with_timeout(
     temp.write_all(&pdf)?;
     temp.persist(output)?;
     Ok(())
+}
+
+fn emit_qa_diagnostics(stderr: &mut fs::File, work: &Path, status: std::process::ExitStatus) {
+    eprintln!("QA worker exit: {status}");
+    for (label, mut file) in [
+        (
+            "exception",
+            fs::File::open(work.join("diagnostic-exception.txt")),
+        ),
+        ("worker stderr", stderr.try_clone()),
+        ("TeX log", fs::File::open(work.join("diagnostic-book.log"))),
+    ] {
+        if let Ok(ref mut file) = file {
+            let _ = file.seek(SeekFrom::Start(0));
+            let mut bytes = Vec::new();
+            if file.take(4096).read_to_end(&mut bytes).is_ok() && !bytes.is_empty() {
+                let text = String::from_utf8_lossy(&bytes);
+                let mut end = text.len().min(4096);
+                while !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                eprintln!("QA {label} (up to 4096 bytes): {}", &text[..end]);
+            }
+        }
+    }
 }
 
 fn worker_error(stderr: &mut fs::File) -> String {

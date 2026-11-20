@@ -8,6 +8,15 @@ fn main() {
     }
     assert_eq!(args[1], "--runtime");
     let request = fs::read_to_string("request.json").unwrap();
+    if request.contains("교정용 현장 조사 보고서") {
+        use std::io::Write;
+        fs::write("diagnostic-exception.txt", "fixture exception").unwrap();
+        fs::write("diagnostic-book.log", vec![b'x'; 100_000]).unwrap();
+        let mut stderr = std::io::stderr().lock();
+        stderr.write_all(b"fixture worker diagnostic").unwrap();
+        stderr.write_all(&vec![b'x'; 100_000]).unwrap();
+        std::process::exit(1);
+    }
     if request.contains("validation_error") {
         eprintln!(
             r#"{{"code":"invalid_input","field":"body_sp","message":"글자 크기를 확인하세요.","secret":"private detail"}}"#
