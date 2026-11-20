@@ -1,0 +1,359 @@
+{
+  "deployment": {
+    "container": "jjokgyeol-mirrored-release",
+    "container_id": "5cff02c6f9fc08e71f9b9df6ff3a5ec60ae474cf66e7292f77a29729ddf7f472",
+    "image": "sha256:8ff58f162c1710573a108749e90ebb9a901fe83f561726ef43ce96b0dd651e17",
+    "platform": "linux/arm64",
+    "url": "http://127.0.0.1:8768",
+    "mounts": [],
+    "ports": {
+      "8000/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "8768"
+        }
+      ]
+    }
+  },
+  "test_run": "15 passed in 146.69s (0:02:26)",
+  "command": "JJOKGYEOL_REFERENCE_URL=http://127.0.0.1:8768 JJOKGYEOL_TEST_IMAGE=sha256:8ff58f162c1710573a108749e90ebb9a901fe83f561726ef43ce96b0dd651e17 PLAYWRIGHT_BROWSERS_PATH=/private/tmp/jjokgyeol-dev/browsers /private/tmp/jjokgyeol-dev/venv/bin/python -m pytest -q -s --tb=short tests/test_mirrored_margin_acceptance.py tests/test_duplex_acceptance.py",
+  "baseline": {
+    "url": "http://127.0.0.1:8767",
+    "image": "sha256:99b9d1ad44d874fd6b1d820d18dd6ebaee268a6b345de0d510bb6fab17d47746",
+    "style_sha256": "2ab28f8de113c7281af37e0fe7986bba12f443d89e8529236ab45f261c6ac17f",
+    "initial_browser_red": "1 failed, 2 passed in 18.54s; baseline lacks the '여백 방식' control"
+  },
+  "layout_mm": {
+    "page": [
+      128,
+      100
+    ],
+    "top": 15,
+    "outside": 10,
+    "bottom": 15,
+    "inside": 12,
+    "gutter": 6,
+    "effective_inside": 18,
+    "body_width": 100
+  },
+  "coordinate_system": "PDF points measured from the lower left, 0.04 point horizontal tolerance",
+  "style_sha256": "1a11e4dbad3bde96286bd4d04552408d43900315c5f7c64d8247e6aaba63c0a2",
+  "acceptance_log_sha256": "d537cc6d948a2b33f3e16c8d119c7a42b45b6419b8107ad2c700bc48d2f95023",
+  "book": {
+    "before": {
+      "source_sha256": "90883c02c7db5ee2efea1ca4fec20fa5faa51cae41fcd5eae8d8e61059b3f0f0",
+      "baseline_sha256": "40555cf7ff41b009957103d0e5407cdbb53d8bd1246d43d17eb545903eec3891",
+      "pages": [
+        {
+          "page": 1,
+          "body_note_lines": 10,
+          "body_note_glyphs": 80,
+          "note_lines": 0,
+          "header": "표지연안",
+          "folio": "",
+          "folio_edge_pt": null,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 2,
+          "body_note_lines": 11,
+          "body_note_glyphs": 162,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "2",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 3,
+          "body_note_lines": 12,
+          "body_note_glyphs": 184,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "3",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 4,
+          "body_note_lines": 11,
+          "body_note_glyphs": 164,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "4",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 5,
+          "body_note_lines": 12,
+          "body_note_glyphs": 187,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "5",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 6,
+          "body_note_lines": 12,
+          "body_note_glyphs": 184,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "6",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 7,
+          "body_note_lines": 11,
+          "body_note_glyphs": 164,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "7",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 8,
+          "body_note_lines": 12,
+          "body_note_glyphs": 187,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "8",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 9,
+          "body_note_lines": 10,
+          "body_note_glyphs": 158,
+          "note_lines": 1,
+          "header": "홀수연안",
+          "folio": "9",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": 51.024,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.010542,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 10,
+          "body_note_lines": 11,
+          "body_note_glyphs": 239,
+          "note_lines": 1,
+          "header": "",
+          "folio": "10",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.007387,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 11,
+          "body_note_lines": 14,
+          "body_note_glyphs": 483,
+          "note_lines": 14,
+          "header": "홀수연안",
+          "folio": "11",
+          "folio_edge_pt": 334.4877,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.007553,
+          "max_body_note_y_error_pt": 0
+        }
+      ],
+      "download_sha256": "0465588c33828fc2ef3421694b43a89afd012c7da88936fef2b8328714ffb43d",
+      "preview_sha256": "0465588c33828fc2ef3421694b43a89afd012c7da88936fef2b8328714ffb43d"
+    },
+    "after": {
+      "source_sha256": "5dfc1b9f1033d2c352109987efc0f1940afd5f7fc6f1acc86bf69dd4ec70a3c3",
+      "baseline_sha256": "6627fb2fd790f17fe07f39e7a2ab9f6da4918d4fe63be657beaad83c584c29b5",
+      "pages": [
+        {
+          "page": 1,
+          "body_note_lines": 10,
+          "body_note_glyphs": 80,
+          "note_lines": 0,
+          "header": "표지연안",
+          "folio": "",
+          "folio_edge_pt": null,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 2,
+          "body_note_lines": 11,
+          "body_note_glyphs": 162,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "2",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 3,
+          "body_note_lines": 11,
+          "body_note_glyphs": 216,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "3",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 4,
+          "body_note_lines": 12,
+          "body_note_glyphs": 183,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "4",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 5,
+          "body_note_lines": 12,
+          "body_note_glyphs": 187,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "5",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 6,
+          "body_note_lines": 12,
+          "body_note_glyphs": 187,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "6",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 7,
+          "body_note_lines": 12,
+          "body_note_glyphs": 187,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "7",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 8,
+          "body_note_lines": 12,
+          "body_note_glyphs": 184,
+          "note_lines": 0,
+          "header": "짝수연안",
+          "folio": "8",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 9,
+          "body_note_lines": 11,
+          "body_note_glyphs": 164,
+          "note_lines": 0,
+          "header": "홀수연안",
+          "folio": "9",
+          "folio_edge_pt": 334.4878,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 10,
+          "body_note_lines": 10,
+          "body_note_glyphs": 181,
+          "note_lines": 1,
+          "header": "짝수연안",
+          "folio": "10",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": 28.346,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000583,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 11,
+          "body_note_lines": 12,
+          "body_note_glyphs": 292,
+          "note_lines": 4,
+          "header": "",
+          "folio": "11",
+          "folio_edge_pt": 334.4877,
+          "tracked_x0_pt": null,
+          "shift_mm": 4,
+          "max_x_error_pt": 0.007553,
+          "max_body_note_y_error_pt": 0
+        },
+        {
+          "page": 12,
+          "body_note_lines": 11,
+          "body_note_glyphs": 380,
+          "note_lines": 11,
+          "header": "짝수연안",
+          "folio": "12",
+          "folio_edge_pt": 28.346,
+          "tracked_x0_pt": null,
+          "shift_mm": -4,
+          "max_x_error_pt": 0.000417,
+          "max_body_note_y_error_pt": 0
+        }
+      ],
+      "download_sha256": "e02f8186629734a4dfaaa9cfd278577078c25aee605fff1614edf9c1d4f43e82",
+      "preview_sha256": "e02f8186629734a4dfaaa9cfd278577078c25aee605fff1614edf9c1d4f43e82"
+    }
+  }
+}

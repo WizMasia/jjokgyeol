@@ -1,0 +1,55 @@
+...after.pdf 106512 bytes SHA-256 6627fb2fd790f17fe07f39e7a2ab9f6da4918d4fe63be657beaad83c584c29b5
+single-reopened.pdf 107549 bytes SHA-256 f4ad19ada6bbe7ca1708d8dc26fee62e340476c3f2107aa8ac0acabdb46c9fa9
+reopened.pdf 106512 bytes SHA-256 ed2f13292c308b5e436ede49fdfaa4dcf41161bfa36d7d832208260aa345b17b
+.restored.pdf 90550 bytes SHA-256 06da21b86a33522b9e1a6d937a5015d88d3f05050dd641f8a420454b52707556
+.banks.docx [('구역 1 · 문단 1', '표지', 18), ('구역 1 · 문단 2', '목차', 18), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 18), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 23), ('구역 1 · 문단 7', '본문', 23)] []
+single.pdf 104458 bytes SHA-256 b99e8727a7ddf92666f6c8267ef5058b3504792c37e679deb85694ae3f9b7d2a
+reopened.pdf 103282 bytes SHA-256 e4254ee039952d96ca6ed76faedd51e18ba8550732e96f3540f9c022244a395c
+.outer.hwpx [('구역 1 · 문단 1', '표지', 20), ('구역 1 · 문단 2', '목차', 20), ('구역 1 · 문단 3', '목차', 22), ('구역 1 · 문단 4', '본문', 20), ('구역 1 · 문단 5', '본문', 22), ('구역 1 · 문단 6', '본문', 25), ('구역 1 · 문단 7', '본문', 25)] []
+single.pdf 104458 bytes SHA-256 11897358076827e75d5771d3969923c868215bd0d583a33d5c64168ef4963a4c
+reopened.pdf 103031 bytes SHA-256 c536d7c483f63b7ff86f439a005d06cab7c5b87193ceaf0149e672d04aa84d8b
+.banks.pdf [('1쪽', '표지', 19), ('2쪽', '본문', 19), ('3쪽', '본문', 19), ('4쪽', '본문', 19), ('5쪽', '본문', 19), ('6쪽', '본문', 19)] []
+single.pdf 104458 bytes SHA-256 b5b02c38820b4693e0a16ec3b1a1bdfbd141c10ed0fc8225343206b658d0a142
+reopened.pdf 102556 bytes SHA-256 a1c327aa8b2493becf26b9f6e718999e4a5b1f4801231c570a1697910e0251d0
+.scan.png [('1쪽', '본문', 8)] []
+single.pdf 104458 bytes SHA-256 ee0f004038492750e4c655559f6d2efad31f0041aa1e5280a5422fb280ac1522
+reopened.pdf 103145 bytes SHA-256 57af6238820817b8f2b80edc5aff610dcaf3263e4ceb3dd46345171756bd6537
+....unmarked.pdf 102200 bytes SHA-256 df201d115b222cf77803c2398a097d87282327f80b95efb9863e819a9a63d832
+after.pdf 107549 bytes SHA-256 9308471802de309ec5ff864f56b86e48b81600a74ad53307a6e6d8dcd0c20275
+after-off.pdf 105196 bytes SHA-256 ce68bc2503ba8d7f11c603d8c61ac265e1e03f72a90355aedcc150a55c923ec6
+after-reopened.pdf 107549 bytes SHA-256 beb57995f8a94b227358e0174f3f063e2490056e8242219f1c9ea4356dd1b82c
+..reference.docx [('구역 1 · 문단 1', '표지', 14), ('구역 1 · 문단 2', '목차', 14), ('구역 1 · 문단 3', '목차', 14), ('구역 1 · 문단 4', '본문', 14), ('구역 1 · 문단 5', '본문', 14), ('구역 1 · 문단 6', '본문', 19), ('구역 1 · 문단 7', '본문', 19)] []
+.reference.hwpx [('구역 1 · 문단 1', '표지', 16), ('구역 1 · 문단 2', '목차', 16), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 16), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 21), ('구역 1 · 문단 7', '본문', 21)] []
+.reference.pdf [('1쪽', '본문', 19), ('2쪽', '본문', 19), ('3쪽', '본문', 19)] []
+.scan.png [('1쪽', '본문', 8)] []
+header left 'COAST 2026' before literal selection: 번호 해석에서 원문 숫자 또는 자동 쪽 번호를 선택하세요.
+footer center '- 17 -' page: - {현재쪽} -
+...reference.pdf [('1쪽', '표지', 13), ('2쪽', '목차', 14), ('3쪽', '본문', 21)] []
+.before.pdf 79733 bytes SHA-256 8e12d8e8bd0c9f120eda6c747dfe09b2a0b0a45732df20d7fca3530c6974f430
+scan.png [('1쪽', '표지', 4)] []
+LM calibration body font_pt [249] [10.4854096063]
+.before.pdf 79733 bytes SHA-256 547fa39b980bec3e2ae8d05f0f8510d0b49e3201d8b8a7dc30e8087b16aea278
+mixed.pdf [('1쪽', '본문', 21), ('2쪽', '표지', 5)] []
+LM calibration body font_pt [235] [9.8958685039]
+.before.pdf 79733 bytes SHA-256 adcbe047c14f4138f0f9f07d365110043bd353f4bef589f148d96c30883636e9
+reference.docx [('구역 1 · 문단 1', '표지', 4), ('구역 1 · 문단 2', '목차', 4), ('구역 1 · 문단 3', '목차', 4), ('구역 1 · 문단 4', '본문', 4), ('구역 1 · 문단 5', '본문', 4), ('구역 1 · 문단 6', '본문', 9), ('구역 1 · 문단 7', '본문', 9)] []
+reference.docx [('구역 1 · 문단 1', '표지', 4), ('구역 1 · 문단 2', '목차', 4), ('구역 1 · 문단 3', '목차', 4), ('구역 1 · 문단 4', '본문', 4), ('구역 1 · 문단 5', '본문', 4), ('구역 1 · 문단 6', '본문', 9), ('구역 1 · 문단 7', '본문', 9)] []
+legacy.pdf 79733 bytes SHA-256 50a3b1b2265f93d6cfbf7b4b6bbd2d1da9946c2e33c14318cd4b2202b90c8020
+reopened.pdf 79745 bytes SHA-256 4853c693e177b3c55057ab0f1e531ab1a99e5ca3dee7c01b6746aa0106900fb3
+reference.docx body glyph 10.958899999999971 13.947699999999998 geometry 76c40bd7050e7366d230e53105d7188c37eddc3bb60e16b11c1403e0f9396b93 trial/preview/download 3e000d29e47d568d42f7dd5c1a7d5289eac52290fc395bf04622d935c62cea82
+.before.pdf 79733 bytes SHA-256 68e67651a55573d72c3752a053d791e801cdcb2ebcc32f831cce4295549f58a5
+reference.hwpx [('구역 1 · 문단 1', '표지', 6), ('구역 1 · 문단 2', '목차', 6), ('구역 1 · 문단 3', '목차', 8), ('구역 1 · 문단 4', '본문', 6), ('구역 1 · 문단 5', '본문', 8), ('구역 1 · 문단 6', '본문', 11), ('구역 1 · 문단 7', '본문', 11)] []
+reference.hwpx [('구역 1 · 문단 1', '표지', 6), ('구역 1 · 문단 2', '목차', 6), ('구역 1 · 문단 3', '목차', 8), ('구역 1 · 문단 4', '본문', 6), ('구역 1 · 문단 5', '본문', 8), ('구역 1 · 문단 6', '본문', 11), ('구역 1 · 문단 7', '본문', 11)] []
+legacy.pdf 79733 bytes SHA-256 47e622f0917297889f33f135f717a816da85cdb8f0dca802a32bf6bc425263f6
+reopened.pdf 79745 bytes SHA-256 5f596e7fab10da84abc0d8bb7d7bb7c0effc8df8c232807875e7356697f2b93a
+reference.hwpx body glyph 10.958899999999971 13.947699999999998 geometry 76c40bd7050e7366d230e53105d7188c37eddc3bb60e16b11c1403e0f9396b93 trial/preview/download b68024515075e36b004a9c4af5b8797f91b6a5f5db5d3dc3ed54ab9327339092
+.before.pdf 79733 bytes SHA-256 f852c91da4778e6c3428c67bd551f3bd0215233684ae3ffd635d5ce916c6d5ee
+reference.docx [('구역 1 · 문단 1', '표지', 4), ('구역 1 · 문단 2', '목차', 4), ('구역 1 · 문단 3', '목차', 4), ('구역 1 · 문단 4', '본문', 4), ('구역 1 · 문단 5', '본문', 4), ('구역 1 · 문단 6', '본문', 9), ('구역 1 · 문단 7', '본문', 9)] []
+moved.pdf 81819 bytes SHA-256 af5271d374ef47a533d46dbe53ceb4571b7475f19ce85e17f2831d0f6872a79c
+duplicate.pdf 80455 bytes SHA-256 8b7ea7b277227746cbe8b8156767aa86f8943217f0b880bd6a845dea961487dd
+missing.pdf 79757 bytes SHA-256 532b5f82d3eab9f37402dd9ef7c44d49e2cc79ee75f981896c17c9045e5a9be6
+list x 67.10289808 85.10289808 pages 1 2
+.service linux/arm64 sha256:99b9d1ad44d874fd6b1d820d18dd6ebaee268a6b345de0d510bb6fab17d47746
+mixed.pdf [('1쪽', '본문', 21), ('2쪽', '본문', 1)] ['2쪽의 이미지 서식 분석을 완료하지 못했습니다. 이 쪽을 다시 시도하세요.']
+.
+27 passed in 239.49s (0:03:59)

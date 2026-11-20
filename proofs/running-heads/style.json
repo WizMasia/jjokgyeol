@@ -1,0 +1,83 @@
+{
+  "page_sp": [
+    23867902,
+    18646798
+  ],
+  "margins_sp": [
+    2797020,
+    2610552,
+    2797020,
+    2610552
+  ],
+  "body_sp": 720896,
+  "leading_sp": 983040,
+  "body_font": "nanum-myeongjo",
+  "heading_font": "nanum-gothic",
+  "first_indent_sp": 0,
+  "rest_indent_sp": 0,
+  "ko_tracking_per_10000": 0,
+  "space_per_10000": [
+    10000,
+    10000
+  ],
+  "section_rules": [
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "visible": true,
+        "left": "연안기록",
+        "center": "2026",
+        "right": "{{현재쪽}}",
+        "font_sp": 589824,
+        "offset_sp": 1118808
+      }
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "visible": true,
+        "center": "－ {현재쪽} －",
+        "font_sp": 589824,
+        "offset_sp": 1118808
+      }
+    },
+    {
+      "path": [
+        "표지"
+      ],
+      "role": "header",
+      "values": {
+        "visible": false
+      }
+    },
+    {
+      "path": [
+        "표지"
+      ],
+      "role": "footer",
+      "values": {
+        "visible": false
+      }
+    },
+    {
+      "path": [
+        "부록"
+      ],
+      "role": "header",
+      "values": {
+        "left": "부록기록"
+      }
+    },
+    {
+      "path": [
+        "판독표"
+      ],
+      "role": "header",
+      "values": {
+        "left": "판독표기록"
+      }
+    }
+  ]
+}

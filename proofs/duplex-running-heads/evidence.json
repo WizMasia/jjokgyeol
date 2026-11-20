@@ -1,0 +1,673 @@
+{
+  "final": {
+    "container": "jjokgyeol-duplex-release",
+    "image": "sha256:99b9d1ad44d874fd6b1d820d18dd6ebaee268a6b345de0d510bb6fab17d47746",
+    "port": "127.0.0.1:8767",
+    "url": "http://127.0.0.1:8767/",
+    "platform": "linux/arm64",
+    "mounts": []
+  },
+  "tests": "27 passed in 239.49s (0:03:59)",
+  "local_model": "google/gemma-4-e2b",
+  "baseline": {
+    "image": "sha256:755dbe0f266a5030cad3efd7b2fa464a260d6013cbe9f9e8d69d42f11bec046e",
+    "url": "http://127.0.0.1:8766/",
+    "mounts": [],
+    "red": "API 422 section_rules[2] on before and after (2 failed in 5.09s); editor lacked #running-face (1 failed in 8.38s)."
+  },
+  "units": "PDF pt, origin lower-left; number coordinates are measured glyph edges",
+  "style_sha256": "2ab28f8de113c7281af37e0fe7986bba12f443d89e8529236ab45f261c6ac17f",
+  "book": {
+    "before": {
+      "source": "../running-heads/before.md",
+      "source_sha256": "90883c02c7db5ee2efea1ca4fec20fa5faa51cae41fcd5eae8d8e61059b3f0f0",
+      "single_pdf_sha256": "a20626c1e0349ddcf0c2bd4bb7d72a9661579abff2193cd8a0d9072fa2e449bc",
+      "single_tracked_footer": "－9－",
+      "single_tracked_center_x": 181.4142,
+      "pdf": "before.pdf",
+      "download_and_preview_sha256": "40555cf7ff41b009957103d0e5407cdbb53d8bd1246d43d17eb545903eec3891",
+      "physical_tracked_page": 9,
+      "matched_body_footnote_glyphs": 2192,
+      "pages": [
+        {
+          "page": 1,
+          "header": "표지연안",
+          "footer": "",
+          "x0": null,
+          "x1": null,
+          "first_body": "표지",
+          "note_lines": 0,
+          "body_note_glyphs": 80
+        },
+        {
+          "page": 2,
+          "header": "짝수연안",
+          "footer": "2",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "본문",
+          "note_lines": 0,
+          "body_note_glyphs": 162
+        },
+        {
+          "page": 3,
+          "header": "홀수연안",
+          "footer": "3",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측07. 바람이 잦아들자 갈매기 한 쌍이 바다 건너로",
+          "note_lines": 0,
+          "body_note_glyphs": 184
+        },
+        {
+          "page": 4,
+          "header": "짝수연안",
+          "footer": "4",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "숨었다.",
+          "note_lines": 0,
+          "body_note_glyphs": 164
+        },
+        {
+          "page": 5,
+          "header": "홀수연안",
+          "footer": "5",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측20. 잔물결이 모래 위를 지나고 둥근 돌이 햇빛을",
+          "note_lines": 0,
+          "body_note_glyphs": 187
+        },
+        {
+          "page": 6,
+          "header": "짝수연안",
+          "footer": "6",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "관측27. 바람이 잦아들자 갈매기 한 쌍이 바다 건너로",
+          "note_lines": 0,
+          "body_note_glyphs": 184
+        },
+        {
+          "page": 7,
+          "header": "홀수연안",
+          "footer": "7",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "숨었다.",
+          "note_lines": 0,
+          "body_note_glyphs": 164
+        },
+        {
+          "page": 8,
+          "header": "짝수연안",
+          "footer": "8",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "관측40. 잔물결이 모래 위를 지나고 둥근 돌이 햇빛을",
+          "note_lines": 0,
+          "body_note_glyphs": 187
+        },
+        {
+          "page": 9,
+          "header": "홀수연안",
+          "footer": "9",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측47. 바람이 잦아들자 갈매기 한 쌍이 바다 건너로",
+          "note_lines": 1,
+          "body_note_glyphs": 158
+        },
+        {
+          "page": 10,
+          "header": "",
+          "footer": "10",
+          "x0": 39.685,
+          "x1": 49.3167,
+          "first_body": "소금 결정이 반짝인다. 모랫길에 고운 소금 결정이 반짝인다.",
+          "note_lines": 1,
+          "body_note_glyphs": 239
+        },
+        {
+          "page": 11,
+          "header": "홀수연안",
+          "footer": "11",
+          "x0": 313.518,
+          "x1": 323.1497,
+          "first_body": null,
+          "note_lines": 14,
+          "body_note_glyphs": 483
+        }
+      ]
+    },
+    "after": {
+      "source": "../running-heads/after.md",
+      "source_sha256": "5dfc1b9f1033d2c352109987efc0f1940afd5f7fc6f1acc86bf69dd4ec70a3c3",
+      "single_pdf_sha256": "96e4feb4274a0ce7fadacb127a68c01c0e89346bf19361df0a142888d893fbcf",
+      "single_tracked_footer": "－10－",
+      "single_tracked_center_x": 181.4141,
+      "pdf": "after.pdf",
+      "download_and_preview_sha256": "6627fb2fd790f17fe07f39e7a2ab9f6da4918d4fe63be657beaad83c584c29b5",
+      "physical_tracked_page": 10,
+      "matched_body_footnote_glyphs": 2403,
+      "pages": [
+        {
+          "page": 1,
+          "header": "표지연안",
+          "footer": "",
+          "x0": null,
+          "x1": null,
+          "first_body": "표지",
+          "note_lines": 0,
+          "body_note_glyphs": 80
+        },
+        {
+          "page": 2,
+          "header": "짝수연안",
+          "footer": "2",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "본문",
+          "note_lines": 0,
+          "body_note_glyphs": 162
+        },
+        {
+          "page": 3,
+          "header": "홀수연안",
+          "footer": "3",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측07. 바람이 잦아들자 갈매기 한 쌍이 바다 건너로",
+          "note_lines": 0,
+          "body_note_glyphs": 216
+        },
+        {
+          "page": 4,
+          "header": "짝수연안",
+          "footer": "4",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "보충10. 해 질 무렵 해안의 바람을 한 번 더 살폈다.",
+          "note_lines": 0,
+          "body_note_glyphs": 183
+        },
+        {
+          "page": 5,
+          "header": "홀수연안",
+          "footer": "5",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측14. 비가 그친 뒤 물이 빠진 자리에 검은 조개가 보였다.",
+          "note_lines": 0,
+          "body_note_glyphs": 187
+        },
+        {
+          "page": 6,
+          "header": "짝수연안",
+          "footer": "6",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "관측21. 동쪽 바위에 흰 자국이 남고 작은 게가 그늘로",
+          "note_lines": 0,
+          "body_note_glyphs": 187
+        },
+        {
+          "page": 7,
+          "header": "홀수연안",
+          "footer": "7",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "관측28. 잔물결이 모래 위를 지나고 둥근 돌이 햇빛을",
+          "note_lines": 0,
+          "body_note_glyphs": 187
+        },
+        {
+          "page": 8,
+          "header": "짝수연안",
+          "footer": "8",
+          "x0": 39.685,
+          "x1": 44.5008,
+          "first_body": "관측35. 바람이 잦아들자 갈매기 한 쌍이 바다 건너로",
+          "note_lines": 0,
+          "body_note_glyphs": 184
+        },
+        {
+          "page": 9,
+          "header": "홀수연안",
+          "footer": "9",
+          "x0": 318.334,
+          "x1": 323.1498,
+          "first_body": "숨었다.",
+          "note_lines": 0,
+          "body_note_glyphs": 164
+        },
+        {
+          "page": 10,
+          "header": "짝수연안",
+          "footer": "10",
+          "x0": 39.685,
+          "x1": 49.3167,
+          "first_body": "관측48. 잔물결이 모래 위를 지나고 둥근 돌이 햇빛을",
+          "note_lines": 1,
+          "body_note_glyphs": 181
+        },
+        {
+          "page": 11,
+          "header": "",
+          "footer": "11",
+          "x0": 313.518,
+          "x1": 323.1497,
+          "first_body": "결정이 반짝인다. 모랫길에 고운 소금 결정이 반짝인다.",
+          "note_lines": 4,
+          "body_note_glyphs": 292
+        },
+        {
+          "page": 12,
+          "header": "짝수연안",
+          "footer": "12",
+          "x0": 39.685,
+          "x1": 49.3167,
+          "first_body": null,
+          "note_lines": 11,
+          "body_note_glyphs": 380
+        }
+      ]
+    }
+  },
+  "references": [
+    {
+      "input": "banks.docx",
+      "input_sha256": "90428c06f4800ffeb079614f6931177f3ee8ac969da447fcf5e1c4691902c712",
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "East bank",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/header1.xml · 원문·쪽 번호 제어",
+          "source_group": "docx/1/header/default",
+          "variant": "default",
+          "suggested_face": "odd"
+        },
+        {
+          "role": "header",
+          "key": "left",
+          "value": "West bank",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/header3.xml · 원문·쪽 번호 제어",
+          "source_group": "docx/1/header/even",
+          "variant": "even",
+          "suggested_face": "even"
+        },
+        {
+          "role": "footer",
+          "key": "visible",
+          "value": false,
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/footer2.xml · 빈 영역",
+          "source_group": "docx/1/footer/first",
+          "variant": "first",
+          "suggested_face": "first"
+        }
+      ],
+      "download_sha256": "f8150e9d36f23b81604c58de7a1202d903ef4972db6ca67c992f552f0dc99d30",
+      "reopened_download_sha256": "e4254ee039952d96ca6ed76faedd51e18ba8550732e96f3540f9c022244a395c",
+      "printed": [
+        [
+          "동녘연안",
+          ""
+        ],
+        [
+          "서녘연안",
+          "2"
+        ],
+        [
+          "동녘연안",
+          "3"
+        ],
+        [
+          "서녘연안",
+          "4"
+        ],
+        [
+          "동녘연안",
+          "5"
+        ],
+        [
+          "서녘연안",
+          "6"
+        ],
+        [
+          "동녘연안",
+          "7"
+        ],
+        [
+          "서녘연안",
+          "8"
+        ],
+        [
+          "동녘연안",
+          "9"
+        ],
+        [
+          "서녘연안",
+          "10"
+        ],
+        [
+          "동녘연안",
+          "11"
+        ]
+      ],
+      "stored_rules": [
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "visible": true,
+            "center": "{현재쪽}",
+            "offset_sp": 1118808
+          }
+        },
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "center": "",
+            "left": "{현재쪽}"
+          },
+          "face": "even"
+        },
+        {
+          "path": [],
+          "role": "header",
+          "values": {
+            "left": "동녘연안",
+            "visible": true
+          },
+          "face": "odd"
+        },
+        {
+          "path": [],
+          "role": "header",
+          "values": {
+            "left": "서녘연안",
+            "visible": true
+          },
+          "face": "even"
+        },
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "visible": false
+          },
+          "face": "first"
+        }
+      ],
+      "output": "from-docx.pdf"
+    },
+    {
+      "input": "outer.hwpx",
+      "input_sha256": "1abe771c2dda5b959e848875db4c4d26ac3f11f37b4150ee7c2ff5fd86691282",
+      "candidates": [
+        {
+          "role": "footer",
+          "key": "right",
+          "value": "{현재쪽}",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · Contents/section0.xml · Contents/section0.xml · pageNum OUTSIDE_BOTTOM · 원문·쪽 번호 제어",
+          "source_group": "hwpx/1/footer/odd/0",
+          "variant": "odd",
+          "suggested_face": "odd"
+        },
+        {
+          "role": "footer",
+          "key": "left",
+          "value": "{현재쪽}",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · Contents/section0.xml · Contents/section0.xml · pageNum OUTSIDE_BOTTOM · 원문·쪽 번호 제어",
+          "source_group": "hwpx/1/footer/even/1",
+          "variant": "even",
+          "suggested_face": "even"
+        }
+      ],
+      "download_sha256": "89059f8516ed68e49496d61b7fad2a86def45a6dcad6b1d2ea0d506155b9d463",
+      "reopened_download_sha256": "c536d7c483f63b7ff86f439a005d06cab7c5b87193ceaf0149e672d04aa84d8b",
+      "printed": [
+        [
+          "",
+          "항1"
+        ],
+        [
+          "",
+          "항2"
+        ],
+        [
+          "",
+          "항3"
+        ],
+        [
+          "",
+          "항4"
+        ],
+        [
+          "",
+          "항5"
+        ],
+        [
+          "",
+          "항6"
+        ],
+        [
+          "",
+          "항7"
+        ],
+        [
+          "",
+          "항8"
+        ],
+        [
+          "",
+          "항9"
+        ],
+        [
+          "",
+          "항10"
+        ],
+        [
+          "",
+          "항11"
+        ]
+      ],
+      "stored_rules": [
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "right": "항{현재쪽}",
+            "visible": true
+          },
+          "face": "odd"
+        },
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "left": "항{현재쪽}",
+            "visible": true
+          },
+          "face": "even"
+        }
+      ],
+      "output": "from-hwpx.pdf"
+    },
+    {
+      "input": "../running-heads/scan.png",
+      "input_sha256": "a378daa9a44430d3e0ae9517be2b37aaf53b4c207a7c2183541424b6c4db1742",
+      "candidates": [
+        {
+          "role": "footer",
+          "key": "center",
+          "value": "- 17 -",
+          "basis": "confirm",
+          "evidence": "모델 판독 · 1쪽 · 하단 오른쪽 · 판독 문구 확인 · 단일 지면, 면 직접 선택 · 잉크 x=329–384px / 723px · 가운데",
+          "source_group": "page:1:footer",
+          "variant": "unknown",
+          "suggested_face": null,
+          "options": [
+            {
+              "kind": "literal",
+              "value": "- 17 -"
+            },
+            {
+              "kind": "page",
+              "value": "- {현재쪽} -"
+            }
+          ]
+        }
+      ],
+      "download_sha256": "6dd1b990d76b90d36ddbd03b7a0e0f1478412a256ed3513c119ebecea81e0177",
+      "reopened_download_sha256": "57af6238820817b8f2b80edc5aff610dcaf3263e4ceb3dd46345171756bd6537",
+      "printed": [
+        [
+          "",
+          "홀1면"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "",
+          "홀3면"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "",
+          "홀5면"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "",
+          "홀7면"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "",
+          "홀9면"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "",
+          "홀11면"
+        ]
+      ],
+      "stored_rules": [
+        {
+          "path": [],
+          "role": "footer",
+          "values": {
+            "center": "홀{현재쪽}면",
+            "visible": true
+          },
+          "face": "odd"
+        }
+      ],
+      "output": "from-png.pdf"
+    },
+    {
+      "input": "banks.pdf",
+      "input_sha256": "6af061a539097289f2639e86fd6755bce31136cc8c4fdbd662ea9f0271bbf6d9",
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "East bank",
+          "basis": "read",
+          "evidence": "홀수 면 추정 · 1쪽·5쪽 · East bank",
+          "source_group": "page:1:header:left:1",
+          "variant": "odd",
+          "suggested_face": "odd"
+        }
+      ],
+      "download_sha256": "b9ca8d9fd9f296af8b0e2621d19cd4310537b8f6767e10f689047fdc9350dad2",
+      "reopened_download_sha256": "a1c327aa8b2493becf26b9f6e718999e4a5b1f4801231c570a1697910e0251d0",
+      "printed": [
+        [
+          "",
+          ""
+        ],
+        [
+          "다시읽은연안",
+          ""
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "다시읽은연안",
+          ""
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "다시읽은연안",
+          ""
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "다시읽은연안",
+          ""
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "다시읽은연안",
+          ""
+        ],
+        [
+          "",
+          ""
+        ]
+      ],
+      "stored_rules": [
+        {
+          "path": [],
+          "role": "header",
+          "values": {
+            "left": "다시읽은연안",
+            "visible": true
+          },
+          "face": "even"
+        }
+      ],
+      "output": "from-pdf.pdf"
+    }
+  ],
+  "command": "JJOKGYEOL_REFERENCE_URL=http://127.0.0.1:8767 JJOKGYEOL_TEST_IMAGE=sha256:99b9d1ad44d874fd6b1d820d18dd6ebaee268a6b345de0d510bb6fab17d47746 PLAYWRIGHT_BROWSERS_PATH=/private/tmp/jjokgyeol-dev/browsers /private/tmp/jjokgyeol-dev/venv/bin/python -m pytest -q -s --tb=short tests/test_duplex_acceptance.py tests/test_running_heads_acceptance.py tests/test_reference_acceptance.py",
+  "log": {
+    "filename": "acceptance.log",
+    "sha256": "b96493d4a9aecdd44eeb823190dfbfca8fdbe24c1b037201651fe81fb83f158b"
+  }
+}

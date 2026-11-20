@@ -1,0 +1,24 @@
+\documentclass{article}
+\usepackage{geometry}
+\usepackage{fontspec}
+\usepackage{luatexko}
+\directlua{book = require("layout"); book.setup()}
+\pagestyle{empty}
+\tracinglostchars=3
+\newbox\BookListMark
+\newcommand\BookPar{\par}
+\newcommand\bookheading[3]{%
+  {\sffamily\bfseries\fontsize{#1}{#2}\selectfont #3\BookPar}\nobreak}
+\begin{document}
+\frenchspacing
+\parindent=0pt
+\parskip=4pt
+\rightskip=0pt plus 1fil
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\linepenalty=100
+\clubpenalty=0
+\widowpenalty=0
+\skip\footins=24pt plus 1fill
+\directlua{book.document()}
+\end{document}

@@ -1,0 +1,32 @@
+fixed-before.pdf 103464 bytes SHA-256 c337256c6048d00279c18ce27d8a83ae457749cbd960ca7267b52c06182971c9
+.fixed-after.pdf 106512 bytes SHA-256 ac9a21f0643cf5ff4df9a27e385793a122ef3c187850a12673f15b441d99b14e
+.before.pdf 103469 bytes SHA-256 0465588c33828fc2ef3421694b43a89afd012c7da88936fef2b8328714ffb43d
+after.pdf 106514 bytes SHA-256 e02f8186629734a4dfaaa9cfd278577078c25aee605fff1614edf9c1d4f43e82
+fixed-reopened.pdf 106512 bytes SHA-256 574064bf1ed86fbe9cc1b3156c8f69f56d13fda9010650182170a031d35494b0
+mirror-reopened.pdf 106514 bytes SHA-256 cfe32a3745a35ae2cbb3fe1a1651a53a3b34ec7ac4ed9ef09b77b7aea9f008fb
+.fixed.pdf 103468 bytes SHA-256 5c9fa78bfdd0ae9408ffd44c4d26e3e5383aa5912f96ac65899ad087661373df
+zero.pdf 103469 bytes SHA-256 632de45a04967c3b7f530d248b2f33dd6c35aeeb792a3db8f373c9ab935a3e34
+.valid.pdf 103469 bytes SHA-256 7e3ff64aabc09bda89af77518be80dec535bba479f8246e3e9017bfee4713c83
+recovered.pdf 103469 bytes SHA-256 458134b1484d0ab330904e37d1d4c3282f4846823f6f569e7da1b3282951913d
+.mirrored.pdf 103469 bytes SHA-256 b48744fa66b2d1fc21f1d97779bce42be45fb9d739614e31d61422f3a8db199f
+banks.docx [('구역 1 · 문단 1', '표지', 18), ('구역 1 · 문단 2', '목차', 18), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 18), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 23), ('구역 1 · 문단 7', '본문', 23)] []
+banks.docx [('구역 1 · 문단 1', '표지', 18), ('구역 1 · 문단 2', '목차', 18), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 18), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 23), ('구역 1 · 문단 7', '본문', 23)] []
+banks.docx [('구역 1 · 문단 1', '표지', 18), ('구역 1 · 문단 2', '목차', 18), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 18), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 23), ('구역 1 · 문단 7', '본문', 23)] []
+....after.pdf 106512 bytes SHA-256 011524d48a0181004d151e53d2076b3f22c8795eb92c02013096a1f65fdb215d
+single-reopened.pdf 107549 bytes SHA-256 55bc43e82caac6f820a5078739bcbda4349cf6a89e5fcddd36860dbd5bdd99f5
+reopened.pdf 106512 bytes SHA-256 7b2b68e795f16ce2c954b82a93c2759118e81539dcf17595bb6b8a3eff5a3f50
+.restored.pdf 90550 bytes SHA-256 6489b7f738a8431f67dd887e151e96195963ac1ea0448c4e1cb022fe43e72d99
+.banks.docx [('구역 1 · 문단 1', '표지', 18), ('구역 1 · 문단 2', '목차', 18), ('구역 1 · 문단 3', '목차', 18), ('구역 1 · 문단 4', '본문', 18), ('구역 1 · 문단 5', '본문', 18), ('구역 1 · 문단 6', '본문', 23), ('구역 1 · 문단 7', '본문', 23)] []
+single.pdf 104458 bytes SHA-256 040820e802049c6f59721fcede8ef4b228f838130a68c77616a2c7b5630d8b84
+reopened.pdf 103282 bytes SHA-256 255c91c39e271bc1674d67076edf83cc1f0be6340de3222eeeb828f685bedf1e
+.outer.hwpx [('구역 1 · 문단 1', '표지', 20), ('구역 1 · 문단 2', '목차', 20), ('구역 1 · 문단 3', '목차', 22), ('구역 1 · 문단 4', '본문', 20), ('구역 1 · 문단 5', '본문', 22), ('구역 1 · 문단 6', '본문', 25), ('구역 1 · 문단 7', '본문', 25)] []
+single.pdf 104458 bytes SHA-256 35f924ce20ce13a745a8c071cd981fd8c618674e3ffb05e9a1aba6ce72cd93f1
+reopened.pdf 103031 bytes SHA-256 f9cb5d70ac9b70a6a98b7f4919f1a2885d47bd2dd07044041e61c4f69a7ce921
+.banks.pdf [('1쪽', '표지', 19), ('2쪽', '본문', 19), ('3쪽', '본문', 19), ('4쪽', '본문', 19), ('5쪽', '본문', 19), ('6쪽', '본문', 19)] []
+single.pdf 104458 bytes SHA-256 7f93e7fca144684d720d59122a44d0b56296f5238d1bc06fcbc31b78cef8e0f5
+reopened.pdf 102556 bytes SHA-256 4970b90a4cf8dfbd97b44945f6ea106ec796d5e739f396706b890ea005233cff
+.scan.png [('1쪽', '본문', 8)] []
+single.pdf 104458 bytes SHA-256 e4a389e54f8ec6ee66fd5cecb32db437ecea5ae64c428e1cff1130102cb5a266
+reopened.pdf 103145 bytes SHA-256 ec3fd9d3b9fe35049773389a92be362c35dba3a45a5674b2391950e1f2ca05b0
+.
+15 passed in 146.69s (0:02:26)

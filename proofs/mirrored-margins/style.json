@@ -1,0 +1,113 @@
+{
+  "page_sp": [
+    23867902,
+    18646798
+  ],
+  "margins_sp": [
+    2797020,
+    1864680,
+    2797020,
+    2237616
+  ],
+  "body_sp": 720896,
+  "leading_sp": 983040,
+  "body_font": "nanum-myeongjo",
+  "heading_font": "nanum-gothic",
+  "first_indent_sp": 0,
+  "rest_indent_sp": 0,
+  "ko_tracking_per_10000": 0,
+  "space_per_10000": [
+    10000,
+    10000
+  ],
+  "section_rules": [
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "visible": true,
+        "offset_sp": 1118808
+      }
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "visible": true,
+        "center": "{현재쪽}",
+        "offset_sp": 1118808
+      }
+    },
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "left": "홀수연안"
+      },
+      "face": "odd"
+    },
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "left": "짝수연안"
+      },
+      "face": "even"
+    },
+    {
+      "path": [],
+      "role": "header",
+      "values": {
+        "left": "표지연안"
+      },
+      "face": "first"
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "center": "",
+        "right": "{현재쪽}"
+      },
+      "face": "odd"
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "center": "",
+        "left": "{현재쪽}"
+      },
+      "face": "even"
+    },
+    {
+      "path": [],
+      "role": "footer",
+      "values": {
+        "visible": false
+      },
+      "face": "first"
+    },
+    {
+      "path": [
+        "부록"
+      ],
+      "role": "header",
+      "values": {
+        "visible": false
+      },
+      "face": "first"
+    },
+    {
+      "path": [
+        "판독표"
+      ],
+      "role": "header",
+      "values": {
+        "left": "첫원고면"
+      },
+      "face": "first"
+    }
+  ],
+  "gutter_sp": 1118808
+}

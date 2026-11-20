@@ -1,0 +1,242 @@
+import asyncio
+import json
+import sys
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from subprocess import DEVNULL
+from threading import BoundedSemaphore
+from time import monotonic
+
+from anyio import CapacityLimiter, fail_after, run_process
+from fastapi import FastAPI
+from starlette.requests import ClientDisconnect, Request
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.staticfiles import StaticFiles
+
+from app import jobs, publication
+from app import style as styles
+from app.document import InputError
+from app.operations import LIMITS
+from app.reference import load_settings
+
+ROOT = Path(__file__).resolve().parent.parent
+STATIC = ROOT / "app/static"
+MAX_BODY = LIMITS.request_body_bytes
+SLOTS = BoundedSemaphore(LIMITS.render_slots)
+PIN_WORKERS = CapacityLimiter(LIMITS.render_slots)
+TARGET_SLOTS = BoundedSemaphore(LIMITS.render_slots)
+REFERENCE = load_settings()
+REFERENCE_SLOTS = BoundedSemaphore(REFERENCE["slots"])
+NO_STORE = {"Cache-Control": "no-store"}
+ERRORS = {
+    413: ("too_large", f"요청은 {MAX_BODY:,}바이트 이하여야 합니다."),
+    422: ("invalid_input", "원고와 양식의 입력값을 확인하세요."),
+    429: ("busy", f"조판 작업 {LIMITS.render_slots}건이 진행 중입니다. 잠시 뒤 다시 시도하세요."),
+    500: ("engine_failed", "PDF를 만들 수 없습니다."),
+    504: ("timeout", "조판 제한 시간을 초과했습니다."),
+}
+
+
+def failure(status, field=None, message=None):
+    code, fallback = ERRORS[status]
+    return JSONResponse({"code": code, "field": field, "message": message or fallback},
+                        status_code=status, headers=NO_STORE)
+
+
+async def read_body(request, limit=None):
+    if limit is None:
+        limit = MAX_BODY
+    length = request.headers.get("content-length")
+    if length is not None:
+        if not length.isascii() or not length.isdecimal():
+            raise jobs.JobError(422)
+        # Compare as decimal strings to cover even an unrepresentable length.
+        length = length.lstrip("0")
+        if len(length) > len(str(limit)) or int(length or "0") > limit:
+            raise jobs.JobError(413)
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > limit:
+            raise jobs.JobError(413)
+        body.extend(chunk)
+    return body
+
+
+async def until_disconnect(receive):
+    while (await receive())["type"] != "http.disconnect":
+        pass
+
+
+async def while_connected(work, receive):
+    job = asyncio.create_task(work)
+    disconnect = asyncio.create_task(until_disconnect(receive))
+    try:
+        done, _ = await asyncio.wait((job, disconnect), return_when=asyncio.FIRST_COMPLETED)
+        if disconnect in done:
+            raise ClientDisconnect
+        return job.result()
+    finally:
+        for task in (job, disconnect):
+            task.cancel()
+        await asyncio.gather(job, disconnect, return_exceptions=True)
+
+
+def reference_command(request, targets, deadline):
+    fmt = "targets"
+    if not targets:
+        fmt = Path(request.query_params.get("name", "")).suffix.lower()[1:]
+        if fmt == "jpg":
+            fmt = "jpeg"
+        if fmt not in ("pdf", "png", "jpeg", "docx", "hwpx"):
+            raise jobs.JobError(422, "reference", "DOCX, HWPX, PDF, PNG 또는 JPEG 파일을 선택하세요.")
+    page = request.query_params.get("page")
+    if page is not None:
+        maximum = REFERENCE["max_pages"]
+        if (fmt not in ("pdf", "png", "jpeg") or not page.isascii() or not page.isdecimal()
+                or len(page) > len(str(maximum)) or not 1 <= int(page) <= maximum):
+            raise jobs.JobError(422, "reference", "다시 분석할 참고 쪽 번호를 확인하세요.")
+    return (sys.executable, "-IB", str(ROOT / "app/reference.py"), fmt, page or "0", str(deadline))
+
+
+class DocumentJob:
+    """Keep each request, isolated process and response delivery within one slot."""
+
+    def __init__(self, action):
+        self.action = action
+
+    def error(self, status, field=None, message=None):
+        if self.action != "render" and not message:
+            field = "source" if self.action == "targets" else "reference"
+            message = {
+                413: f"파일은 {self.byte_limit():,}바이트 이하여야 합니다.",
+                429: "다른 문서를 처리 중입니다. 잠시 뒤 다시 시도하세요.",
+                500: "문서를 읽지 못했습니다.",
+                504: "문서 분석 시간이 초과되었습니다.",
+            }.get(status)
+        return failure(status, field, message)
+
+    def byte_limit(self):
+        return REFERENCE["max_bytes"] if self.action == "analyze" else MAX_BODY
+
+    async def result(self, request, worker_deadline):
+        if self.action == "render":
+            body = await read_body(request)
+            result = await while_connected(jobs.render(body), request.receive)
+            return Response(result, media_type="application/pdf", headers=NO_STORE)
+        command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
+        body = await read_body(request, self.byte_limit())
+        result = await while_connected(
+            jobs.isolated_job(body, command, "request.bin", "response.json"), request.receive)
+        return Response(result, media_type="application/json", headers=NO_STORE)
+
+    async def __call__(self, scope, receive, send):
+        slots = {"render": SLOTS, "analyze": REFERENCE_SLOTS, "targets": TARGET_SLOTS}[self.action]
+        if not slots.acquire(blocking=False):
+            await self.error(429)(scope, receive, send)
+            return
+        try:
+            timeout = REFERENCE["timeout_seconds"] if self.action == "analyze" else jobs.TIMEOUT
+            worker_deadline = monotonic() + timeout
+            deadline = asyncio.get_running_loop().time() + timeout
+            try:
+                async with asyncio.timeout_at(deadline):
+                    response = await self.result(Request(scope, receive), worker_deadline)
+            except ClientDisconnect:
+                return
+            except TimeoutError:
+                response = self.error(504)
+            except jobs.JobError as error:
+                response = self.error(error.status, error.field, error.message)
+            except OSError:
+                response = self.error(500)
+            # Once headers go out a deadline must close the transfer.
+            if response.status_code != 200:
+                deadline = asyncio.get_running_loop().time() + jobs.TIMEOUT
+            async with asyncio.timeout_at(deadline):
+                await response(scope, receive, send)
+        finally:
+            slots.release()
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
+app.add_route("/api/reference/analyze", DocumentJob("analyze"), methods=["POST"])
+app.add_route("/api/reference/targets", DocumentJob("targets"), methods=["POST"])
+
+
+@app.get("/api/reference/settings")
+async def reference_settings():
+    return JSONResponse({
+        "model": REFERENCE["vision_model"], "max_bytes": REFERENCE["max_bytes"],
+        "heading_per_10000": publication.HEADINGS,
+        "heading_leading_per_10000": publication.HEADING_LEADING,
+    }, headers=NO_STORE)
+
+
+@app.post("/api/article/pin")
+async def article_pin(request: Request):
+    try:
+        with fail_after(jobs.TIMEOUT):
+            body = await read_body(request)
+            async with PIN_WORKERS:
+                # Own the process from launch so even a deadline during startup reaps it.
+                worker = await run_process(
+                    [sys.executable, "-B", "-m", "app.article_edit"], cwd=ROOT,
+                    input=bytes(body), stdin=None if body else DEVNULL, stderr=DEVNULL, check=False,
+                )
+        if worker.returncode == jobs.INVALID_INPUT:
+            return failure(422, "source", worker.stdout.decode())
+        if worker.returncode:
+            return failure(500)
+        return Response(worker.stdout, media_type="application/json", headers=NO_STORE)
+    except jobs.JobError as error:
+        return failure(error.status)
+    except TimeoutError:
+        return failure(504)
+
+
+@app.post("/api/style/export")
+@app.post("/api/style/open")
+async def style_file(request: Request):
+    try:
+        async with asyncio.timeout(jobs.TIMEOUT):
+            body = await read_body(request)
+        values = json.loads(body.decode("utf-8-sig"), parse_float=Decimal)
+        if request.url.path.endswith("/export"):
+            result = styles.apply_style(styles.Style(), values).to_stored()
+        else:
+            result = styles.from_stored_style(values).to_editor()
+        return JSONResponse(result, headers=NO_STORE)
+    except InputError as error:
+        return failure(422, error.field, error.message)
+    except (ValueError, InvalidOperation, RecursionError):
+        return failure(422, "style", "올바른 양식 JSON 파일을 선택하세요.")
+    except jobs.JobError as error:
+        return failure(error.status)
+    except TimeoutError:
+        return failure(504)
+
+
+def editor_html() -> str:
+    template = (STATIC / "index.html").read_text(encoding="utf-8")
+    marker = "<!--EDITOR_SETTINGS-->"
+    if template.count(marker) != 1:
+        raise ValueError(f"index.html must contain exactly one {marker}")
+    # HTML parses script contents as raw text even for application/json.
+    settings = json.dumps(styles.editor_bootstrap(), allow_nan=False).replace("<", r"\u003c")
+    script = f'<script type="application/json" id="editor-settings">{settings}</script>'
+    return template.replace(marker, script)
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/static/index.html", response_class=HTMLResponse)
+def editor():
+    return editor_html()
+
+
+@app.get("/sample.md")
+def sample():
+    return FileResponse(ROOT / "proofs/engine-comparison/manuscript.md", media_type="text/markdown; charset=utf-8")
+
+
+app.mount("/static", StaticFiles(directory=STATIC, check_dir=False))

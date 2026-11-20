@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>쪽결 · 원고 편집기</title>
+  <link rel="stylesheet" href="/static/editor.css">
+  <!--EDITOR_SETTINGS-->
+  <script src="/static/list-style.js" defer></script>
+  <script src="/static/editor.js" defer></script>
+  <script src="/static/style-file.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#source">원고 편집으로 이동</a>
+  <header class="masthead">
+    <h1><span class="mark" aria-hidden="true"></span><b>쪽결</b><span class="product">원고 편집기</span></h1>
+    <div class="actions">
+      <button id="refresh" type="button"><span aria-hidden="true">↻</span> 미리보기 갱신</button>
+      <button id="export" class="primary" type="button"><span aria-hidden="true">↓</span> <span>PDF 다운로드</span></button>
+    </div>
+  </header>
+  <main>
+    <p id="error" role="alert"></p>
+    <div class="spread">
+      <section class="manuscript" aria-labelledby="manuscript-title">
+        <header class="panel-head">
+          <h2 id="manuscript-title">원고</h2>
+          <div class="file-actions">
+            <button type="button" id="toggle-article-pin" title="원고에서 조 제목에 커서를 놓고 번호를 고정하거나 해제합니다.">번호 고정/해제</button>
+            <button type="button" id="open">원고 열기</button>
+            <button type="button" id="save">원고 저장</button>
+            <input type="file" id="file" accept=".md,.markdown,text/markdown,text/plain" hidden>
+          </div>
+        </header>
+        <div class="sheet">
+          <label class="sr-only" for="source">마크다운 원고</label>
+          <textarea id="source" spellcheck="false" autocomplete="off" placeholder="원고를 입력하세요."></textarea>
+        </div>
+        <footer class="folio"><span id="filename">원고.md</span><span>Markdown · UTF-8</span></footer>
+      </section>
+      <section class="proof" aria-labelledby="proof-title">
+        <header class="panel-head"><h2 id="proof-title">조판 미리보기</h2><span id="status" role="status">샘플 불러오는 중</span></header>
+        <div class="proof-stage">
+          <p id="placeholder">첫 지면을 준비하고 있습니다.</p>
+          <p id="viewer-fallback" hidden>이 브라우저에서는 PDF 다운로드로 지면을 확인하세요.</p>
+          <iframe id="preview" title="조판된 PDF 미리보기" hidden></iframe>
+        </div>
+        <footer class="folio"><span id="proof-size">PDF</span><span>읽기 전용</span></footer>
+      </section>
+    </div>
+    <section id="style" inert aria-labelledby="style-title">
+      <div class="typebar">
+        <h2 id="style-title">출판 양식</h2>
+        <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
+        <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+        <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+        <button id="open-reference" type="button" aria-controls="reference-review" aria-expanded="false">참고 문서 서식 가져오기</button>
+        <button id="open-running" type="button" aria-controls="running-editor" aria-expanded="false">머리글·바닥글 편집</button>
+      </div>
+      <details>
+        <summary>판형·여백 및 세부 양식</summary>
+        <div class="settings-grid">
+          <fieldset><legend>판형 (mm)</legend>
+            <label>폭 <input name="page_mm" type="text" inputmode="decimal"></label>
+            <label>높이 <input name="page_mm" type="text" inputmode="decimal"></label>
+          </fieldset>
+          <fieldset id="margin-settings"><legend>여백 (mm)</legend>
+            <label>여백 방식 <select id="margin-mode" aria-label="여백 방식"></select></label>
+            <label>위 <input name="margins_mm" type="text" inputmode="decimal"></label>
+            <label><span id="right-margin-label">오른쪽</span> <input name="margins_mm" type="text" inputmode="decimal"></label>
+            <label>아래 <input name="margins_mm" type="text" inputmode="decimal"></label>
+            <label><span id="left-margin-label">왼쪽</span> <input name="margins_mm" type="text" inputmode="decimal"></label>
+            <div id="gutter-control" hidden>
+              <label>제본 여백 <input id="gutter-mm" name="gutter_mm" type="text" inputmode="decimal" disabled></label>
+              <p id="margin-summary" aria-live="polite"></p>
+            </div>
+            <span id="margin-error" aria-live="polite"></span>
+          </fieldset>
+          <fieldset><legend>문단 들여쓰기 (mm)</legend>
+            <label>첫 줄 들여쓰기 <input id="first_indent_mm" name="first_indent_mm" type="text" inputmode="decimal"></label>
+            <label>이후 줄 들여쓰기 <input id="rest_indent_mm" name="rest_indent_mm" type="text" inputmode="decimal"></label>
+          </fieldset>
+          <fieldset><legend>활자</legend>
+            <label>제목 글꼴 <select id="heading_font" name="heading_font"></select></label>
+            <label>한글 자간 (%) <input id="ko_tracking_pct" name="ko_tracking_pct" type="text" inputmode="decimal"></label>
+          </fieldset>
+          <fieldset><legend>어절 공백 (%)</legend>
+            <label>최소 <input name="space_pct" type="text" inputmode="decimal"></label>
+            <label>최대 <input name="space_pct" type="text" inputmode="decimal"></label>
+          </fieldset>
+          <fieldset id="article-style"><legend>조 제목</legend>
+            <label><input type="checkbox" id="article-numbering"> 조 제목 자동 번호</label>
+            <label for="article-expr">조 번호 표현식</label>
+            <input id="article-expr" type="text" spellcheck="false" aria-describedby="article-expr-error">
+            <span id="article-expr-error"></span>
+          </fieldset>
+        </div>
+        <section id="list-style" aria-labelledby="list-title" hidden>
+          <h3 id="list-title">단계별 목록 서식</h3>
+          <label for="list-preset">목록 양식</label> <select id="list-preset"></select>
+          <p id="list-help">{숫자}는 1, 2, 3, {한글}은 가, 나, 다, {원숫자}는 ①, ②, ③으로 표시합니다. 원숫자는 21부터 (21), (22)처럼 표시합니다.
+            ㅁ처럼 고정 표지를 쓰거나 {{와 }}로 중괄호를 넣을 수 있습니다. 공백과 문장부호는 그대로 출력합니다.</p>
+          <p>원고는 9단계까지 지원하며 양식에는 한 단계 이상 필요합니다. 양식보다 깊은 목록은 마지막 단계의 표지·들여쓰기·간격을 반복합니다. 들여쓰기는 부모 본문 시작점부터 더합니다.</p>
+          <div id="list-levels"></div>
+          <template id="list-level-row">
+            <fieldset>
+              <legend></legend>
+              <label>표지 표현식 <input name="expr" type="text" spellcheck="false" aria-describedby="list-help"></label>
+              <label>들여쓰기 (mm) <input name="indent_mm" type="text" inputmode="decimal"></label>
+              <label>표지 뒤 간격 (mm) <input name="gap_mm" type="text" inputmode="decimal"></label>
+              <button type="button">단계 삭제</button>
+            </fieldset>
+          </template>
+          <button id="add-level" type="button">단계 추가</button>
+        </section>
+        <p id="applied-ratios" aria-live="polite"></p>
+        <div class="file-actions">
+          <button type="button" id="open-style">양식 열기</button>
+          <button type="button" id="save-style">양식 저장</button>
+        </div>
+      </details>
+    </section>
+    <input type="file" id="style-file" accept=".json,application/json" hidden>
+    <p id="reference-notice" aria-live="polite"></p>
+    <section id="reference-review" aria-labelledby="reference-title" hidden>
+      <header class="panel-head"><h2 id="reference-title" tabindex="-1">참고 문서 서식 검토</h2></header>
+      <div class="reference-tools">
+        <label>참고 파일 <input id="reference-file" type="file" accept=".docx,.hwpx,.pdf,.png,.jpg,.jpeg"></label>
+        <button id="reference-analyze" type="button" disabled>분석</button>
+        <span id="reference-model"></span>
+      </div>
+      <p id="reference-warnings"></p>
+      <div id="reference-range" class="reference-tools" hidden>
+        <label>참고 구간 <select id="reference-section"></select></label>
+        <label>범위 시작 <select id="reference-start"></select></label>
+        <label>범위 끝 <select id="reference-end"></select></label>
+        <label id="reference-width-label">기준 폭 (mm) <input id="reference-width" type="text" inputmode="decimal"></label>
+      </div>
+      <nav id="reference-pages" class="reference-tools" aria-label="참고 구간 항목 탐색" hidden>
+        <button id="reference-prev" type="button">이전 항목</button>
+        <span id="reference-position" aria-live="polite"></span>
+        <button id="reference-next" type="button">다음 항목</button>
+      </nav>
+      <div id="reference-candidates"></div>
+      <section id="running-editor" aria-labelledby="running-title" hidden>
+        <h3 id="running-title" tabindex="-1">머리글·바닥글 편집</h3>
+        <div class="reference-tools">
+          <label for="running-target">적용 구간</label><select id="running-target"></select>
+          <label>영역 <select id="running-role"></select></label>
+          <label for="running-face">편집할 면</label><select id="running-face"></select>
+          <label>표시 여부 <select id="running-visible"></select></label>
+        </div>
+        <p id="running-state" aria-live="polite"></p>
+        <p id="running-help">각 구간에서 공통, 홀짝, 첫 쪽 순으로 지정한 값을 적용합니다. 직접 지정을 해제하면 앞선 값을 상속합니다. 칸을 직접 비우면 빈칸으로 출력합니다. {현재쪽}은 실제 쪽 번호이며 {{현재쪽}}은 글자로 출력합니다. 구간의 실제 첫 면은 시험 PDF에서 확인하세요.</p>
+        <div id="running-fields"></div>
+        <p id="running-error" aria-live="polite"></p>
+      </section>
+      <div id="reference-bindings"></div>
+      <button id="reference-targets" type="button">적용 대상 다시 읽기</button>
+      <p id="reference-message" aria-live="polite"></p>
+      <div id="reference-proof"></div>
+      <div class="reference-tools">
+        <button id="reference-trial" type="button">시험 조판</button>
+        <button id="reference-apply" class="primary" type="button" disabled>적용</button>
+        <button id="reference-cancel" type="button">취소</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

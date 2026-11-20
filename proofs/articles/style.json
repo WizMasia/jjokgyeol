@@ -1,0 +1,24 @@
+{
+  "page_sp": [
+    27597261,
+    39158276
+  ],
+  "margins_sp": [
+    3729360,
+    3356424,
+    3729360,
+    3356424
+  ],
+  "body_sp": 720896,
+  "leading_sp": 1114112,
+  "body_font": "nanum-myeongjo",
+  "heading_font": "nanum-gothic",
+  "first_indent_sp": 0,
+  "rest_indent_sp": 0,
+  "ko_tracking_per_10000": 0,
+  "space_per_10000": [
+    10000,
+    10000
+  ],
+  "article_expr": "제{숫자}조"
+}

@@ -1,0 +1,29 @@
+{
+  "paragraph_index": 2,
+  "reference_text": "강변기록",
+  "footnote_text": "물길을 따라 남긴 각주이다.",
+  "style": {
+    "page_mm": [148, 70],
+    "margins_mm": [15, 18, 15, 18],
+    "body_font": "nanum-myeongjo",
+    "heading_font": "nanum-gothic",
+    "body_pt": 11,
+    "leading_pt": 17,
+    "ko_tracking_pct": 0,
+    "space_pct": [70, 130]
+  },
+  "candidates": {
+    "A": {
+      "lines": ["강가 지도 River Walk 건너 작은 서점이 보인다.", "책장에는 오래된 책과 작은 표식이 있다. 강변기록"],
+      "tracking_pct": 0,
+      "space_pct": 100,
+      "reference_page": 1
+    },
+    "B": {
+      "lines": ["강가 지도 River Walk 건너", "작은 서점이 보인다. 책장에는 오래된", "책과 작은 표식이 있다. 강변기록"],
+      "tracking_pct": -7,
+      "space_pct": 90,
+      "reference_page": 2
+    }
+  }
+}

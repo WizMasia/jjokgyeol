@@ -1,0 +1,6 @@
+{
+  "request_body_bytes": 1048576,
+  "render_slots": 2,
+  "timeout_seconds": 30,
+  "worker_file_bytes": 67108864
+}

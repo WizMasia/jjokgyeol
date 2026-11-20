@@ -1,0 +1,182 @@
+{
+  "platform": "linux/arm64",
+  "image": "sha256:755dbe0f266a5030cad3efd7b2fa464a260d6013cbe9f9e8d69d42f11bec046e",
+  "url": "http://127.0.0.1:8766/",
+  "mounts": [],
+  "tests": "18 passed in 156.87s (0:02:36)",
+  "local_vision_model": "google/gemma-4-e2b",
+  "book": {
+    "before": {
+      "download_sha256": "831578ba82cda91e2580f8cb1fb28445469c83afc312bbf14091b56f0fab8e5e",
+      "source_sha256": "90883c02c7db5ee2efea1ca4fec20fa5faa51cae41fcd5eae8d8e61059b3f0f0",
+      "baseline_pdf_sha256": "4672a9b9853236b92abb5ed6f1a2785332753448a6aa3a095583237395d99401",
+      "pages": 11,
+      "baseline_lines": 126,
+      "matched_body_footnote_glyphs": 2192,
+      "tracked_page": 9,
+      "final_footnote_only_page": 11
+    },
+    "after": {
+      "download_sha256": "a46d7a9391823396e91949e5ce864c9ee9b47040d93c2c9ebbca2d08da9dc6bd",
+      "source_sha256": "5dfc1b9f1033d2c352109987efc0f1940afd5f7fc6f1acc86bf69dd4ec70a3c3",
+      "baseline_pdf_sha256": "c8c75366fa28ace896541b55e3eec64962239d1e0e38ba0742c5ebcc6ecf3d80",
+      "pages": 12,
+      "baseline_lines": 136,
+      "matched_body_footnote_glyphs": 2403,
+      "tracked_page": 10,
+      "final_footnote_only_page": 12
+    }
+  },
+  "references": [
+    {
+      "file": "reference.docx",
+      "sha256": "fa64511a62a696e9fd4996597ea979817c549bb698f06c0d7c227cffd4ea015b",
+      "location": "구역 1 · 문단 1",
+      "warnings": [],
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "COAST 2026",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/header1.xml · 원문·쪽 번호 제어",
+          "source_group": "docx/1/header/default",
+          "variant": "default"
+        },
+        {
+          "role": "header",
+          "key": "left",
+          "value": "COAST 2026",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/header2.xml · 원문·쪽 번호 제어",
+          "source_group": "docx/1/header/first",
+          "variant": "first"
+        },
+        {
+          "role": "footer",
+          "key": "center",
+          "value": "- {현재쪽} -",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · word/document.xml · word/footer1.xml · 원문·쪽 번호 제어",
+          "source_group": "docx/1/footer/default",
+          "variant": "default"
+        }
+      ],
+      "printed_header": "파도기록실",
+      "printed_footer": "제1면",
+      "download_sha256": "cfab96370f3bdebd919c6b2ba992e1ac686b98a58e42ffc5bf9a94b487dda6ff",
+      "applied_pdf": "from-docx.pdf"
+    },
+    {
+      "file": "reference.hwpx",
+      "sha256": "388ae40da0abfec4b547c364a09cb017e5c7bfb68bef63dc853194d936e98fe1",
+      "location": "구역 1 · 문단 1",
+      "warnings": [],
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "COAST 2026",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · Contents/section0.xml · Contents/section0.xml · header/subList · 원문·쪽 번호 제어",
+          "source_group": "hwpx/1/header/default/0",
+          "variant": "default"
+        },
+        {
+          "role": "footer",
+          "key": "center",
+          "value": "- {현재쪽} -",
+          "basis": "read",
+          "evidence": "구역 1 · 문단 1 · Contents/section0.xml · Contents/section0.xml · footer/subList · 원문·쪽 번호 제어",
+          "source_group": "hwpx/1/footer/default/1",
+          "variant": "default"
+        }
+      ],
+      "printed_header": "파도기록실",
+      "printed_footer": "제1면",
+      "download_sha256": "32f380b416f9aa90fcb0b784cf8005fb531347fd9d5540ef0d60e0678ee1422b",
+      "applied_pdf": "from-hwpx.pdf"
+    },
+    {
+      "file": "reference.pdf",
+      "sha256": "f1a32881e72d42ec2c06e663b1ed9d7684d605f74de80bc30de584d831599d56",
+      "location": "1쪽",
+      "warnings": [],
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "COAST 2026",
+          "basis": "read",
+          "evidence": "1쪽·3쪽 · COAST 2026",
+          "source_group": "page:1:header:left:1",
+          "variant": "unknown"
+        },
+        {
+          "role": "footer",
+          "key": "center",
+          "value": "- {현재쪽} -",
+          "basis": "estimated",
+          "evidence": "1쪽·3쪽 · 17→19 · - 17 -",
+          "source_group": "page:1:footer:center:1",
+          "variant": "unknown"
+        }
+      ],
+      "printed_header": "파도기록실",
+      "printed_footer": "제1면",
+      "download_sha256": "94ab87e2c9485fd71a00a0df2196866d3c6c56ffc9a2c8631761ff8bbd022ddd",
+      "applied_pdf": "from-pdf.pdf"
+    },
+    {
+      "file": "scan.png",
+      "sha256": "a378daa9a44430d3e0ae9517be2b37aaf53b4c207a7c2183541424b6c4db1742",
+      "location": "1쪽",
+      "warnings": [],
+      "candidates": [
+        {
+          "role": "header",
+          "key": "left",
+          "value": "COAST 2026",
+          "basis": "confirm",
+          "evidence": "모델 판독 · 1쪽 · 상단 왼쪽 · 판독 문구 확인 · 잉크 x=63–204px / 723px · 왼쪽",
+          "source_group": "page:1:header",
+          "variant": "unknown",
+          "options": [
+            {
+              "kind": "literal",
+              "value": "COAST 2026"
+            },
+            {
+              "kind": "page",
+              "value": "COAST {현재쪽}"
+            }
+          ]
+        },
+        {
+          "role": "footer",
+          "key": "center",
+          "value": "- 17 -",
+          "basis": "confirm",
+          "evidence": "모델 판독 · 1쪽 · 하단 오른쪽 · 판독 문구 확인 · 잉크 x=329–384px / 723px · 가운데",
+          "source_group": "page:1:footer",
+          "variant": "unknown",
+          "options": [
+            {
+              "kind": "literal",
+              "value": "- 17 -"
+            },
+            {
+              "kind": "page",
+              "value": "- {현재쪽} -"
+            }
+          ]
+        }
+      ],
+      "printed_header": "파도기록실",
+      "printed_footer": "제1면",
+      "download_sha256": "4cbcb44fd727d1a6a884937bf011b47f40fbb51842d5e4683dc315cf77d51022",
+      "applied_pdf": "from-png.pdf"
+    }
+  ],
+  "style_sha256": "da702ee71d3f8cdfef56b429320872c132ad4fb196f5245496782472bdbcc12e"
+}

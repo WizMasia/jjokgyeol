@@ -1,0 +1,41 @@
+{
+  "defaults": {
+    "page_mm": [148, 210],
+    "margins_mm": [20, 18, 20, 18],
+    "body_pt": 11,
+    "leading_pt": 17,
+    "body_font": "nanum-myeongjo",
+    "heading_font": "nanum-gothic",
+    "first_indent_mm": 0,
+    "rest_indent_mm": 0,
+    "ko_tracking_pct": 0,
+    "space_pct": [100, 100]
+  },
+  "fonts": [
+    {"id": "nanum-myeongjo", "label": "나눔명조"},
+    {"id": "nanum-gothic", "label": "나눔고딕"}
+  ],
+  "space_pct_range": [70, 130],
+  "heading_per_10000": [16000, 15000, 14000, 13000, 12000, 11000],
+  "heading_leading_per_10000": 12500,
+  "running_defaults": {
+    "visible": false, "left": "", "center": "", "right": "",
+    "font": "nanum-myeongjo", "color": "#000000", "font_pt": 9, "offset_mm": 8
+  },
+  "default_article_expr": "제{숫자}조",
+  "default_list_preset": "legal",
+  "list_presets": {
+    "legal": [
+      {"expr": "{원숫자}", "indent_mm": 0, "gap_mm": 2},
+      {"expr": "{숫자}.", "indent_mm": 2, "gap_mm": 2},
+      {"expr": "{한글}.", "indent_mm": 2, "gap_mm": 2},
+      {"expr": "({숫자})", "indent_mm": 2, "gap_mm": 2},
+      {"expr": "({한글})", "indent_mm": 2, "gap_mm": 2}
+    ],
+    "report": [
+      {"expr": "ㅁ", "indent_mm": 0, "gap_mm": 2},
+      {"expr": "ㅇ", "indent_mm": 2, "gap_mm": 2},
+      {"expr": "-", "indent_mm": 2, "gap_mm": 2}
+    ]
+  }
+}
