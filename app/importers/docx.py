@@ -4,7 +4,7 @@ import re
 from xml.etree import ElementTree as ET
 
 from app.reference_office import (_attrs, _events, _numpr, _rels, _val, _WordStyles,
-                                 _word_nodes, _wprops, _xml)
+                                 _WordNumbering, _wprops, _xml)
 from .common import LIMITS, styled
 
 
@@ -37,9 +37,10 @@ _PAGE = re.compile(r"\s*(PAGE|NUMPAGES|SECTIONPAGES)\b", re.I)
 _SKIP = {"drawing", "pict", "object", "txbxContent", "del", "moveFrom"}
 
 
-def _runs(p, base, emphasis, fields, out):
+def _runs(p, base, emphasis, fields, out, location):
     bold, italic = base
     simple = []
+    objects = 0
     for node, opening in _events(p, _SKIP):
         tag = node.tag
         if not opening:
@@ -60,7 +61,8 @@ def _runs(p, base, emphasis, fields, out):
         elif tag == "instrText" and fields and not fields[-1][1]:
             fields[-1][0] = (fields[-1][0] + (node.text or ""))[:128]
         elif tag in ("drawing", "pict", "object"):
-            out.warn("DOCX 본문의 그림·개체를 생략했습니다.")
+            objects += 1
+            out.warn(f"{location}의 그림·개체 {objects} 생략")
         elif tag == "r":
             rpr = node.find("rPr")
             flags = emphasis.toggles(_attrs(rpr, "rStyle").get("val"))
@@ -89,31 +91,38 @@ def read(z, out):
     styles = _WordStyles(style_root)
     emphasis = _Emphasis(styles.styles)
     defaults = style_root.find("docDefaults/rPrDefault/rPr")
-    numbering = part("numbering")
-    nums = {n.get("numId"): _attrs(n, "abstractNumId").get("val") for n in numbering.findall("num")}
-    formats = {(a.get("abstractNumId"), lv.get("ilvl")): _attrs(lv, "numFmt").get("val")
-               for a in numbering.findall("abstractNum") for lv in a.findall("lvl")}
+    numbering = _WordNumbering(part("numbering"))
     fields = []
-    if body.find(".//tbl") is not None:
-        out.warn("DOCX 표의 셀을 문단으로 옮겼습니다.")
-    for p in _word_nodes(body, "p"):
+    paragraph = 0
+    table = 0
+    for p, opening in _events(body, _SKIP | {"p"}):
+        if not opening:
+            continue
+        if p.tag == "tbl":
+            table += 1
+            out.warn(f"DOCX 본문 표 {table}의 셀을 문단으로 옮겼습니다.")
+        if p.tag != "p":
+            continue
+        paragraph += 1
+        location = f"DOCX 본문 문단 {paragraph}"
         ppr = p.find("pPr")
         key = _attrs(ppr, "pStyle").get("val", styles.defaults.get("paragraph"))
         flags = emphasis.toggles(key)
         base = (_switch(defaults, "b") ^ flags[0], _switch(defaults, "i") ^ flags[1])
-        text = styled(_runs(p, base, emphasis, fields, out))
+        runs = _runs(p, base, emphasis, fields, out, location)
+        text = styled(runs, lambda msg: out.warn(f"{location} · {msg}"))
         props = styles.base_p | styles.resolve(key)[0] | _wprops(ppr, "p") | _numpr(ppr)
         outline = _val(props, "outlineLvl")
         style_name = _attrs(styles.styles.get(key), "name").get("val", key or "")
         heading = re.fullmatch(r"(?:heading|제목)\s*([1-9])", style_name, re.I)
         num = _val(props, "numId")
         if outline is not None and 0 <= int(outline) < 9:
-            out.block(text, "heading", int(outline) + 1)
+            out.block(text, "heading", int(outline) + 1, location=location)
         elif outline is None and heading:
-            out.block(text, "heading", int(heading[1]))
+            out.block(text, "heading", int(heading[1]), location=location)
         elif num and num != "0":
             level = _val(props, "ilvl", default="0")
-            fmt = formats.get((nums.get(num), level))
-            out.block(text, "bullet" if fmt == "bullet" else "ordered", int(level) + 1)
+            fmt = _attrs(numbering.level(num, level), "numFmt").get("val")
+            out.block(text, "bullet" if fmt == "bullet" else "ordered", int(level) + 1, location=location)
         else:
             out.block(text)
