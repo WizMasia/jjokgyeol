@@ -49,6 +49,8 @@ def check_sections(tab, path, headings):
 
 
 def enable_numbering(tab):
+    if tab.locator("#article-style").is_hidden():
+        tab.locator("#legal-options").click()
     switch = tab.get_by_label("조 제목 자동 번호", exact=True)
     assert switch.count() == 1, "real editor must offer 조 제목 자동 번호"
     switch.check()

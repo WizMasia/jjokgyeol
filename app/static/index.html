@@ -28,7 +28,7 @@
         <header class="panel-head">
           <h2 id="manuscript-title">원고</h2>
           <div class="file-actions">
-            <button type="button" id="toggle-article-pin" title="원고에서 조 제목에 커서를 놓고 번호를 고정하거나 해제합니다.">번호 고정/해제</button>
+            <button type="button" id="toggle-article-pin" hidden title="원고에서 조 제목에 커서를 놓고 번호를 고정하거나 해제합니다.">번호 고정/해제</button>
             <button type="button" id="open">원고 열기</button>
             <button type="button" id="import-source">원고 가져오기</button>
             <input type="file" id="import-file" accept=".txt,.html,.htm,.docx,.hwpx,.hwp" hidden>
@@ -70,7 +70,14 @@
         <button id="open-suggestion" type="button" aria-controls="style-suggestion" aria-expanded="false">AI 양식 제안</button>
         <button id="open-reference" type="button" aria-controls="reference-review" aria-expanded="false">참고 문서 서식 가져오기</button>
         <button id="open-running" type="button" aria-controls="running-editor" aria-expanded="false">머리글·바닥글 편집</button>
+        <button id="legal-options" type="button" aria-expanded="false" aria-controls="article-style">법령 문서 옵션</button>
       </div>
+      <fieldset id="article-style" hidden><legend>법령 문서 · 조 제목</legend>
+        <label><input type="checkbox" id="article-numbering"> 조 제목 자동 번호</label>
+        <label for="article-expr">조 번호 표현식</label>
+        <input id="article-expr" type="text" spellcheck="false" aria-describedby="article-expr-error">
+        <span id="article-expr-error"></span>
+      </fieldset>
       <details>
         <summary>판형·여백 및 세부 양식</summary>
         <div class="settings-grid">
@@ -116,12 +123,6 @@
           <fieldset><legend>어절 공백 (%)</legend>
             <label>최소 <input name="space_pct" type="text" inputmode="decimal"></label>
             <label>최대 <input name="space_pct" type="text" inputmode="decimal"></label>
-          </fieldset>
-          <fieldset id="article-style"><legend>조 제목</legend>
-            <label><input type="checkbox" id="article-numbering"> 조 제목 자동 번호</label>
-            <label for="article-expr">조 번호 표현식</label>
-            <input id="article-expr" type="text" spellcheck="false" aria-describedby="article-expr-error">
-            <span id="article-expr-error"></span>
           </fieldset>
         </div>
         <section id="list-style" aria-labelledby="list-title" hidden>

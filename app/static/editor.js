@@ -81,9 +81,20 @@ const listStyle = listLevelEditor(settings, () => edited("style"));
 const articleNumbering = byId("article-numbering");
 const articleExpr = byId("article-expr");
 const pinButton = byId("toggle-article-pin");
-byId("article-style").hidden = pinButton.hidden = typeof settings.default_article_expr !== "string";
+const legalOptions = byId("legal-options");
+const articleStyle = byId("article-style");
+legalOptions.hidden = typeof settings.default_article_expr !== "string";
+
+function showLegalOptions(open) {
+  articleStyle.hidden = !open || legalOptions.hidden;
+  legalOptions.setAttribute("aria-expanded", String(!articleStyle.hidden));
+  pinButton.hidden = legalOptions.hidden || (articleStyle.hidden && !articleNumbering.checked);
+}
+
+legalOptions.addEventListener("click", () => showLegalOptions(articleStyle.hidden));
 
 function articleError(message) {
+  if (message) showLegalOptions(true);
   articleExpr.setAttribute("aria-invalid", String(Boolean(message)));
   byId("article-expr-error").textContent = message;
 }
@@ -272,6 +283,7 @@ const styleForm = {
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;
     articleExpr.value = values.article_expr ?? inactiveArticleExpr;
+    showLegalOptions(preserveDraft ? !articleStyle.hidden : articleNumbering.checked);
     articleError("");
   },
 };

@@ -377,7 +377,7 @@ def test_explicit_default_list_keeps_literal_whitespace(desk):
 def test_article_numbering_style_and_errors(desk):
     desk.ready()
     page = desk.page
-    page.locator("summary").click()
+    page.locator("#legal-options").click()
     enabled = page.get_by_label("조 제목 자동 번호", exact=True)
     expr = page.get_by_label("조 번호 표현식", exact=True)
     expect(enabled).to_be_visible(timeout=1000)
@@ -404,6 +404,7 @@ def test_article_numbering_style_and_errors(desk):
 
 @pytest.fixture
 def toggle_heading(desk, server_url):
+    desk.page.locator("#legal-options").click()
     path = "/api/article/pin"
     desk.page.route(ORIGIN + path, lambda route: route.fulfill(response=route.fetch(url=server_url + path)))
     button = desk.page.get_by_role("button", name="번호 고정/해제", exact=True)
@@ -498,6 +499,7 @@ def test_pin_article_markdown_boundaries(desk, toggle_heading, heading, token, r
 @pytest.mark.parametrize("replacement", ["edit back", "open", "new pin"])
 def test_slow_pin_cannot_change_replaced_source(desk, replacement):
     desk.ready()
+    desk.page.locator("#legal-options").click()
     source = "# 제8조 옛 제목"
     desk.source.fill(source)
     page = desk.page
@@ -537,6 +539,7 @@ def test_slow_pin_cannot_change_replaced_source(desk, replacement):
 def test_pin_submits_selected_lines_and_preserves_file_endings(desk):
     desk.ready()
     page = desk.page
+    page.locator("#legal-options").click()
     text = "제1조 이전\r\n\r목적\n===\r\n본문\n"
     page.locator("#file").set_input_files({
         "name": "조문.md", "mimeType": "text/markdown", "buffer": b"\xef\xbb\xbf" + text.encode(),
@@ -570,7 +573,7 @@ def test_article_style_file_round_trip(browser, server_url):
         page.locator("summary").click()
         enabled = page.get_by_label("조 제목 자동 번호", exact=True)
         expr = page.get_by_label("조 번호 표현식", exact=True)
-        expect(enabled).to_be_visible(timeout=1200)
+        expect(enabled).to_be_hidden(timeout=1200)
         manuscript = "# 제7조(가지) {번호고정}\n\n본문 제7조\n"
         page.locator("#source").fill(manuscript)
 
@@ -582,6 +585,7 @@ def test_article_style_file_round_trip(browser, server_url):
         legacy = save()
         assert "article_expr" not in json.loads(legacy.read_bytes())
         for value in ("  {{법}} {한글}  ", ""):
+            page.locator("#legal-options").click()
             enabled.check()
             expr.fill(value)
             custom = save()
@@ -596,6 +600,7 @@ def test_article_style_file_round_trip(browser, server_url):
             assert json.loads(custom.read_bytes()) == stored
             enabled.uncheck()
             page.locator("#style-file").set_input_files(custom)
+            expect(enabled).to_be_visible()
             expect(enabled).to_be_checked()
             expect(expr).to_have_value(value)
             expect(expr).to_have_attribute("aria-invalid", "false")

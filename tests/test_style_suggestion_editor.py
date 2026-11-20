@@ -177,7 +177,7 @@ def test_style_open_supersedes_review_and_source_edit_can_coexist(page):
 
 
 def test_disabled_article_formula_survives_body_suggestion(page, local_model):
-    page.locator("#style summary").click()
+    page.locator("#legal-options").click()
     numbering = page.locator("#article-numbering")
     expr = page.locator("#article-expr")
     numbering.check()
