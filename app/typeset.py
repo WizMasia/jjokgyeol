@@ -25,6 +25,15 @@ if TYPE_CHECKING:
 TEMPLATES = Path(__file__).resolve().with_name("tex")
 
 
+def _tex_path(path):
+    value = path.as_posix()
+    if value.startswith('//?/UNC/'):
+        return '//' + value[8:]
+    if value.startswith('//?/'):
+        return value[4:]
+    return value
+
+
 def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
             paragraph_choices: dict[int, str] | None = None,
             engine: Path | None = None, font_dir: Path | None = None,
@@ -192,11 +201,11 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             for name in faces.values():
                 shutil.copyfile(font_dir / name, workdir / "fonts" / name)
     (workdir / "texcache").mkdir()
-    env = dict(os.environ, LUAINPUTS=f"{TEMPLATES}{os.pathsep}",
+    env = dict(os.environ, LUAINPUTS=f"{_tex_path(TEMPLATES)}{os.pathsep}",
                TEXMFCACHE=os.environ.get("TEXMFCACHE", "texcache"))
     process = subprocess.run(
         [str(engine) if engine is not None else "lualatex", "--no-shell-escape", "--halt-on-error", "--interaction=batchmode",
-         str(TEMPLATES / "book.tex")],
+         _tex_path(TEMPLATES / "book.tex")],
         cwd=workdir, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

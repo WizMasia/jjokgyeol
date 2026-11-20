@@ -32,3 +32,26 @@ class DiagnosticTest(unittest.TestCase):
             self.assertIn('synthetic TeX error', (job / 'book.log').read_text())
             self.assertIn('blocks', json.loads((job / 'input.json').read_text(encoding='utf-8')))
             self.assertIn('CalledProcessError', result.stderr)
+
+
+class PackagedDiagnosticTest(unittest.TestCase):
+    def test_fixture_is_sent_to_packaged_worker_with_opt_in(self):
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location('proof_diagnostic', ROOT / 'desktop/qa/runtime/diagnostic.py')
+        diagnostic = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(diagnostic)
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            runtime = base / 'runtime'
+            runtime.mkdir()
+            job = base / 'job'
+            def invoke(args, **kwargs):
+                self.assertEqual(args[1:], ['--runtime', str(runtime.resolve())])
+                self.assertEqual(kwargs['cwd'], job.resolve())
+                self.assertEqual(kwargs['env']['JJOKGYEOL_TEST_DIAGNOSTICS'], '1')
+                request = json.loads((job / 'request.json').read_text(encoding='utf-8'))
+                self.assertEqual(request['source'], (ROOT / 'proofs/numbering/manuscript.md').read_text(encoding='utf-8'))
+                return subprocess.CompletedProcess(args, 7)
+            with patch.object(diagnostic.subprocess, 'run', side_effect=invoke):
+                self.assertEqual(diagnostic.main([str(runtime), str(job), '--packaged']), 7)

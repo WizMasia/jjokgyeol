@@ -1,12 +1,14 @@
 """One local, rule-only render request; the caller owns the working directory."""
 import argparse
-from decimal import Decimal, InvalidOperation
+import hashlib
+from decimal import Decimal
 import json
 import os
+import shutil
 from pathlib import Path
 import sys
-import subprocess
 import tempfile
+import traceback
 
 from app.configuration import unique_fields
 from app.document import InputError, parse_md
@@ -31,6 +33,29 @@ def limit_worker_files(max_bytes):
         resource.setrlimit(resource.RLIMIT_FSIZE, (min(soft, max_bytes) if soft != resource.RLIM_INFINITY else max_bytes, hard))
 
 
+def prepare_external_engine():
+    if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+        import ctypes
+        if not ctypes.windll.kernel32.SetDllDirectoryW(None):
+            raise OSError('could not restore DLL search path')
+
+
+def record_exception(diagnostic):
+    if diagnostic:
+        try:
+            Path('diagnostic-exception.txt').write_text(traceback.format_exc(), encoding='utf-8')
+        except OSError:
+            pass
+
+
+def fixture_diagnostics(request):
+    if os.environ.get('JJOKGYEOL_TEST_DIAGNOSTICS') != '1':
+        return False
+    encoded = json.dumps(request, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
+    # Only the checked-in numbering fixture may expose test diagnostics.
+    return hashlib.sha256(encoded).hexdigest() == 'cec7fb87b42035bc00d42b44ff647e0441039367cd130b962a3cffc902b94ad9'
+
+
 class ArgumentParser(argparse.ArgumentParser):
     def error(self, message):
         raise ValueError(message)
@@ -42,6 +67,7 @@ def main():
     modes.add_argument('--runtime', type=Path)
     modes.add_argument('--style-open', action='store_true')
     modes.add_argument('--style-export', action='store_true')
+    diagnostic = False
     try:
         args = parser.parse_args()
         limit_worker_files(LIMITS.worker_file_bytes)
@@ -59,6 +85,7 @@ def main():
         if len(raw) > LIMITS.request_body_bytes:
             raise InputError({'request': '요청 크기가 너무 큽니다.'})
         request = json.loads(raw, object_pairs_hook=unique_fields)
+        diagnostic = fixture_diagnostics(request)
         if not isinstance(request, dict) or set(request) != {'source', 'style'}:
             raise InputError({'request': '원고와 양식이 필요합니다.'})
         if not isinstance(request['source'], str):
@@ -75,15 +102,23 @@ def main():
         fonts = resource(root, config['font_dir'])
         if not engine.is_file() or not fonts.is_dir():
             raise ValueError('invalid runtime resources')
+        prepare_external_engine()
         with tempfile.TemporaryDirectory(dir='.') as folder:
-            pdf = typeset(doc, style, Path(folder), engine=engine, font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
+            try:
+                pdf = typeset(doc, style, Path(folder), engine=engine, font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
+            finally:
+                log = Path(folder) / 'book.log'
+                if diagnostic and log.is_file():
+                    shutil.copyfile(log, 'diagnostic-book.log')
         if len(pdf) > LIMITS.worker_file_bytes or not pdf.startswith(b'%PDF-'):
             raise ValueError('invalid or oversized PDF')
         Path('response.pdf').write_bytes(pdf)
         return 0
     except InputError as error:
+        record_exception(diagnostic)
         print(json.dumps({'code': error.code, 'field': error.field, 'message': error.message}, ensure_ascii=False), file=sys.stderr)
-    except (OSError, ValueError, UnicodeError, RecursionError, InvalidOperation, subprocess.SubprocessError):
+    except Exception:
+        record_exception(diagnostic)
         print(json.dumps({'code': 'worker_error', 'message': '작업을 처리할 수 없습니다.'}, ensure_ascii=False), file=sys.stderr)
     return 1
 

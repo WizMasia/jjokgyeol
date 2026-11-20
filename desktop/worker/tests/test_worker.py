@@ -201,3 +201,52 @@ def test_locked_font_paths_use_posix_syntax_on_windows(monkeypatch):
     assert faces['nanum-myeongjo']['regular'] == 'NanumMyeongjo.ttf'
     assert directory == PureWindowsPath('/usr/share/fonts/truetype/nanum')
     assert isinstance(directory, PureWindowsPath)
+
+
+def test_frozen_windows_restores_dll_search(monkeypatch):
+    import ctypes
+    calls = []
+    class Kernel:
+        def SetDllDirectoryW(self, value):
+            calls.append(value)
+            return 1
+    class Windll:
+        kernel32 = Kernel()
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(ctypes, 'windll', Windll(), raising=False)
+    worker.prepare_external_engine()
+    assert calls == [None]
+
+
+@pytest.mark.parametrize(('fixture', 'enabled'), [(True, True), (True, False), (False, True)])
+def test_diagnostics_are_limited_to_fixture(tmp_path, monkeypatch, fixture, enabled):
+    runtime = runtime_dir(tmp_path)
+    job = tmp_path / 'job'
+    job.mkdir()
+    source = (ROOT / 'proofs/numbering/manuscript.md').read_text(encoding='utf-8') if fixture else 'private source'
+    (job / 'request.json').write_text(json.dumps({'source': source, 'style': STYLE}), encoding='utf-8')
+    monkeypatch.chdir(job)
+    if enabled:
+        monkeypatch.setenv('JJOKGYEOL_TEST_DIAGNOSTICS', '1')
+    else:
+        monkeypatch.delenv('JJOKGYEOL_TEST_DIAGNOSTICS', raising=False)
+    monkeypatch.setattr(worker, 'limit_worker_files', lambda size: None)
+    monkeypatch.setattr(sys, 'argv', ['worker', '--runtime', str(runtime)])
+    def engine(args, *, cwd, **kwargs):
+        (cwd / 'book.log').write_text('synthetic failure')
+        return subprocess.CompletedProcess(args, 7)
+    monkeypatch.setattr(subprocess, 'run', engine)
+    assert worker.main() == 1
+    if fixture and enabled:
+        assert (job / 'diagnostic-book.log').read_text() == 'synthetic failure'
+        assert 'CalledProcessError' in (job / 'diagnostic-exception.txt').read_text()
+    else:
+        assert not list(job.glob('diagnostic-*'))
+
+
+def test_tex_paths_strip_extended_windows_prefix():
+    from pathlib import PureWindowsPath
+    from app.typeset import _tex_path
+    assert _tex_path(PureWindowsPath(r'\\?\C:\Program Files\worker\book.tex')) == 'C:/Program Files/worker/book.tex'
+    assert _tex_path(PureWindowsPath(r'\\?\UNC\server\share\book.tex')) == '//server/share/book.tex'

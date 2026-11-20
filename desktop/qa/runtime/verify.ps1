@@ -34,12 +34,23 @@ try {
     } catch {
         $renderError = $_
         $job = Join-Path $Work 'diagnostic-job'
+        $packagedJob = Join-Path $Work 'packaged-diagnostic-job'
         try {
+            try { Run-Check 'packaged-diagnostic' { python desktop/qa/runtime/diagnostic.py (Join-Path $Work 'runtime') $packagedJob --packaged } }
+            catch { "Packaged diagnostic rerun failed: $_" | Tee-Object -FilePath (Join-Path $results 'packaged-diagnostic-failure.txt') }
+            foreach ($name in @('diagnostic-book.log', 'diagnostic-exception.txt', 'response.pdf')) {
+                $file = Join-Path $packagedJob $name
+                if (Test-Path $file) { Copy-Item $file (Join-Path $results "packaged-$name") }
+            }
             try { Run-Check 'render-diagnostic' { python desktop/qa/runtime/diagnostic.py (Join-Path $Work 'runtime') $job } }
             catch { "Diagnostic rerun failed: $_" | Tee-Object -FilePath (Join-Path $results 'diagnostic-failure.txt') }
-            foreach ($name in @('input.json', 'layout-error.txt', 'book.log')) {
+            foreach ($name in @('input.json', 'layout-error.txt', 'book.log', 'book.pdf')) {
                 $file = Join-Path $job $name
                 if (Test-Path $file) { Copy-Item $file (Join-Path $results "diagnostic-$name") }
+            }
+            if (Test-Path (Join-Path $job 'book.pdf')) {
+                try { Run-Check 'source-diagnostic-compare' { python desktop/qa/compare_pdfs.py (Join-Path $job 'book.pdf') proofs/numbering/odd-even.pdf } }
+                catch { "Source diagnostic comparison failed: $_" | Tee-Object -FilePath (Join-Path $results 'source-diagnostic-comparison-failure.txt') }
             }
             $log = Join-Path $job 'book.log'
             if (Test-Path $log) { Get-Content -Encoding utf8 -Tail 120 $log | Set-Content -Encoding utf8 (Join-Path $results 'diagnostic-book-tail.txt') }
