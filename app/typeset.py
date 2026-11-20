@@ -175,6 +175,8 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             level = reason.removeprefix(b"list_width:")
             if level.isdigit() and len(level) <= 6:
                 raise InputError({"list_levels": f"{int(level)}단계 목록 본문을 놓을 폭이 부족합니다."})
+        if reason == b"frame_height":
+            raise InputError({"text_styles.heading1.frame": "제목 틀이 한 쪽의 본문 높이를 넘습니다. 제목 글자 크기를 줄이거나 판형을 키워 주세요."})
         if reason == b"gloss_size":
             raise InputError({"text_styles.gloss.font_pt": "풀이를 작게 표시할 수 있도록 대상 글자의 크기를 키워 주세요."})
         if reason == b"line_width":
