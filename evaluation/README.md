@@ -49,7 +49,7 @@ ev reference /runs/refs-justified drawer /runs/drawer-edited.pdf --justified \
 ev pairs /runs/model-justified /runs/refs-justified /runs/t13-justified --justified
 ```
 
-새 모델 프로필은 선택한 후보의 줄마다 실제 한글 자간·어절 공백과 그 간격을 누적한 글자 위치를 PDF와 대조한다. 후보 로그에 어절별 공백 폭(TeX sp)이 있으면 개수와 순서도 검사한다. PDF와 로그의 허용 차이는 0.05 PDF pt다.
+새 모델 프로필은 선택한 후보의 줄마다 실제 한글 자간·어절 공백과 그 간격을 누적한 글자 위치를 PDF와 대조한다. 글자 위치는 배포 글꼴의 고유 진행 폭과 영문 커닝으로 계산한다. 테스트 이미지 밖에서 선택 로그를 검사할 때는 `JJOKGYEOL_FONT_DIR`로 `runtime.lock`과 해시가 같은 두 나눔 글꼴의 폴더를 지정한다. 후보 로그에 어절별 공백 폭(TeX sp)이 있으면 개수와 순서도 검사한다. PDF와 로그의 허용 차이는 0.05 PDF pt다.
 
 아래의 옵션 없는 모델 명령은 종전 프로필로 수집한 기준·산출물의 재현용이다. 새 실행의 선호·동률·시간 수용은 해당 실행에서 받은 사람의 응답으로 기록한다.
 

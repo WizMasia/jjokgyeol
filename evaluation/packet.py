@@ -14,10 +14,12 @@ import time
 import unicodedata
 from collections import defaultdict
 from contextlib import contextmanager
+from functools import cache
 from io import BytesIO
 from itertools import repeat
 from pathlib import Path
 
+from fontTools.ttLib import TTFont
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
@@ -176,6 +178,7 @@ def _word_gaps(chars, offset, word_ends, tracking, spaces, where):
         else:
             if gap >= spaces[0] - PDF_TOLERANCE:
                 raise ValueError(f"{where}: unexpected space inside source word at {offset}")
+            gaps.append(("native", gap))
             continue
         if not low - PDF_TOLERANCE <= gap <= high + PDF_TOLERANCE:
             raise ValueError(f"{where}: {kind} outside requested bounds at {offset}")
@@ -183,32 +186,60 @@ def _word_gaps(chars, offset, word_ends, tracking, spaces, where):
     return gaps
 
 
-def _compare_gaps(gaps, tracked, spaces, where, *, first_offset=0.):
-    # Each prefix checks the next printed origin as well as the individual gap.
-    drift = first_offset
-    for kind, actual in gaps:
-        expected = next(spaces) if kind == "space" else tracked
-        difference = actual - expected
-        drift += difference
-        if abs(difference) > PDF_TOLERANCE or abs(drift) > PDF_TOLERANCE:
-            raise ValueError(f"{where} {kind} differs from printed PDF")
-
-
 def _natural_final(gaps, tracking, space, remaining, where):
+    gaps = [(kind, actual) for kind, actual in gaps if kind != "native"]
     if gaps and all(kind == "tracking" for kind, _ in gaps):
         # Reconstruct spare width at the preferred setting using this printed word.
         # A single unbroken word may need just enough compression to fit the line.
         natural_spare = remaining - sum(tracking - actual for _, actual in gaps)
         if natural_spare < 0:
             tracking += natural_spare / len(gaps)
-    _compare_gaps(gaps, tracking, repeat(space), where + ": natural final")
+    drift = 0.
+    for kind, actual in gaps:
+        expected = space if kind == "space" else tracking
+        drift += actual - expected
+        if max(abs(actual - expected), abs(drift)) > PDF_TOLERANCE:
+            raise ValueError(f"{where}: natural final {kind} differs from printed PDF")
 
 
-def _trace_spacing(line, gaps, size, natural_space, remaining, first_offset, where):
+def _native_advance(font_id, size):
+    """Use the locked face, including its Latin kerning, for replayed glyph origins."""
+    record = read_json(HERE.parent / "runtime.lock")["fonts"][font_id]["regular"]
+    pinned = Path(record["path"])
+    path = Path(os.environ.get("JJOKGYEOL_FONT_DIR", pinned.parent)) / pinned.name
+    data = path.read_bytes()
+    if digest(data) != record["sha256"]:
+        raise ValueError(f"font differs from runtime.lock: {path}")
+    with TTFont(BytesIO(data)) as face:
+        cmap = face.getBestCmap()
+        metrics = face["hmtx"].metrics
+        if "kern" in face:
+            kern = face["kern"].kernTables[0].kernTable  # Locked NanumGothic
+        else:
+            # Locked NanumMyeongjo has one GPOS kern lookup, explicit pairs with XAdvance.
+            pairs = face["GPOS"].table.LookupList.Lookup[0].SubTable[0]
+            kern = {(left, rec.SecondGlyph): rec.Value1.XAdvance
+                    for left, records in zip(pairs.Coverage.glyphs, pairs.PairSet, strict=True)
+                    for rec in records.PairValueRecord}
+        em = face["head"].unitsPerEm
+
+    @cache
+    def advance(a, following):
+        # The locked regular faces use horizontal pair kerning for this plain-text corpus.
+        if len(a) != 1 or len(following) != 1 or ord(a) not in cmap or ord(following) not in cmap:
+            raise ValueError("cannot measure native glyph advance in selected trace")
+        pair = cmap[ord(a)], cmap[ord(following)]
+        return (metrics[pair[0]][0] + kern.get(pair, 0)) * size / em
+
+    return advance
+
+
+def _trace_spacing(line, chars, gaps, size, natural_space, remaining, left, native, where):
     where += ": selected spacing trace"
     counts = {"space": 0, "tracking": 0}
     for kind, _ in gaps:
-        counts[kind] += 1
+        if kind != "native":
+            counts[kind] += 1
     advances = {}
     for kind, nominal in (("tracking", size), ("space", natural_space)):
         ratio = line.get(kind + "_per_10000")
@@ -243,7 +274,16 @@ def _trace_spacing(line, gaps, size, natural_space, remaining, first_offset, whe
         slack = line["remaining_sp"]
         if type(slack) is not int or abs(slack * BP_PER_SP - remaining) > PDF_TOLERANCE:
             raise ValueError(f"{where}: remaining_sp differs from printed right edge")
-    _compare_gaps(gaps, advances["tracking"], spaces, where, first_offset=first_offset)
+    origin = left
+    for (a, b), (kind, actual) in zip(zip(chars, chars[1:]), gaps, strict=True):
+        adjustment = 0.
+        if kind != "native":
+            adjustment = next(spaces) if kind == "space" else advances["tracking"]
+            if abs(actual - adjustment) > PDF_TOLERANCE:
+                raise ValueError(f"{where}: {kind} differs from printed PDF")
+        origin += native(a.text, " " if kind == "space" else b.text) + adjustment
+        if abs(origin - b.x0) > PDF_TOLERANCE:
+            raise ValueError(f"{where}: glyph origin differs from printed PDF")
 
 
 def verify_justified_pdf(pdf, source, style, *, expected_lines=None):
@@ -265,6 +305,7 @@ def verify_justified_pdf(pdf, source, style, *, expected_lines=None):
         raise ValueError("empty manuscript source")
     face, space_em = BODY_FACES[style["body_font"]]
     size = style["body_pt"] * 72 / 72.27
+    native = _native_advance(style["body_font"], size) if expected_lines is not None else None
     width, height = (n * 72 / 25.4 for n in style["page_mm"])
     top, right, bottom, left = (n * 72 / 25.4 for n in style["margins_mm"])
     tracking = [size * pct / 100 for pct in style["ko_tracking_bounds_pct"]]
@@ -326,7 +367,7 @@ def verify_justified_pdf(pdf, source, style, *, expected_lines=None):
                     raise ValueError(f"{where}: invalid selected trace line")
                 if "end_glyph" in selected and selected["end_glyph"] != end - paragraph_start:
                     raise ValueError(f"{where}: selected ends differ from printed PDF lines")
-                _trace_spacing(selected, gaps, size, size * space_em, -delta, chars[0].x0 - left, where)
+                _trace_spacing(selected, chars, gaps, size, size * space_em, -delta, left, native, where)
             offset = end
             line_ends.append(end)
     if offset != len(original):
