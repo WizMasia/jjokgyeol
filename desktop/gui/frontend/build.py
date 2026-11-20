@@ -1,0 +1,29 @@
+"""Build the offline desktop editor without importing the web server."""
+import json
+from pathlib import Path
+import shutil
+import sys
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
+sys.path.insert(0, str(ROOT))
+from app.style import editor_bootstrap
+
+out = HERE / 'dist'
+shutil.rmtree(out, ignore_errors=True)
+shutil.copytree(ROOT / 'app/static', out / 'static')
+shutil.copy(ROOT / 'proofs/engine-comparison/manuscript.md', out / 'sample.md')
+for directory in ('cmaps', 'standard_fonts'):
+    shutil.copytree(HERE / 'node_modules/pdfjs-dist' / directory, out / 'static' / directory)
+for name in ('pdf.min.mjs', 'pdf.worker.min.mjs'):
+    shutil.copy(HERE / 'node_modules/pdfjs-dist/build' / name, out / 'static' / name)
+shutil.copy(HERE / 'desktop.js', out / 'static/desktop.js')
+shutil.copy(HERE / 'desktop.css', out / 'static/desktop.css')
+html = (ROOT / 'app/static/index.html').read_text(encoding='utf-8')
+marker = '<!--EDITOR_SETTINGS-->'
+if html.count(marker) != 1:
+    raise ValueError('editor settings marker must appear exactly once')
+settings = json.dumps(editor_bootstrap(), allow_nan=False).replace('<', r'\u003c')
+html = html.replace(marker, f'<script type="application/json" id="editor-settings">{settings}</script>\n  <link rel="stylesheet" href="static/desktop.css">\n  <script src="static/desktop.js" defer></script>')
+html = html.replace('/static/', 'static/').replace('<script type="module" src="static/style-suggestion.js"></script>', '')
+(out / 'index.html').write_text(html, encoding='utf-8')

@@ -1,0 +1,4 @@
+#import-source, #open-suggestion, #open-reference, #open-running, #toggle-article-pin { display: none !important; }
+.proof-stage { display: block; overflow: auto; }
+#desktop-pages { padding: 1rem; text-align: center; }
+#desktop-pages canvas { display: block; max-width: 100%; height: auto; margin: 0 auto 1rem; background: white; }

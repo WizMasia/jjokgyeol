@@ -1,6 +1,7 @@
 "use strict";
 
 async function requestStyle(action, body) {
+  if (nativeDesktop) return desktop.style(action, body);
   const response = await fetch("/api/style/" + action, {
     method: "POST", redirect: "error", headers: {"Content-Type": "application/json"}, body,
   });

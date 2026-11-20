@@ -1,0 +1,19 @@
+[package]
+name = "jjokgyeol-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["sync"] }
+rfd = "0.15"
+libc = "0.2"
+jjokgyeol-proof = { path = ".." }
+
+[target.'cfg(windows)'.dependencies]
+windows-spawn = "0.1.0"

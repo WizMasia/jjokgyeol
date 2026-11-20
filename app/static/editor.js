@@ -4,7 +4,8 @@ const byId = id => document.getElementById(id);
 const source = byId("source");
 const preview = byId("preview");
 const proofChoice = byId("proof-choice");
-proofChoice.add(new Option("모델 우선", "model"));
+const nativeDesktop = typeof desktop !== "undefined";
+if (!nativeDesktop) proofChoice.add(new Option("모델 우선", "model"));
 proofChoice.add(new Option("규칙", "rule"));
 const inlinePdf = navigator.pdfViewerEnabled !== false;
 // A viewerless browser would download every iframe navigation automatically.
@@ -315,6 +316,7 @@ function showReferenceError() {
 }
 
 function referenceStateChanged() {
+  if (nativeDesktop) return;
   if (sectionRules?.length) {
     import("./reference.js").then(module => module.editorChanged()).catch(showReferenceError);
   } else {
@@ -344,6 +346,10 @@ function download(url, name) {
 }
 
 function saveBlob(blob, name) {
+  if (nativeDesktop) {
+    desktop.save(blob, name).catch(error => { errorText.textContent = error.message; });
+    return;
+  }
   const url = URL.createObjectURL(blob);
   try {
     download(url, name);
@@ -363,6 +369,10 @@ function bindFilePicker(buttonId, inputId, open) {
 }
 
 function exportPdf() {
+  if (nativeDesktop) {
+    saveBlob(displayedProof.blob, byId("filename").textContent.replace(/\.(?:md|markdown)$/i, "") + ".pdf");
+    return;
+  }
   download(preview.src, byId("filename").textContent.replace(/\.(?:md|markdown)$/i, "") + ".pdf");
 }
 
@@ -384,6 +394,7 @@ const httpMessages = {
 };
 
 async function fetchProof(style, signal) {
+  if (nativeDesktop) return {rule: await desktop.proof(sourceText(), style)};
   const response = await fetch("/api/render", {
     method: "POST", headers: {"Content-Type": "application/json", Accept: "multipart/form-data"}, signal,
     body: JSON.stringify({source: sourceText(), style}), redirect: "error",
@@ -413,6 +424,7 @@ async function fetchProof(style, signal) {
 // Only current responses acquire URLs. A reference trial transfers these URLs on apply.
 class ProofUrls {
   constructor({rule, model, decision}) {
+    this.blob = rule;
     this.rule = URL.createObjectURL(rule);
     this.model = model && URL.createObjectURL(model);
     this.decision = decision;
@@ -420,7 +432,7 @@ class ProofUrls {
 
   get selected() {
     const useModel = this.model && proofChoice.value === "model";
-    let label = this.model ? "규칙 조판" : "규칙 조판 · 모델 결과 없음";
+    let label = this.model || nativeDesktop ? "규칙 조판" : "규칙 조판 · 모델 결과 없음";
     if (useModel) label = this.decision === "mixed" ? "혼합 조판 · 일부 문단에 모델 적용" : "모델 조판";
     return {href: (useModel ? this.model : this.rule) + "#navpanes=0&view=FitH", label};
   }
@@ -445,7 +457,7 @@ function spacingCaption(style) {
 function displaySelectedProof() {
   if (!displayedProof) return;
   const {href, label} = displayedProof.selected;
-  if (preview.src !== href) preview.src = href;
+  if (!nativeDesktop && preview.src !== href) preview.src = href;
   byId("proof-decision").textContent = "표시 중 · " + label;
 }
 
@@ -456,8 +468,8 @@ function showProof(proof, style) {
   displayedProof = proof;
   displaySelectedProof();
   previous?.release();
-  preview.hidden = !inlinePdf;
-  byId("viewer-fallback").hidden = inlinePdf;
+  preview.hidden = nativeDesktop || !inlinePdf;
+  byId("viewer-fallback").hidden = nativeDesktop || inlinePdf;
   byId("placeholder").hidden = true;
   displayedVersion = version;
   byId("proof-size").textContent = `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt`;
@@ -470,6 +482,12 @@ async function render(job) {
   try {
     const files = await fetchProof(style);
     if (pending !== job || version !== job.version) return;
+    if (nativeDesktop) {
+      const pages = await desktop.pages(files.rule);
+      if (pending !== job || version !== job.version) return;
+      byId("desktop-pages")?.remove();
+      preview.parentNode.append(pages);
+    }
     showProof(new ProofUrls(files), style);
     if (job.exporting) exportPdf();
   } catch (error) {
@@ -555,7 +573,7 @@ async function openFile(kind, read, apply, onError) {
 }
 
 async function readMarkdown(file) {
-  const input = file || await fetch("/sample.md", {redirect: "error"});
+  const input = file || await fetch(nativeDesktop ? "sample.md" : "/sample.md", {redirect: "error"});
   if (!file && !input.ok) throw new Error();
   return new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(await input.arrayBuffer());
 }
