@@ -4,10 +4,13 @@ import json
 import math
 import re
 import tempfile
+from itertools import accumulate
 from pathlib import Path
+from unicodedata import normalize
 
 from tests.pdf_metrics import read_pages
 
+from evaluation import packet
 from evaluation.packet import (
     PAGE, RNG, add_pdf, blind_pdf, compact, corpus, digest, new_group,
     new_run, paragraphs, read_json, save_json, verify_split,
@@ -15,6 +18,13 @@ from evaluation.packet import (
 
 MODEL_STYLE = {**PAGE, "body_font": "nanum-myeongjo", "body_pt": 11, "leading_pt": 17,
                "ko_tracking_pct": 0, "ko_tracking_bounds_pct": [-7, 0], "space_pct": [70, 130]}
+
+BP_PER_SP = 72 / 72.27 / 65536
+JUSTIFIED_MODEL_STYLE = {**MODEL_STYLE, "paragraph_layout": "justified", "ko_tracking_bounds_pct": [-15, 15]}
+
+
+def model_style(justified):
+    return JUSTIFIED_MODEL_STYLE if justified else MODEL_STYLE
 
 
 def inspect_pdf(pdf, manuscript):
@@ -74,26 +84,36 @@ def paragraph_numbers(value, maximum):
         raise ValueError("duplicate paragraph numbers")
 
 
-def revision(root, name, pdf, editor, paragraph, reason, final):
+def revision(root, name, pdf, editor, paragraph, reason, final, *, justified=False):
     ms = next((r for r in corpus() if r["group"] == name and r["split"] == "model"), None)
     if ms is None or not editor.strip() or not reason.strip() or type(final) is not bool:
         raise ValueError("reference needs a manuscript, editor and reason")
     if paragraph != "none":
         paragraph_numbers(paragraph, len(paragraphs(ms["source"])))
-    _, violations = inspect_pdf(pdf, ms)
-    if any(v.endswith(": margin") for v in violations):
-        raise ValueError("reference text outside specified margins")
+    style = model_style(justified)
+    if justified:
+        verification = packet.verify_justified_pdf(pdf, ms["source"], style)
+    else:
+        _, violations = inspect_pdf(pdf, ms)
+        if any(v.endswith(": margin") for v in violations):
+            raise ValueError("reference text outside specified margins")
     folder = Path(root) / name
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (folder / ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         previous = sorted(p for p in folder.iterdir() if p.name.isdecimal())
-        if previous and read_json(previous[-1] / "record.json")["final"]:
-            raise ValueError("reference already final")
+        if previous:
+            last = read_json(previous[-1] / "record.json")
+            if last["style"] != style:
+                raise ValueError("reference style differs from this protocol")
+            if last["final"]:
+                raise ValueError("reference already final")
         number = len(previous) + 1
         record = {"revision": number, "source_sha256": digest(ms["source"].encode()),
-                  "pdf_sha256": digest(pdf), "style": MODEL_STYLE, "editor": editor,
+                  "pdf_sha256": digest(pdf), "style": style, "editor": editor,
                   "paragraph": paragraph, "reason": reason, "final": final}
+        if justified:
+            record["verification"] = verification
         with tempfile.TemporaryDirectory(dir=folder) as stage:
             path = Path(stage)
             (path / "page.pdf").write_bytes(pdf)
@@ -102,23 +122,32 @@ def revision(root, name, pdf, editor, paragraph, reason, final):
     return record
 
 
-def final_reference(root, ms):
+def final_reference(root, ms, *, justified=False):
     folder = Path(root) / ms["group"]
     history = []
     pdf = None
+    style = model_style(justified)
     for path in sorted(folder.glob("[0-9]*")):
         record = read_json(path / "record.json")
         pdf = (path / "page.pdf").read_bytes()
-        if (record["source_sha256"] != digest(ms["source"].encode()) or record["style"] != MODEL_STYLE
+        if (record["source_sha256"] != digest(ms["source"].encode()) or record["style"] != style
                 or record["pdf_sha256"] != digest(pdf) or record["revision"] != len(history) + 1):
             raise ValueError("reference source, revision or PDF changed")
+        if justified and record.get("verification") != packet.verify_justified_pdf(pdf, ms["source"], style):
+            raise ValueError("reference PDF verification changed")
         history.append(record)
     if not history or history[-1]["final"] is not True:
         raise ValueError("final editor reference required for " + ms["group"])
     return pdf, history
 
 
-def selected_lines(rows, ms, mode):
+def selected_lines(rows, ms, mode, *, justified=False):
+    style = model_style(justified)
+    low, high = (pct * 100 for pct in style["ko_tracking_bounds_pct"])
+    min_space, max_space = (pct * 100 for pct in style["space_pct"])
+    if justified:
+        _, right, _, left_margin = style["margins_mm"]
+        measure_bp = (style["page_mm"][0] - right - left_margin) * 72 / 25.4
     parts = paragraphs(ms["source"])
     if len(rows) != len(parts):
         raise ValueError("missing paragraph log")
@@ -142,6 +171,8 @@ def selected_lines(rows, ms, mode):
         lines = by_id[chosen]
         if not isinstance(lines, list) or not lines:
             raise ValueError("missing selected lines")
+        if justified:
+            word_ends = set(accumulate(len(word) for word in normalize("NFC", part).split()))
         previous = 0
         for i, line in enumerate(lines, 1):
             fields = ("end_glyph", "available_sp", "remaining_sp", "tracking_per_10000", "space_per_10000")
@@ -153,39 +184,73 @@ def selected_lines(rows, ms, mode):
             previous = end
             ends.append(base + end)
             for field, ok in [("width", width > 0 and 0 <= left <= width),
-                              ("tracking", -700 <= tracking <= 0), ("space", 7000 <= space <= 13000)]:
+                              ("tracking", low <= tracking <= high), ("space", min_space <= space <= max_space)]:
                 if not ok:
                     violations.append(f"block {block}, line {i}: {field}")
-        if previous != len(compact(part)):
+            if justified:
+                if end not in word_ends or line.get("split_word") is not False:
+                    violations.append(f"block {block}, line {i}: word boundary")
+                if type(line.get("start_sp")) is not int or line["start_sp"] != 0:
+                    violations.append(f"block {block}, line {i}: indent")
+                if abs(width * BP_PER_SP - measure_bp) > packet.PDF_TOLERANCE:
+                    violations.append(f"block {block}, line {i}: width")
+                if i < len(lines) and left * BP_PER_SP > packet.PDF_TOLERANCE:
+                    violations.append(f"block {block}, line {i}: right edge")
+        if previous != (max(word_ends) if justified else len(compact(part))):
             raise ValueError("end_glyph does not cover manuscript paragraph")
         base += previous
     return catalog, {"choices": choices, "selected_ends": ends, "constraint_violations": violations}
 
 
-def load_arm(folder, ms, mode, model_hash):
+def load_arm(folder, ms, mode, model_hash, *, justified=False, audit=False):
     receipt = read_json(folder / "measurement.json")
     pdf = (folder / "render.pdf").read_bytes()
     log = (folder / "paragraph-candidates.jsonl").read_bytes()
     expected_path = "rule" if mode == "rules" else "model"
-    if (not isinstance(receipt, dict) or receipt.get("applied") != expected_path or receipt.get("style") != MODEL_STYLE
-            or receipt.get("source_sha256") != digest(ms["source"].encode())
-            or receipt.get("model_sha256") != (model_hash if mode == "model" else None)
+    style = model_style(justified)
+    if (not isinstance(receipt, dict) or receipt.get("source_sha256") != digest(ms["source"].encode())
             or receipt.get("pdf_sha256") != digest(pdf) or receipt.get("log_sha256") != digest(log)):
-        raise ValueError("T13 measurement differs from source, mode, runtime, style or artifacts")
+        raise ValueError("T13 receipt differs from source or artifact hashes")
+    rejection = None
+    if (receipt.get("applied") != expected_path or receipt.get("style") != style
+            or receipt.get("model_sha256") != (model_hash if mode == "model" else None)):
+        rejection = "T13 measurement differs from mode, runtime or style"
+        if not audit:
+            raise ValueError(rejection)
     elapsed = receipt.get("elapsed_ms")
     if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
         raise ValueError("missing positive measured elapsed_ms")
     rows = [json.loads(line) for line in log.decode("utf-8").splitlines()]
-    catalog, evidence = selected_lines(rows, ms, mode)
-    found, violations = inspect_pdf(pdf, ms)
+    catalog, evidence = selected_lines(rows, ms, mode, justified=justified)
+    if justified:
+        try:
+            verification = packet.verify_justified_pdf(pdf, ms["source"], style)
+        except ValueError as exc:
+            if not audit:
+                raise
+            found, violations = None, [str(exc)]
+        else:
+            evidence["verification"] = verification
+            found, violations = verification["line_ends"], []
+    else:
+        found, violations = inspect_pdf(pdf, ms)
     evidence["constraint_violations"].extend(violations)
     selected = set(evidence["selected_ends"])
-    evidence.update(applied=mode, style=MODEL_STYLE, ms=elapsed, pdf_ends=found,
-                    end_mismatches=max(len(selected-set(found)), len(set(found)-selected)))
+    mismatches = None if found is None else max(len(selected-set(found)), len(set(found)-selected))
+    evidence.update(applied=mode, style=style, ms=elapsed, pdf_ends=found, end_mismatches=mismatches)
+    if justified and evidence["constraint_violations"]:
+        rejection = rejection or evidence["constraint_violations"][0]
+    if justified and found is not None and found != evidence["selected_ends"]:
+        rejection = rejection or "selected ends differ from printed PDF lines"
+    if audit:
+        evidence.update(t14_rejection=rejection, pdf_constraint_violations=violations,
+                        changed_blocks=[r["block"] for r in rows if r["rule_id"] != r["selected_id"]])
+    elif rejection:
+        raise ValueError(rejection)
     return pdf, log, receipt, catalog, evidence
 
 
-def model_pairs(dest, references, bundle):
+def model_pairs(dest, references, bundle, *, justified=False):
     bundle = Path(bundle)
     if not (bundle / "manifest.json").is_file():
         raise ValueError("T13 measured bundle required")
@@ -198,9 +263,11 @@ def model_pairs(dest, references, bundle):
     manuscripts = corpus()
     verify_split(manuscripts, manifest["development"])
     cases = [r for r in manuscripts if r["split"] == "model"]
-    frozen = {ms["group"]: final_reference(references, ms) for ms in cases}
+    frozen = {ms["group"]: final_reference(references, ms, justified=justified) for ms in cases}
     RNG.shuffle(cases)
     with new_run(dest, "model") as (tmp, key):
+        if justified:
+            key["protocol"] = 2
         key["runtime"] = manifest["runtime"]
         key["model_sha256"] = manifest["model_sha256"]
         key["development"] = [{"group": r["group"], "split": r["split"], "sha256": digest(r["source"].encode())}
@@ -217,7 +284,7 @@ def model_pairs(dest, references, bundle):
             for mode in RNG.sample(["rules", "model"], 2):
                 try:
                     pdf, log, receipt, catalog, evidence = load_arm(bundle / ms["group"] / mode, ms, mode,
-                                                                    key["model_sha256"])
+                                                                    key["model_sha256"], justified=justified)
                 except FileNotFoundError as exc:
                     raise ValueError(f"missing T13 {mode} output: {exc.filename}") from exc
                 prefix = tmp / "private" / (gid + "-" + mode)
