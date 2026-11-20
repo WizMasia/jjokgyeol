@@ -2,11 +2,18 @@
 -- proportional to manuscript length. Halfway values round away from zero.
 local fixed = {RATIO_UNIT = 10000}
 
+-- A whole line uses the same rounding as its individual carried advances.
+function fixed.scaled(base, ratio, carry)
+  local r = math.abs(ratio)
+  local tail = (base % fixed.RATIO_UNIT) * r + (carry or fixed.RATIO_UNIT // 2)
+  local sp = (base // fixed.RATIO_UNIT) * r + tail // fixed.RATIO_UNIT
+  return ratio < 0 and -sp or sp, tail % fixed.RATIO_UNIT
+end
+
 local function scale(state, channel, base, ratio)
-  local numerator = base * math.abs(ratio) + (state[channel] or fixed.RATIO_UNIT // 2)
-  state[channel] = numerator % fixed.RATIO_UNIT
-  local sp = numerator // fixed.RATIO_UNIT
-  return ratio < 0 and -sp or sp
+  local sp, carry = fixed.scaled(base, ratio, state[channel])
+  state[channel] = carry
+  return sp
 end
 
 local glyph, glue = node.id("glyph"), node.id("glue")
@@ -25,11 +32,14 @@ local function tag(n, spec)
   node.setproperty(n, p)
 end
 
--- Calculate a marked node's width and glue capacities at this point in a
--- candidate line. A fresh state table starts a new line.
-function fixed.measure(n, state)
+function fixed.spacing(n)
   local p = node.getproperty(n)
-  local s = p and p.jjok_spacing
+  return p and p.jjok_spacing
+end
+
+-- A fresh rounding state starts each candidate line.
+function fixed.measure(n, state)
+  local s = fixed.spacing(n)
   if not s then return end
   if s.tracking then
     return scale(state, "tracking", s.base, s.tracking), 0, 0
@@ -64,7 +74,7 @@ function fixed.prepare(head, style, candidate)
     if n.id == glyph then
       local c = n.char
       if cluster_start(c) then
-        if previous and boundary and tracking ~= 0 then
+        if previous and boundary and (tracking ~= 0 or style.ko_tracking_bounds_per_10000) then
           tag(boundary, {base = font.getfont(n.font).size, tracking = tracking})
           fixed.apply(boundary, state)
         end
