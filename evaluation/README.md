@@ -25,7 +25,7 @@ ev timing /runs/quay-justified-01
 
 범위를 바꿀 때는 별도 실행 이름과 `--tracking-bounds MIN MAX`, `--space-bounds MIN MAX`를 쓴다. 예를 들어 `ev justification /runs/quay-narrow --tracking-bounds -7 15 --space-bounds 70 130`은 좁은 하한을 그대로 적용한다. 어느 한 표본이라도 검사에 실패하면 명령이 실패하고 해당 실행 폴더가 생성되지 않는다.
 
-원본 PDF에서 문단별 원고 글자와 줄 끝의 어절 경계, 글꼴·크기, 자간과 공백을 확인한다. 모든 줄의 첫 글자는 본문 왼쪽 경계에서, 문단 마지막 줄을 제외한 줄의 마지막 글자 진행 폭 끝은 본문 오른쪽 경계에서 0.05 PDF pt 이내여야 한다. 문단 마지막 줄은 본문 폭 안에서 자연 길이를 허용한다. 쪽이 바뀌어도 같은 문단이면 검사를 이어간다. 비공개 키의 각 표본에는 실제 요청 양식과 `verification`이 저장된다. `line_ends`는 누적 비공백 문자 위치, `nonfinal_lines`는 양끝을 검사한 줄 수이며 오차는 PDF pt 단위다.
+원본 PDF에서 문단별 원고 글자와 줄 끝의 어절 경계, 글꼴·크기, 자간과 공백을 확인한다. 모든 줄의 첫 글자는 본문 왼쪽 경계에서, 문단 마지막 줄을 제외한 줄의 마지막 글자 진행 폭 끝은 본문 오른쪽 경계에서 0.05 PDF pt 이내여야 한다. 문단 마지막 줄은 해당 표본의 선호 자간과 자연 공백으로 조판한다. 공백 100%가 지정 범위를 벗어나면 가장 가까운 허용값을 쓴다. 한 어절만 남았고 그 어절의 자연 폭이 본문 폭보다 길 때는 들어갈 만큼의 압축만 허용한다. 쪽이 바뀌어도 같은 문단이면 검사를 이어간다. 비공개 키의 각 표본에는 실제 요청 양식과 `verification`이 저장된다. `line_ends`는 누적 비공백 문자 위치, `nonfinal_lines`는 양끝을 검사한 줄 수이며 오차는 PDF pt 단위다.
 
 과거의 `spacing` 명령과 결과는 공백 100%, 한글 자간을 줄마다 같은 값으로 고정한 보정 자료로 유지한다. 새 양끝맞춤 판독에는 `justification`의 실행 ID와 빈 응답표를 쓴다.
 
@@ -48,6 +48,8 @@ ev reference /runs/refs-justified drawer /runs/drawer-edited.pdf --justified \
 # platform도 편집자가 지면을 확인한 뒤 같은 방식으로 등록한다.
 ev pairs /runs/model-justified /runs/refs-justified /runs/t13-justified --justified
 ```
+
+새 모델 프로필은 선택한 후보의 줄마다 실제 한글 자간·어절 공백과 그 간격을 누적한 글자 위치를 PDF와 대조한다. 후보 로그에 어절별 공백 폭(TeX sp)이 있으면 개수와 순서도 검사한다. PDF와 로그의 허용 차이는 0.05 PDF pt다.
 
 아래의 옵션 없는 모델 명령은 종전 프로필로 수집한 기준·산출물의 재현용이다. 새 실행의 선호·동률·시간 수용은 해당 실행에서 받은 사람의 응답으로 기록한다.
 
