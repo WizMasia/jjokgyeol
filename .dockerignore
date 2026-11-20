@@ -19,6 +19,7 @@
 !app/static/*.css
 !app/static/*.js
 !app/static/*.html
+!app/static/general-report.json
 !app/tex/
 !app/tex/*.tex
 !app/tex/*.lua

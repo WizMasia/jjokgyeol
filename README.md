@@ -43,6 +43,19 @@ docker run -d --name jjokgyeol-editor -p 127.0.0.1:8765:8000 jjokgyeol:local
 
 같은 원고를 A5·14pt, 첫 줄 0mm·이후 줄 6mm로 출력한 예시입니다. 편집기에서 원고와 양식 파일을 각각 열면 두 쪽에 걸친 내어쓰기와 각주를 확인할 수 있습니다. [원고](proofs/web-editor/manuscript.md) · [양식 JSON](proofs/web-editor/fixed-point-style.json) · [출력 PDF](proofs/web-editor/fixed-point.pdf)
 
+### 일반 보고서 양식
+
+**판형·여백 및 세부 양식**에서 **일반 보고서 양식 다운로드**를 누른 뒤, 받은 JSON을 **양식 열기**로 엽니다. 원고의 첫 줄에 `# 보고서 제목`을 쓰면 A4 본문 폭의 사각 테두리 안에 나눔고딕 Bold 20pt로 가운데 정렬됩니다. 각 항목은 `- `로 시작하고 하위 단계마다 앞에 공백 두 칸을 더합니다. [양식 JSON](app/static/general-report.json) · [예제 원고](proofs/general-report/manuscript.md) · [예시 PDF](proofs/general-report/general-report.pdf)
+
+| 단계 | 기호 | 글꼴과 크기 | 왼쪽 여백에서 들여쓰기 |
+| --- | --- | --- | --- |
+| 1 | □ | 나눔고딕 Bold 16pt | 0칸 |
+| 2 | ○ | 나눔명조 15pt | 1칸 |
+| 3 | **-** | 나눔명조 15pt, 기호만 굵게 | 3칸 |
+| 4 | * | 나눔고딕 13pt | 5칸 |
+
+한 칸은 7.5pt입니다. 두 글꼴 모두 배포 이미지에 포함되어 있어 별도 설치 없이 출력할 수 있습니다. [나눔고딕 라이선스](https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/OFL.txt) · [나눔명조 라이선스](https://raw.githubusercontent.com/google/fonts/main/ofl/nanummyeongjo/OFL.txt)
+
 ### 본문과 제목 크기를 따로 정하기
 
 보고서 예제의 원고를 **원고 열기**로, 양식을 **양식 열기**로 엽니다. **판형·여백 및 세부 양식 → 역할별 글자 모양**에서 1단계 제목을 선택하면 18pt, 굵게, 남색(`#17365D`)으로 설정되어 있습니다. 본문 크기를 11pt에서 16pt로 바꾸고 **미리보기 갱신**을 누르면 본문과 목록의 줄바꿈을 비교할 수 있습니다. 두 PDF 모두 2단계 제목은 14pt, 각주는 9pt이고, 머리글에는 ‘능선 관측소’, 바닥글에는 쪽 번호가 나옵니다. [원고](proofs/publication-typography/manuscript.md) · [11pt 양식](proofs/publication-typography/style.json) · [본문 11pt PDF](proofs/publication-typography/report-11.pdf) · [본문 16pt PDF](proofs/publication-typography/report-16.pdf) · [PDF 글자 실측](docs/superpowers/plans/2026-11-20-publication-typography.md#보고서-pdf-실측)

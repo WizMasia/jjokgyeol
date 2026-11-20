@@ -33,6 +33,8 @@ h1 b { font: 700 2.25rem/1.15 var(--serif); letter-spacing: -.09em; }
 .mark::after { content: ""; position: absolute; inset: .3rem auto .28rem .3rem; width: 2px; border-inline: 1px solid #ead4b9; }
 .product { color: var(--muted); font-size: .87rem; font-weight: 500; border-left: 1px solid var(--line); padding-left: .8rem; margin-left: .2rem; }
 .actions, .file-actions { gap: .5rem; }
+#style .file-actions { flex-wrap: wrap; }
+#style .file-actions a { color: var(--accent); font-size: .875rem; }
 .manuscript .file-actions { flex-wrap: wrap; justify-content: flex-end; }
 .primary { background: var(--ink); color: white; border-color: var(--ink); }
 .primary:hover { background: #43483e; }

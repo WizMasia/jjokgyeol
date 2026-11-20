@@ -1,0 +1,68 @@
+{
+  "page_sp": [
+    39158276,
+    55380990
+  ],
+  "margins_sp": [
+    3729360,
+    3356424,
+    3729360,
+    3356424
+  ],
+  "body_sp": 983040,
+  "leading_sp": 1507328,
+  "body_font": "nanum-myeongjo",
+  "heading_font": "nanum-gothic",
+  "first_indent_sp": 0,
+  "rest_indent_sp": 0,
+  "ko_tracking_per_10000": 0,
+  "space_per_10000": [
+    10000,
+    10000
+  ],
+  "list_levels": [
+    {
+      "expr": "□",
+      "indent_sp": 0,
+      "gap_sp": 372936,
+      "font": "nanum-gothic",
+      "font_sp": 1048576,
+      "indent_origin": "margin",
+      "weight": "bold"
+    },
+    {
+      "expr": "○",
+      "indent_sp": 491520,
+      "gap_sp": 372936,
+      "font": "nanum-myeongjo",
+      "font_sp": 983040,
+      "indent_origin": "margin"
+    },
+    {
+      "expr": "-",
+      "indent_sp": 1474560,
+      "gap_sp": 372936,
+      "font": "nanum-myeongjo",
+      "font_sp": 983040,
+      "indent_origin": "margin",
+      "mark_weight": "bold"
+    },
+    {
+      "expr": "*",
+      "indent_sp": 2457600,
+      "gap_sp": 372936,
+      "font": "nanum-gothic",
+      "font_sp": 851968,
+      "indent_origin": "margin"
+    }
+  ],
+  "text_styles": {
+    "heading1": {
+      "font": "nanum-gothic",
+      "font_sp": 1310720,
+      "weight": "bold",
+      "frame": "box"
+    }
+  },
+  "paragraph_layout": "balanced"
+}
