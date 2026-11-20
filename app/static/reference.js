@@ -1134,7 +1134,7 @@ byId("reference-apply").addEventListener("click", () => {
   proof = null; // The committed preview takes ownership of this blob URL.
   closeReview();
   pending = null;
-  styleForm.set(style, {preserveMarginSplit: true});
+  styleForm.set(style, {preserveDraft: true});
   edited("style");
   showPdf(url, style);
 });

@@ -681,3 +681,48 @@ def test_preview_caption_describes_justified_settings_used_for_displayed_pdf(des
     desk.submit(desk.refresh)
     desk.reply(2, desk.pdf)
     expect(caption).to_have_text("표시 중인 PDF 적용값 · 한글 자간 -3% · 어절 공백 90% ~ 130%")
+
+
+@pytest.mark.parametrize(("base", "bounds", "spaces", "typed", "activate"), [
+    ("15", None, ["100", "100"], False, True),
+    ("-15.000000000000000001", None, ["100", "100"], False, False),
+    ("14.999999999999999999", None, ["100", "100"], False, True),
+    ("0", ["0", "0"], ["100", "100"], False, False),
+    ("0", ["-7", "15"], ["100", "100"], False, False),
+    ("0", None, ["98", "98"], False, False),
+    ("0", None, ["100", "100"], True, False),
+])
+def test_layout_choice_preserves_manual_spacing(desk, base, bounds, spaces, typed, activate):
+    page = desk.page
+    desk.ready()
+    values = {**DEFAULTS, "paragraph_layout": "balanced", "ko_tracking_pct": base, "space_pct": spaces}
+    if bounds is None:
+        del values["ko_tracking_bounds_pct"]
+    else:
+        values["ko_tracking_bounds_pct"] = bounds
+    page.evaluate("v => styleForm.set(v)", values)
+    if typed:
+        page.locator("#style summary").click()
+        low = page.get_by_label("최소", exact=True)
+        low.fill("95")
+        low.fill("100")
+    page.get_by_label("문단 배치 방식", exact=True).select_option("justified")
+    expected = {**values, "paragraph_layout": "justified"}
+    if activate:
+        expected.update(ko_tracking_bounds_pct=["-15", "15"], space_pct=["70", "130"])
+    assert page.evaluate("styleForm.get()") == expected
+    if base.startswith("-15.000"):
+        expect(page.locator("#spacing-notice")).to_contain_text("현재 기본 자간을 유지했습니다")
+
+
+@pytest.mark.parametrize("desk", [{"new_paragraph_layout": "balanced", "new_spacing": {},
+    "justified_spacing": {"ko_tracking_bounds_pct": ["-2", "4.5"], "space_pct": ["91", "112"]}}], indirect=True)
+def test_manual_mode_choice_uses_installed_justified_preset(desk):
+    page = desk.page
+    expect(desk.frame).to_have_attribute("src", BLOB)
+    layout = page.get_by_label("문단 배치 방식", exact=True)
+    expect(layout).to_have_value("balanced")
+    layout.select_option("justified")
+    expect(page.locator("#tracking-lower")).to_have_value("-2")
+    expect(page.locator("#tracking-upper")).to_have_value("4.5")
+    assert page.evaluate("styleForm.get().space_pct") == ["91", "112"]

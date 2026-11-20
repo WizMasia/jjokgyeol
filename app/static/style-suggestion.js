@@ -132,6 +132,6 @@ confirm.addEventListener("click", () => {
   const job = active;
   if (!job?.patch || !current(job)) return;
   clear("제안을 적용했습니다.");
-  styleForm.set({...job.before, ...job.patch}, {preserveMarginSplit: true, inactiveArticleExpr: articleExpr.value});
+  styleForm.set({...job.before, ...job.patch}, {preserveDraft: true, inactiveArticleExpr: articleExpr.value});
   edited("style");
 });

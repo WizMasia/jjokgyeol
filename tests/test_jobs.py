@@ -280,6 +280,9 @@ async def test_new_render_defaults_and_explicit_old_styles(api, tmp_path):
         for fields, mode, tracking, spaces in [
             ({}, "justified", [-1500, 1500], [7000, 13000]),
             ({"style": {}}, "justified", [-1500, 1500], [7000, 13000]),
+            ({"style": {"paragraph_layout": "justified"}}, "justified", [-1500, 1500], [7000, 13000]),
+            ({"style": {"paragraph_layout": "justified", "space_pct": [100, 100]}},
+             "justified", None, [10000, 10000]),
             ({"style": {"body_pt": 14}}, None, None, [10000, 10000]),
             ({"style": {"paragraph_layout": "balanced"}}, "balanced", None, [10000, 10000]),
             ({"style": {"paragraph_layout": "justified", "ko_tracking_bounds_pct": [0, 0],

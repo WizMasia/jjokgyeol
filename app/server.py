@@ -237,7 +237,7 @@ async def style_file(request: Request):
             body = await read_body(request)
         values = json.loads(body.decode("utf-8-sig"), parse_float=Decimal)
         if request.url.path.endswith("/export"):
-            result = styles.apply_style(styles.Style(), values).to_stored()
+            result = styles.from_editor_style(values).to_stored()
         else:
             result = styles.from_stored_style(values).to_editor()
         return JSONResponse(result, headers=NO_STORE)

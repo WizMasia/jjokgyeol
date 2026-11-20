@@ -338,3 +338,46 @@ def test_editor_saves_and_reopens_exact_paragraph_spacing(browser, server_url):
             expect(layout).to_have_value(mode or "")
             expect(page.get_by_label("최소", exact=True)).to_have_value("98")
             assert save() == saved
+
+
+def test_selecting_justification_after_opening_fixed_style(browser, server_url):
+    from app.style import Style
+    old = Style().to_stored()
+    old["ko_tracking_per_10000"] = -300
+    with browser.new_context() as context:
+        page = context.new_page()
+        page.goto(server_url)
+        layout = page.get_by_label("문단 배치 방식", exact=True)
+        upload = page.locator("#style-file")
+        with page.expect_response("**/api/style/open"):
+            upload.set_input_files({"name": "이전.json", "mimeType": "application/json", "buffer": json.dumps(old).encode()})
+        expect(layout).to_have_value("")
+        details = page.locator("#style details")
+        details.locator("summary").click()
+
+        def save():
+            with page.expect_download() as output:
+                page.locator("#save-style").click()
+            return json.loads(output.value.path().read_bytes())
+
+        assert save() == old
+        details.locator("summary").click()
+        layout.select_option("justified")
+        expect(page.locator("#tracking-lower")).to_be_visible()
+        expect(page.locator("#tracking-lower")).to_have_value("-15")
+        expect(page.locator("#tracking-upper")).to_have_value("15")
+        expect(page.get_by_label("최소", exact=True)).to_have_value("70")
+        expect(page.get_by_label("최대", exact=True)).to_have_value("130")
+        assert save() == {**old, "paragraph_layout": "justified", "ko_tracking_bounds_per_10000": [-1500, 1500],
+                          "space_per_10000": [7000, 13000]}
+
+
+@pytest.mark.anyio
+async def test_justified_shorthand_and_fixed_file_have_distinct_spacing():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as api:
+        preset = (await api.post("/api/style/export", json={"paragraph_layout": "justified"})).json()
+        assert preset["ko_tracking_bounds_per_10000"] == [-1500, 1500] and preset["space_per_10000"] == [7000, 13000]
+        fixed = {**preset, "space_per_10000": [10000, 10000]}
+        del fixed["ko_tracking_bounds_per_10000"]
+        opened = (await api.post("/api/style/open", json=fixed)).json()
+        assert (await api.post("/api/style/export", json=opened)).json() == fixed

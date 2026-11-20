@@ -729,6 +729,13 @@ def apply_style(current: Style, patch: dict) -> Style:
     return Style(**_load(vars(current), patch, stored=False))
 
 
+def from_editor_style(fields: dict) -> Style:
+    """A mode-only request selects the preset. A complete editor form carries its own spacing."""
+    if fields == {"paragraph_layout": "justified"}:
+        fields = {**publication.JUSTIFIED_SPACING, **fields}
+    return apply_style(Style(), fields)
+
+
 def from_stored_style(fields: dict) -> Style:
     """Read all fields of a canonical style without interpreting them as editor units."""
     return Style(**_load(_DEFAULT_FIELDS, fields, stored=True))
@@ -766,6 +773,7 @@ def editor_bootstrap() -> dict:
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],
         "new_spacing": {key: new[key] for key in publication.NEW_SPACING},
+        "justified_spacing": {key: list(map(str, values)) for key, values in publication.JUSTIFIED_SPACING.items()},
         "text_defaults": text_defaults,
         "heading_per_10000": list(publication.HEADINGS),
         "heading_leading_per_10000": publication.HEADING_LEADING,
