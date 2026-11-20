@@ -1,0 +1,137 @@
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+use std::{
+    error::Error,
+    fs,
+    io::{Read, Write},
+    path::Path,
+    process::Command,
+    time::{Duration, Instant},
+};
+
+pub fn render(
+    runtime: &Path,
+    source: &Path,
+    style: &Path,
+    output: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let operations: serde_json::Value =
+        serde_json::from_str(include_str!("../../app/config/operations.json"))?;
+    let timeout = Duration::from_secs(
+        operations["timeout_seconds"]
+            .as_u64()
+            .ok_or("invalid timeout")?,
+    );
+    render_with_timeout(runtime, source, style, output, timeout)
+}
+
+pub fn render_with_timeout(
+    runtime: &Path,
+    source: &Path,
+    style: &Path,
+    output: &Path,
+    timeout: Duration,
+) -> Result<(), Box<dyn Error>> {
+    let runtime = fs::canonicalize(runtime)?;
+    let operations: serde_json::Value =
+        serde_json::from_str(include_str!("../../app/config/operations.json"))?;
+    let request_limit = operations["request_body_bytes"]
+        .as_u64()
+        .ok_or("invalid request limit")?;
+    let source = String::from_utf8(read_limited(source, request_limit)?)?;
+    let style: serde_json::Value = serde_json::from_slice(&read_limited(style, request_limit)?)?;
+    let request = serde_json::to_vec(&serde_json::json!({"source": source, "style": style}))?;
+    if request.len() as u64
+        > operations["request_body_bytes"]
+            .as_u64()
+            .ok_or("invalid request limit")?
+    {
+        return Err("request exceeds limit".into());
+    }
+    let work = tempfile::tempdir()?;
+    fs::write(work.path().join("request.json"), request)?;
+    let worker = runtime
+        .join("worker")
+        .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX));
+    let status = run_worker(&worker, &runtime, work.path(), timeout)?;
+    if !status.success() {
+        return Err("worker failed".into());
+    }
+    let pdf = read_limited(
+        &work.path().join("response.pdf"),
+        operations["worker_file_bytes"]
+            .as_u64()
+            .ok_or("invalid worker file limit")?,
+    )?;
+    if !pdf.starts_with(b"%PDF-") || !pdf.trim_ascii_end().ends_with(b"%%EOF") {
+        return Err("invalid PDF".into());
+    }
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(&pdf)?;
+    temp.persist(output)?;
+    Ok(())
+}
+
+fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(limit.checked_add(1).ok_or("invalid file limit")?)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err("file exceeds limit".into());
+    }
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn run_worker(
+    worker: &Path,
+    runtime: &Path,
+    work: &Path,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, Box<dyn Error>> {
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or("invalid timeout")?;
+    let mut child = Command::new(worker)
+        .arg("--runtime")
+        .arg(runtime)
+        .current_dir(work)
+        .process_group(0)
+        .spawn()?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                return Ok(status);
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            result => {
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                let _ = child.wait();
+                return Err(match result {
+                    Err(error) => error.into(),
+                    _ => "worker timed out".into(),
+                });
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn run_worker(
+    _: &Path,
+    _: &Path,
+    _: &Path,
+    _: Duration,
+) -> Result<std::process::ExitStatus, Box<dyn Error>> {
+    Err("process-tree timeout is not implemented on this platform".into())
+}
