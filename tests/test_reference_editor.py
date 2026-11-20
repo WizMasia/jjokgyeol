@@ -288,7 +288,7 @@ def test_bootstrap_with_section_rules_starts_sample(browser, monkeypatch, server
     with browser.new_context() as context:
         page = context.new_page()
         d = Review(page, server_url)
-        d.ready(defaults)
+        d.ready({**defaults, "text_styles": settings["new_text_styles"]})
         expect(page.locator("#reference-notice")).to_contain_text("다시 연결")
 
 

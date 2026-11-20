@@ -221,8 +221,9 @@ async function validatedMarginRestore(draft, current, gutterSp) {
   return marginGeometry(await requestStyle("open", JSON.stringify(stored)));
 }
 
+const typography = typographyEditor(settings);
 let sectionRules;
-const styleFields = Object.keys(settings.defaults).filter(name => !["list_levels", "article_expr", "section_rules", "gutter_mm"].includes(name)).map(name => [
+const styleFields = Object.keys(settings.defaults).filter(name => !["list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct"].includes(name)).map(name => [
   name, stylePanel.querySelectorAll(`[name="${CSS.escape(name)}"]`),
 ]);
 const styleForm = {
@@ -235,7 +236,7 @@ const styleForm = {
     if (articleNumbering.checked) values.article_expr = articleExpr.value;
     if (sectionRules !== undefined) values.section_rules = structuredClone(sectionRules);
     if (!gutter.disabled) values.gutter_mm = gutter.value;
-    return values;
+    return Object.assign(values, typography.get());
   },
   set(values, {preserveMarginSplit = false} = {}) {
     for (const [name, controls] of styleFields) {
@@ -247,6 +248,7 @@ const styleForm = {
     if (!preserveMarginSplit || !matchesSplit()) marginSplit = undefined;
     setMarginMode(values.gutter_mm !== undefined, values.gutter_mm);
     sectionRules = structuredClone(values.section_rules);
+    typography.set(values);
     listStyle.set(values.list_levels);
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;
@@ -258,7 +260,7 @@ const styleForm = {
 for (const select of stylePanel.querySelectorAll("select[name]")) {
   for (const font of settings.fonts) select.add(new Option(font.label, font.id));
 }
-styleForm.set(settings.defaults);
+styleForm.set({...settings.defaults, text_styles: settings.new_text_styles});
 stylePanel.inert = false;
 
 function showReferenceError() {
@@ -379,6 +381,7 @@ async function render(job) {
     const message = error instanceof TypeError ? "조판에 실패했습니다. 연결을 확인하고 다시 시도하세요." : error.message;
     if (field === "article_expr") articleError(message);
     marginError(field, message);
+    typography.error(field, message);
     errorText.textContent = field ? `${field} · ${message}` : message;
     statusText.textContent = displayedVersion === version ? "현재 지면 · 갱신 실패" :
       pdfUrl ? "이전 버전 · 조판 실패" : "조판 실패";

@@ -36,6 +36,7 @@ byId("save-style").addEventListener("click", async () => {
       if (!articleNumbering.checked || articleExpr.value !== values.article_expr) return;
       articleError(error.message);
     }
+    if (JSON.stringify(styleForm.get()) === JSON.stringify(values)) typography.error(error.field, error.message);
     showStyleError(error);
   }
 });
