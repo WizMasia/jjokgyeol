@@ -135,7 +135,14 @@ T10의 DOCX·HWPX 입력은 저장소의 `proofs/`에서 각 3종을 확인했�
 
 | HWP 표본 | 원본 SHA-256 | 비교할 내용 |
 | --- | --- | --- |
-| `lists.hwp` | `054ef256c43dc611987c7c3577e30c7288b981c042b6fceb6587abeff2e5edee` | 문단 64개, 번호 정의 4개 |
-| `charshape.hwp` | `8eb333ab110db6f91d7e426d507d41ca09cacd4d40d945188b5ec40663d7576b` | 문단 7개의 글자 서식 |
+| `lists.hwp` | `054ef256c43dc611987c7c3577e30c7288b981c042b6fceb6587abeff2e5edee` | 번호 목록과 개요 제목에서 각각 0·1·2단계가 실제로 쓰인다. 본문 18번째와 45번째 문단은 둘 다 ‘3-2-1’이다. 앞은 3단계 목록 항목, 뒤는 3단계 개요 제목이어야 한다. |
+| `charshape.hwp` | `8eb333ab110db6f91d7e426d507d41ca09cacd4d40d945188b5ec40663d7576b` | 두 번째 문단 ‘기울임진하게’에서 ‘기울임’에만 기울기가, ‘진하게’에만 굵기가 적용된다. |
 | `headerfooter.hwp` | `8dcc2edecf32b86724819de3265529d57200b502b9cc5dbc0378daa041c274c8` | 머리글·바닥글·자동 번호 각 1개 |
 | `sample-5017.hwp` | `ff3faae938610fcfbedc21c27c507ca0cc038b44872b65d10fcad0b55af67ba2` | 복합 문서의 문단 26개와 자동 번호 |
+
+저장소의 `banks.docx`는 목록 두 항목 모두 1단계라서 중첩 보존을 판정하기 어렵다. 아래 두 원본의 본문 XML에서 실제 사용한 단계와 순서를 별도로 판독했다. 이 기대값은 T10 변환기 결과와 독립적으로 비교한다.
+
+| 원본 | SHA-256 | 변환 전 확인한 순서와 깊이 |
+| --- | --- | --- |
+| [Pandoc의 lists.docx](https://github.com/jgm/pandoc/blob/de38596d097cdfca456f7b916c6e32deaf6913ca/test/docx/lists.docx) | `16deaa246fa4c3d06c6ef0764df0f3957b9f96b38cd7da5c1b94e99198970252` | 7~9번째 본문 문단 ‘two’, ‘three’, ‘four’는 1→2→3단계 목록이다. |
+| [hwpxlib의 ParaHead.hwpx](https://github.com/neolord0/hwpxlib/blob/f9fd2255ac0fc57414e0b657d115e7de51d31c65/testFile/tool/textextractor/ParaHead.hwpx) | `ac351385ba4d084eb93e898274ea5eb6928cd7d39db6ab890539c368e7dfc96b` | ‘번호3’의 두 자식은 ‘번호3-1’, ‘번호3-2’다. ‘개요2’, ‘개요2-1’, ‘개요2-1-1’은 1→2→3단계 제목이다. ‘번호4’ 직후 항목은 1단계에서 4단계로 건너뛴다. 중간 항목을 원문으로 오인하지 않도록 변환 결과와 경고를 함께 검사한다. |
