@@ -116,7 +116,9 @@ end
 -- Space nodes are measured after shaping. TeX still builds the lines and moves
 -- insertions (including footnotes) through its normal page builder.
 local active, item, paragraph_index = false, nil, nil
-local paragraph = require("paragraph")
+local measured = style.paragraph_layout == "balanced"
+  or style.ko_tracking_bounds_per_10000 ~= nil or data.paragraphs ~= nil
+local paragraph = measured and require("paragraph")
 local skipped_first
 local lists = require("list_layout")
 local wordbreak = require("wordbreak")
@@ -263,15 +265,17 @@ function book.blocks()
       emit("\\directlua{book.item(" .. index .. ")}\\BookPar\\directlua{book.item(0)}")
     else
       assert(block.kind == "paragraph")
-      inlines(block.inlines, true)
+      inlines(block.inlines, measured)
       local first = values.first_indent_sp or style.first_indent_sp
       local rest = values.rest_indent_sp or style.rest_indent_sp
       emit(string.format("\\parshape 2 %s %s %s %s\\relax",
         sp(first), sp(width - first), sp(rest), sp(width - rest)))
       if data.candidate and index == data.candidate.block then
         emit("\\directlua{book.candidate(true)}\\BookPar\\directlua{book.candidate(false)}")
-      else
+      elseif measured then
         emit("\\directlua{book.paragraph(" .. index .. ")}\\BookPar\\directlua{book.paragraph(nil)}")
+      else
+        emit("\\BookPar")
       end
     end
     if grouped then emit("\\endgroup") end

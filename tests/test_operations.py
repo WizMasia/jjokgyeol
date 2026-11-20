@@ -101,6 +101,7 @@ async def check_live_limits():
         assert set(bootstrap) == {
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
             "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
+            "new_paragraph_layout",
         }
         assert bootstrap["default_list_preset"] == "legal"
         assert "list_levels" not in bootstrap["defaults"]

@@ -62,7 +62,7 @@ local function boundaries(head, shapes, low_tracking, low_space)
   for n in node.traverse(head) do
     if n.id == glyph and node.has_attribute(n, breaks.gloss_attribute) then return end
     if n.id == penalty and n.penalty <= -10000 then return end
-    if breaks.wordspace(n) or n.id == glue and n.subtype == 15 then
+    if breaks.wordspace(n, true) or n.id == glue and n.subtype == 15 then
       if first then
         word(gap, first, n)
         gap, first = n, nil

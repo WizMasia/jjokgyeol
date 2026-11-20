@@ -16,7 +16,9 @@ BP_PER_MM = 72 / 25.4
 
 
 def style_for(width, **patch):
-    return apply_style(Style(), {"page_mm": [width + 20, 100], "margins_mm": [10] * 4, **patch})
+    return apply_style(Style(), {
+        "page_mm": [width + 20, 100], "margins_mm": [10] * 4, "paragraph_layout": "balanced", **patch,
+    })
 
 
 def render(folder, source, style, choices=None):
@@ -208,7 +210,7 @@ def test_consecutive_spaces_and_wrapped_standalone_quotes(tmp_path):
 
 def test_replay_without_collection_preserves_note_on_reference_page(tmp_path):
     source = ("앞말\n\n" * 3 + "강가 가나 다른 끝[^강]\n\n[^강]: 물길을 확인")
-    style = apply_style(style_for(25), {"page_mm": [45, 58]})
+    style = apply_style(Style(), {"page_mm": [45, 58], "margins_mm": [10] * 4})
     _, reports = render(tmp_path / "rule", source, style)
     row = reports[-1]
     assert row["block"] == 4
@@ -231,3 +233,17 @@ def test_replay_without_collection_preserves_note_on_reference_page(tmp_path):
         assert len(markers) == 1 and markers == notes
         ends = list(accumulate(map(len, body)))
         assert ends == [line["end_glyph"] for line in candidate["lines"]]
+
+
+@pytest.mark.parametrize(("patch", "request_options", "first"), [
+    ({"text_styles": {"heading1": {"color": "#123456"}}, "space_pct": [70, 130]}, {}, "강가가나다른"),
+    ({"paragraph_layout": "balanced"}, {}, "강가가나"),
+    ({"ko_tracking_bounds_pct": [0, 0]}, {}, "강가가나"),
+    ({}, {"collect_candidates": True}, "강가가나"),
+    ({}, {"paragraph_choices": {}}, "강가가나"),
+])
+def test_normal_and_explicit_candidate_requests(tmp_path, patch, request_options, first):
+    style = apply_style(Style(), {"page_mm": [45, 100], "margins_mm": [10] * 4, **patch})
+    page, = read_pages(typeset(parse_md("강가 가나 다른 끝"), style, tmp_path, **request_options))
+    assert printed(page.lines[0]) == first
+    assert (tmp_path / "paragraph-candidates.jsonl").exists() == bool(request_options.get("collect_candidates"))
