@@ -238,7 +238,7 @@ const styleForm = {
     if (!gutter.disabled) values.gutter_mm = gutter.value;
     return Object.assign(values, typography.get());
   },
-  set(values, {preserveMarginSplit = false} = {}) {
+  set(values, {preserveMarginSplit = false, inactiveArticleExpr = settings.default_article_expr ?? ""} = {}) {
     for (const [name, controls] of styleFields) {
       const value = values[name];
       controls.forEach((control, index) => {
@@ -252,7 +252,7 @@ const styleForm = {
     listStyle.set(values.list_levels);
     articleNumbering.checked = values.article_expr !== undefined;
     articleExpr.disabled = !articleNumbering.checked;
-    articleExpr.value = values.article_expr ?? settings.default_article_expr ?? "";
+    articleExpr.value = values.article_expr ?? inactiveArticleExpr;
     articleError("");
   },
 };

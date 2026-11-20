@@ -271,6 +271,11 @@ export function editorChanged() {
 }
 
 document.addEventListener("reference-editor-change", editorChanged);
+document.addEventListener("style-suggestion-check-rules", event => {
+  if (panel.hidden) return;
+  if (bindings.some(({remove, path, rule}) => remove || path !== JSON.stringify(rule.path)) ||
+      JSON.stringify(bindings.map(binding => binding.rule)) !== savedRules) event.preventDefault();
+});
 
 function keyName(key) {
   const match = levelKey.exec(key);

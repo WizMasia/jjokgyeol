@@ -88,12 +88,13 @@ def suggest_patch(request: str, current: Style, *, draft: dict | None = None) ->
     if not isinstance(request, str) or not request.strip() or len(request) > SETTINGS["max_request_chars"]:
         raise InputError({"request": f'요청을 1~{SETTINGS["max_request_chars"]}자로 입력하세요.'})
     before = current.to_editor()
+    if "list_levels" not in before:
+        before["list_levels"] = [row.to_editor() for row in current.resolved_list_levels()]
     editor = {**before, **(draft or {})}
     fields = {k: editor.get(k) for k in SCALARS}
     for key, names in ARRAYS.items():
         fields.update(zip(names, editor[key], strict=True))
-    levels = (deepcopy(editor["list_levels"]) if "list_levels" in editor else
-              [row.to_editor() for row in current.resolved_list_levels()])
+    levels = deepcopy(editor["list_levels"])
     for i, level in enumerate(levels, 1):
         fields.update({f"list.{i}.{key}": v for key, v in level.items()})
     rules = deepcopy(editor.get("section_rules", []))

@@ -77,3 +77,9 @@ def test_invalid_patch_is_atomic(monkeypatch, pairs, field):
 def test_noop_and_unrelated_decimals(monkeypatch):
     suggest = model(monkeypatch, reply(("body_pt", "11.0"), ("margin.left", "25.5")))
     assert suggest("왼쪽만 변경", Style()) == {"margins_mm": ["20", "18", "20", "25.5"]}
+
+
+@pytest.mark.parametrize("other, expected", [([], {}), ([("body_pt", "16")], {"body_pt": "16"})])
+def test_matching_inherited_list_preset_stays_inherited(monkeypatch, other, expected):
+    suggest = model(monkeypatch, reply(("list.1.expr", "{원숫자}"), ("list.2.gap_mm", "2.00"), *other))
+    assert suggest("목록 양식 유지", Style()) == expected
