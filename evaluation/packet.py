@@ -37,6 +37,10 @@ BP_PER_SP = 72 / 72.27 / 65536
 BODY_FACES = {"nanum-myeongjo": ("NanumMyeongjo", 307 / 1024),
               "nanum-gothic": ("NanumGothic", 280 / 1000)}
 QUAY_SHA256 = "57cdb7b231bebe0086f77f6f2ca8e322b0c1917dd50e082f3197344f4f8e0f87"
+# 평가 PDF 래스터화 리소스 상한 / Resource bounds for evaluation PDF rasterization.
+MAX_PDF_BYTES = 64 * 1024 * 1024  # 64 MiB
+MAX_PDF_PAGES = 200
+MAX_RASTER_PIXELS = 40_000_000
 
 
 def digest(data):
@@ -81,33 +85,53 @@ def read_json(path):
     return json.loads(path.read_text("utf-8"))
 
 
-def blind_pdf(data):
+def blind_pdf(data: bytes) -> bytes:
     """Rebuild the physical pages from lossless 300 dpi pixels, discarding all source objects."""
+    if not isinstance(data, (bytes, bytearray)) or len(data) > MAX_PDF_BYTES:
+        raise ValueError("PDF exceeds size limit")
     reader = PdfReader(BytesIO(data))
+    if not reader.pages or len(reader.pages) > MAX_PDF_PAGES:
+        raise ValueError("PDF page count exceeds limit")
     writer = PdfWriter()
     writer.metadata = None
-    with tempfile.TemporaryDirectory() as tmp:
-        prefix = Path(tmp) / "page"
-        subprocess.run(["pdftoppm", "-r", "300", "-png", "-", str(prefix)], input=data,
-                       capture_output=True, check=True, timeout=60)
-        images = sorted(Path(tmp).glob("page-*.png"), key=lambda p: int(p.stem[5:]))
-        if not images or len(images) != len(reader.pages):
-            raise ValueError("incomplete PDF raster")
-        for src, image in zip(reader.pages, images, strict=True):
-            width, height = map(float, (src.mediabox.width, src.mediabox.height))
-            page = writer.add_blank_page(width, height)
-            with Image.open(image) as bitmap:
-                stream = DecodedStreamObject()
-                stream.set_data(bitmap.convert("RGB").tobytes())
-                stream = stream.flate_encode()
-                for name, value in {"Type": "XObject", "Subtype": "Image", "ColorSpace": "DeviceRGB"}.items():
-                    stream[NameObject("/" + name)] = NameObject("/" + value)
-                for name, value in {"Width": bitmap.width, "Height": bitmap.height, "BitsPerComponent": 8}.items():
-                    stream[NameObject("/" + name)] = NumberObject(value)
-            page["/Resources"][NameObject("/XObject")] = DictionaryObject({NameObject("/Im"): writer._add_object(stream)})
-            drawing = DecodedStreamObject()
-            drawing.set_data(f"q {width} 0 0 {height} 0 0 cm /Im Do Q".encode("ascii"))
-            page[NameObject("/Contents")] = writer._add_object(drawing)
+    previous_max_pixels = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = (
+        MAX_RASTER_PIXELS
+        if previous_max_pixels is None
+        else min(previous_max_pixels, MAX_RASTER_PIXELS)
+    )
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "page"
+            subprocess.run(
+                ["pdftoppm", "-r", "300", "-png", "-f", "1", "-l", str(MAX_PDF_PAGES), "-", str(prefix)],
+                input=data,
+                capture_output=True,
+                check=True,
+                timeout=60,
+            )
+            images = sorted(Path(tmp).glob("page-*.png"), key=lambda p: int(p.stem[5:]))
+            if not images or len(images) != len(reader.pages):
+                raise ValueError("incomplete PDF raster")
+            for src, image in zip(reader.pages, images, strict=True):
+                width, height = map(float, (src.mediabox.width, src.mediabox.height))
+                page = writer.add_blank_page(width, height)
+                with Image.open(image) as bitmap:
+                    if bitmap.width * bitmap.height > MAX_RASTER_PIXELS:
+                        raise ValueError("PDF page image exceeds pixel limit")
+                    stream = DecodedStreamObject()
+                    stream.set_data(bitmap.convert("RGB").tobytes())
+                    stream = stream.flate_encode()
+                    for name, value in {"Type": "XObject", "Subtype": "Image", "ColorSpace": "DeviceRGB"}.items():
+                        stream[NameObject("/" + name)] = NameObject("/" + value)
+                    for name, value in {"Width": bitmap.width, "Height": bitmap.height, "BitsPerComponent": 8}.items():
+                        stream[NameObject("/" + name)] = NumberObject(value)
+                page["/Resources"][NameObject("/XObject")] = DictionaryObject({NameObject("/Im"): writer._add_object(stream)})
+                drawing = DecodedStreamObject()
+                drawing.set_data(f"q {width} 0 0 {height} 0 0 cm /Im Do Q".encode("ascii"))
+                page[NameObject("/Contents")] = writer._add_object(drawing)
+    finally:
+        Image.MAX_IMAGE_PIXELS = previous_max_pixels
     output = BytesIO()
     writer.write(output)
     return output.getvalue()

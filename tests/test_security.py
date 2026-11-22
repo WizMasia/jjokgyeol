@@ -386,3 +386,26 @@ def test_hwp_importer_out_of_bounds_shape_raises_value_error() -> None:
         hwp._section(section_data, [0], [0], Manuscript())
 
 
+def test_evaluation_blind_pdf_enforces_size_and_page_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    from io import BytesIO
+    from pypdf import PdfWriter
+    from evaluation import packet
+
+    # Size bound rejects oversized payload before touching PdfReader/pdftoppm.
+    monkeypatch.setattr(packet, "MAX_PDF_BYTES", 32)
+    with pytest.raises(ValueError, match="size limit"):
+        packet.blind_pdf(b"%PDF-1.4" + b"0" * 40)
+
+    # Page bound rejects PDFs exceeding MAX_PDF_PAGES.
+    monkeypatch.setattr(packet, "MAX_PDF_BYTES", 1024 * 1024)
+    monkeypatch.setattr(packet, "MAX_PDF_PAGES", 2)
+    writer = PdfWriter()
+    for _ in range(3):
+        writer.add_blank_page(width=72, height=72)
+    buf = BytesIO()
+    writer.write(buf)
+    with pytest.raises(ValueError, match="page count"):
+        packet.blind_pdf(buf.getvalue())
+
+
+
