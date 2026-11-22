@@ -46,15 +46,29 @@ def validate_frontend(dist):
             raise ValueError(f'missing frontend assets: {name}; build frontend first')
 
 
-def main():
+def tauri_command(gui_dir: Path = GUI) -> list[str]:
+    """로컬에 설치된 Tauri CLI 경로를 찾는다(무검증 원격 다운로드 금지) / Locate locally installed Tauri CLI without remote auto-download."""
+    binary = 'tauri.cmd' if os.name == 'nt' else 'tauri'
+    for candidate in (
+        gui_dir / 'frontend' / 'node_modules' / '.bin' / binary,
+        gui_dir / 'node_modules' / '.bin' / binary,
+    ):
+        if candidate.is_file():
+            return [str(candidate)]
+    raise ValueError(
+        f'local Tauri CLI ({CLI}) is not installed; install pinned devDependencies via npm ci first'
+    )
+
+
+def main() -> None:
     if len(sys.argv) != 2:
         raise ValueError('usage: python bundle.py ABSOLUTE_RUNTIME_DIRECTORY')
     if sys.platform not in ('darwin', 'win32'):
         raise ValueError('run this build on macOS or Windows')
     config = resource_config(Path(sys.argv[1]))
     validate_frontend(GUI / 'frontend' / 'dist')
-    npm = 'npm.cmd' if os.name == 'nt' else 'npm'
-    subprocess.run([npm, 'exec', '--yes', f'--package={CLI}', '--', 'tauri', 'build',
+    cmd = tauri_command(GUI)
+    subprocess.run([*cmd, 'build',
                     '--config', json.dumps(config, ensure_ascii=False),
                     '--bundles', 'nsis' if os.name == 'nt' else 'app'], cwd=GUI, check=True)
 

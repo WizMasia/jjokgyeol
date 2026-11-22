@@ -8,7 +8,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl c
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 export PATH="/root/.cargo/bin:$PATH" CARGO_TARGET_DIR=/tmp/cargo-target
 python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/requirements.lock -r desktop/worker/build-requirements.lock
-python -m pip install pdfminer.six==20260107 pypdf==7.1.1
+python -m pip install --require-hashes --only-binary=:all: -r desktop/qa/requirements-compare.lock
 python -m unittest discover -s desktop/qa -p 'test_*.py'
 python -m PyInstaller --clean --noconfirm --distpath /tmp/dist --workpath /tmp/pyinstaller desktop/worker/worker.spec
 mkdir -p /tmp/runtime/bin /tmp/runtime/fonts

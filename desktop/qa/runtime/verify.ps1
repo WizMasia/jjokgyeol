@@ -16,7 +16,7 @@ $failed = $false
 try {
     Run-Check 'check-exit-propagation' { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'test-check.ps1') }
     try { Run-Check 'rust-tests' { cargo test --locked --manifest-path desktop/Cargo.toml } } catch { $failed = $true; $_ | Tee-Object -FilePath (Join-Path $results 'rust-failure.txt') }
-    Run-Check 'python-dependencies' { python -m pip install markdown-it-py==4.3.0 mdurl==0.1.2 pdfminer.six==20260107 pypdf==7.1.1 }
+    Run-Check 'python-dependencies' { python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/requirements.lock -r desktop/qa/requirements-compare.lock }
     Run-Check 'pyinstaller-dependencies' { python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/build-requirements.lock }
     foreach ($name in @('TEXINPUTS', 'TEXMFCNF', 'TEXMFHOME', 'TEXMFLOCAL', 'TEXMFVAR', 'TEXMFCONFIG', 'LUAINPUTS')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
     $extracted = Join-Path $Work 'resources'

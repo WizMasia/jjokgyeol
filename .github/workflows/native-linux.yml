@@ -21,11 +21,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - name: Install Tauri and X11 build dependencies
@@ -54,7 +54,7 @@ jobs:
           xvfb-run -a dbus-run-session -- python desktop/qa/linux/smoke.py desktop/gui/target/debug/jjokgyeol-desktop "$RUNNER_TEMP/linux-gui" 2>&1 | tee "$RUNNER_TEMP/linux-gui/smoke.log"
       - name: Save GUI logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-ubuntu-gui-logs
           path: ${{ runner.temp }}/linux-gui/
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run x86_64 packaged worker and CLI with Debian engine
         shell: bash
         run: |
@@ -78,7 +78,7 @@ jobs:
           if [ -d "$RUNNER_TEMP/linux-proof" ]; then sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/linux-proof"; fi
       - name: Save proof and logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-debian-x86-proof
           path: ${{ runner.temp }}/linux-proof/
