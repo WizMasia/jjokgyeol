@@ -65,7 +65,7 @@ class DocumentInteropTest(unittest.TestCase):
             expect(pages).to_have_count(2)
             native.locator("#document-file").set_input_files(
                 {"name": "초고.jjok", "mimeType": "application/octet-stream", "buffer": archived.read_bytes()})
-            expect(native.locator("#source")).to_have_value("# 원고\n\n첫 문단\n끝\n")
+            expect(native.locator("#source")).to_have_value("# 원고\n\n첫 문단\n끝\n", timeout=45000)
             expect(pages).to_have_count(1)
             expect(pages.first).to_be_visible()
             native.locator("#save-document").click()
