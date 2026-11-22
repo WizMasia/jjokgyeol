@@ -1,0 +1,166 @@
+name: Native distribution batch
+on:
+  push:
+    branches: ['release-batch/**']
+permissions:
+  contents: read
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resources:
+    if: github.event.repository.private
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Match candidate to the application version
+        id: version
+        shell: bash
+        run: |
+          tag=${GITHUB_REF_NAME#release-batch/}
+          version=$(jq -r .version desktop/gui/tauri.conf.json)
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && ${tag%-preview.*} == "v$version" ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Export TeX resources and notices
+        run: desktop/qa/runtime/export-resources.sh "$RUNNER_TEMP/resources.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-tex-resources
+          path: ${{ runner.temp }}/resources.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  package:
+    needs: resources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            file: jjokgyeol-linux-x86_64.deb
+          - os: macos-15
+            platform: macos
+            file: jjokgyeol-macos-arm64.dmg
+          - os: windows-latest
+            platform: windows
+            file: jjokgyeol-windows-x64-setup.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      PYTHONUTF8: '1'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-tex-resources
+          path: release-resources
+      - name: Linux build and window-test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb xauth x11-utils x11-apps openbox dbus-x11 gdb at-spi2-core python3-pyatspi
+      - name: Install worker and proof tools
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/requirements.lock -r desktop/worker/build-requirements.lock -r desktop/qa/requirements-compare.lock
+      - name: Build and test frontend
+        working-directory: desktop/gui/frontend
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: Prepare resources and dependency notices
+        shell: bash
+        run: |
+          mkdir -p release-work/resources release-out
+          tar -xf release-resources/resources.tar -C release-work/resources
+          python desktop/release/notices.py release-work/resources/licenses
+          python -m unittest discover -s desktop/gui -p test_bundle.py
+      - name: Test portable Unix staging
+        if: runner.os != 'Windows'
+        run: python -m unittest discover -s desktop/release -p 'test_*.py'
+      - name: Package and test installed Linux application
+        if: runner.os == 'Linux'
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
+        run: bash desktop/release/linux.sh release-work/resources release-out
+      - name: Package and test installed Mac application
+        if: runner.os == 'macOS'
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
+        run: bash desktop/release/macos.sh release-work/resources release-out
+      - name: Package and test installed Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
+        run: desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: release-out/${{ matrix.file }}
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  draft:
+    needs: [resources, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: assets
+      - name: Create internal release candidate
+        working-directory: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resources.outputs.tag }}
+        shell: bash
+        run: |
+          files=(jjokgyeol-linux-x86_64.deb jjokgyeol-macos-arm64.dmg jjokgyeol-windows-x64-setup.exe)
+          for file in "${files[@]}"; do test -s "$file"; done
+          sha256sum "${files[@]}" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          한글 출판 조판기 쪽결의 내부 시험판입니다. 네이티브 앱은 규칙 조판을 지원합니다.
+
+          - Windows x64 — setup.exe 실행. WebView2 오프라인 설치 프로그램 포함, 게시자 서명 전.
+          - Apple Silicon Mac — DMG를 열어 쪽결을 응용 프로그램으로 복사. 임시 서명, Apple 공증 전.
+          - Ubuntu 24.04 x86_64 — sudo apt install ./jjokgyeol-linux-x86_64.deb
+
+          세 환경에서 설치물의 앱 실행과 동봉 조판기의 양면 줄 번호 PDF를 확인했습니다. 파일별 SHA-256은 SHA256SUMS에서 확인할 수 있습니다.
+          NOTES
+          # Resume an interrupted upload only for this exact commit and draft.
+          drafts=$(gh release list --limit 1000 --json tagName)
+          if jq -e --arg tag "$TAG" 'any(.[]; .tagName == $tag)' <<< "$drafts" >/dev/null; then
+            gh release view "$TAG" --json isDraft,targetCommitish | jq -e --arg sha "$GITHUB_SHA" '.isDraft and .targetCommitish == $sha'
+          else
+            gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "쪽결 $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          for file in "${files[@]}" SHA256SUMS; do
+            assets=$(gh release view "$TAG" --json assets)
+            hash=$(sha256sum "$file" | cut -d' ' -f1)
+            digest=$(jq -r --arg name "$file" '.assets[] | select(.name == $name) | .digest' <<< "$assets")
+            if [[ -z $digest ]]; then
+              gh release upload "$TAG" "$file"
+            else
+              [[ $digest == "sha256:$hash" ]]
+            fi
+          done
+          gh release view "$TAG" --json url,assets --jq '{url, files: [.assets[].name]}'

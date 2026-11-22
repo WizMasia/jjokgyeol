@@ -1,13 +1,47 @@
-"""Unit tests for desktop/gui/bundle.py security boundaries."""
-import importlib.util
+"""Unit tests for desktop/gui/bundle.py runtime validation and security boundaries."""
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 
-spec = importlib.util.spec_from_file_location('desktop_gui_bundle', Path(__file__).with_name('bundle.py'))
-bundle = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(bundle)
+import bundle
+
+
+class BundleTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / 'worker').mkdir()
+        (self.root / 'worker' / bundle.worker_name()).write_bytes(b'worker')
+        (self.root / 'fonts').mkdir()
+        (self.root / 'engine').write_bytes(b'engine')
+        (self.root / 'runtime.json').write_text(json.dumps({'engine': 'engine', 'font_dir': 'fonts'}))
+
+    def test_valid_runtime_maps_to_runtime_resource(self):
+        self.assertEqual(bundle.resource_config(self.root)['bundle']['resources'], {str(self.root.resolve()): 'runtime'})
+
+    def test_windows_includes_offline_webview_installer(self):
+        config = bundle.resource_config(self.root, platform='win32')['bundle']
+        self.assertEqual(config['windows']['webviewInstallMode'], {'type': 'offlineInstaller'})
+        self.assertNotIn('windows', bundle.resource_config(self.root, platform='darwin')['bundle'])
+
+    def test_rejects_missing_worker_invalid_manifest_and_path_escape(self):
+        (self.root / 'worker' / bundle.worker_name()).unlink()
+        with self.assertRaises(ValueError):
+            bundle.resource_config(self.root)
+        (self.root / 'worker' / bundle.worker_name()).write_bytes(b'worker')
+        (self.root / 'runtime.json').write_text('{')
+        with self.assertRaises(ValueError):
+            bundle.resource_config(self.root)
+        (self.root / 'runtime.json').write_text(json.dumps({'engine': '../engine', 'font_dir': 'fonts'}))
+        with self.assertRaises(ValueError):
+            bundle.resource_config(self.root)
+
+    def test_rejects_missing_frontend_assets(self):
+        with self.assertRaises(ValueError):
+            bundle.validate_frontend(self.root)
 
 
 class BundleSecurityTest(unittest.TestCase):

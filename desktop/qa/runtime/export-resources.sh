@@ -10,5 +10,12 @@ docker run --rm --platform linux/amd64 --entrypoint sh jjokgyeol-proof-resources
   for dir in tex fonts; do cp -aL /usr/share/texmf/$dir/. /tmp/resources/texmf-dist/$dir/; done
   cp -aL /var/lib/texmf/tex/. /tmp/resources/texmf-dist/tex/
   cp -aL /usr/share/fonts/truetype/nanum/. /tmp/resources/nanum/
-  tar -C /tmp/resources -cf - texmf-dist nanum
+  notices=/tmp/resources/licenses/debian
+  mkdir -p "$notices"
+  cp -RL /usr/share/common-licenses "$notices/"
+  dpkg-query -W > "$notices/packages.tsv"
+  for doc in /usr/share/doc/*; do
+    if [ -f "$doc/copyright" ]; then cp -L "$doc/copyright" "$notices/${doc##*/}.copyright"; fi
+  done
+  tar -C /tmp/resources -cf - texmf-dist nanum licenses
 ' > "$output"
