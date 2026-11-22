@@ -16,6 +16,7 @@ from app.list_marks import format_mark, uses_hierarchy
 from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
+from app.security import worker_env
 from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS
 
 if TYPE_CHECKING:
@@ -201,8 +202,14 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             for name in faces.values():
                 shutil.copyfile(font_dir / name, workdir / "fonts" / name)
     (workdir / "texcache").mkdir()
-    env = dict(os.environ, LUAINPUTS=f"{_tex_path(TEMPLATES)}{os.pathsep}",
-               TEXMFCACHE=os.environ.get("TEXMFCACHE", "texcache"))
+    env = worker_env(
+        "engine",
+        tmpdir=str(workdir),
+        extra={
+            "LUAINPUTS": f"{_tex_path(TEMPLATES)}{os.pathsep}",
+            "TEXMFCACHE": os.environ.get("TEXMFCACHE", "texcache"),
+        },
+    )
     process = subprocess.run(
         [str(engine) if engine is not None else "lualatex", "--no-shell-escape", "--halt-on-error", "--interaction=batchmode",
          _tex_path(TEMPLATES / "book.tex")],

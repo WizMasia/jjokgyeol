@@ -13,7 +13,7 @@ SETTINGS = dict(max_bytes=2_000_000, max_pages=5, max_units=5, max_pixels=2_000_
                 raster_width=256, timeout_seconds=15, vision_timeout_seconds=5,
                 max_candidates_per_unit=32, max_excerpt_chars=300, max_evidence_chars=160,
                 max_vision_response_bytes=65536, vision_max_tokens=900,
-                vision_url="http://operator.invalid/v1", vision_model="local-vision", vision_token="test-key")
+                vision_url="http://127.0.0.1/v1", vision_model="local-vision", vision_token="test-key")
 
 
 def png(width=64, height=96):

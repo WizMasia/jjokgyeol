@@ -2,17 +2,16 @@
 import json
 import os
 from pathlib import Path
-import resource
 import sys
 from time import monotonic
-from urllib.parse import urlsplit
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
-from app.jobs import INVALID_INPUT, limit_worker_files
+from app.jobs import INVALID_INPUT, LIMITS
+from app.security import harden_worker, sanitize_user_error, validate_outbound_url
 
 
 def load_settings():
@@ -28,9 +27,10 @@ def load_settings():
     if bool(settings["vision_url"]) != bool(settings["vision_model"]):
         raise ValueError("JJOKGYEOL_VISION_URL and JJOKGYEOL_VISION_MODEL must be configured together")
     if settings["vision_url"]:
-        url = urlsplit(settings["vision_url"])
-        if url.scheme not in ("https", "http") or not url.hostname or url.username or url.password or url.fragment or url.query:
-            raise ValueError("invalid JJOKGYEOL_VISION_URL")
+        try:
+            validate_outbound_url(settings["vision_url"], has_token=bool(settings["vision_token"]))
+        except ValueError as error:
+            raise ValueError(f"invalid JJOKGYEOL_VISION_URL: {error}") from None
     return settings
 
 
@@ -46,12 +46,10 @@ def analyze(data, fmt, page, settings):
 
 def worker(fmt, page, deadline):
     settings = load_settings()
-    os.umask(0o077)
-    limit_worker_files()
-    if sys.platform == "linux":
-        _, hard = resource.getrlimit(resource.RLIMIT_AS)
-        limit = settings["worker_memory_bytes"]
-        resource.setrlimit(resource.RLIMIT_AS, (limit if hard == resource.RLIM_INFINITY else min(limit, hard), hard))
+    harden_worker(
+        max_file_bytes=LIMITS.worker_file_bytes,
+        memory_bytes=settings["worker_memory_bytes"],
+    )
     data = Path("request.bin").read_bytes()
     Path("request.bin").unlink()
     if fmt == "targets":
@@ -75,6 +73,9 @@ if __name__ == "__main__":
         worker(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]))
     except (ValueError, RecursionError) as error:
         field = "source" if sys.argv[1] == "targets" else "reference"
-        message = str(error) if isinstance(error, ValueError) else "참고 파일의 구조가 너무 깊습니다."
+        if isinstance(error, RecursionError):
+            message = "참고 파일의 구조가 너무 깊습니다."
+        else:
+            message = sanitize_user_error(error, "참고 파일을 분석할 수 없습니다.")
         Path("invalid.json").write_text(json.dumps([field, message]), "utf-8")
         sys.exit(INVALID_INPUT)

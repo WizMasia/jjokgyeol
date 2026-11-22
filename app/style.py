@@ -20,6 +20,11 @@ MAX_DIMENSION_PT = 16383
 MAX_BODY_PT = (2048 * publication.RATIO_UNIT - 1) // max(publication.RATIO_UNIT, *publication.HEADINGS)
 MAX_PAGE_MM = MAX_DIMENSION_PT * 2540 // 7227
 MAX_SAFE_INTEGER = publication.MAX_SAFE_INTEGER
+# 스타일 입력의 수치·컬렉션 DoS 방어 상한 / Defensive caps for style numeric and collection inputs.
+MAX_NUMBER_CHARS = 64
+MAX_DECIMAL_PREC = 160
+MAX_LIST_LEVELS = 32
+MAX_SECTION_RULES = 256
 NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
@@ -55,11 +60,19 @@ PAGE_ERROR = f"판형의 폭과 높이는 0보다 크고 {MAX_PAGE_MM}mm 이하�
 
 
 def _number(value, stored, context):
-    if type(value) is int or isinstance(value, Decimal):
+    if type(value) is int:
+        if abs(value) > MAX_SAFE_INTEGER:
+            if stored:
+                raise ValueError
+            return Decimal(-MAX_SAFE_INTEGER if value < 0 else MAX_SAFE_INTEGER)
         number = Decimal(value)
+    elif isinstance(value, Decimal):
+        if not value.is_finite() or len(value.as_tuple().digits) > MAX_NUMBER_CHARS:
+            raise ValueError
+        number = value
     elif not stored and type(value) is float:
         number = Decimal(str(value))
-    elif not stored and isinstance(value, str) and NUMBER.fullmatch(value):
+    elif not stored and isinstance(value, str) and len(value) <= MAX_NUMBER_CHARS and NUMBER.fullmatch(value):
         number = Decimal(value)
     else:
         raise ValueError
@@ -72,8 +85,9 @@ def _number(value, stored, context):
     # Every supported field is smaller than this. Keep huge exponents out of arithmetic.
     if number.copy_abs() > MAX_SAFE_INTEGER:
         return Decimal(-MAX_SAFE_INTEGER if number < 0 else MAX_SAFE_INTEGER)
-    # Two operands may be multiplied. Keep all their input digits plus unit factors.
-    context.prec = max(context.prec, 2 * len(number.as_tuple().digits) + 32)
+    # Two operands may be multiplied. Keep all their input digits plus unit factors within a hard cap.
+    needed = 2 * len(number.as_tuple().digits) + 32
+    context.prec = min(MAX_DECIMAL_PREC, max(context.prec, needed))
     return number
 
 
@@ -128,6 +142,8 @@ class ListLevel:
 def _list_levels(rows, *, stored, field="list_levels", base=None):
     if not isinstance(rows, (list, tuple)) or not rows:
         raise InputError({field: "목록 양식에는 한 단계 이상이 필요합니다."})
+    if len(rows) > MAX_LIST_LEVELS:
+        raise InputError({field: f"목록 양식은 최대 {MAX_LIST_LEVELS}단계까지 지정할 수 있습니다."})
     distance_keys = ("indent_sp", "gap_sp") if stored else ("indent_mm", "gap_mm")
     expected = ("expr", *distance_keys)
     size_key = "font_sp" if stored else "font_pt"
@@ -312,6 +328,8 @@ def _field_path(parent, key):
 def _section_rules(rows, stored, context, base):
     if not isinstance(rows, (list, tuple)):
         raise InputError({"section_rules": "구간 규칙은 배열이어야 합니다."})
+    if len(rows) > MAX_SECTION_RULES:
+        raise InputError({"section_rules": f"구간 규칙은 최대 {MAX_SECTION_RULES}개까지 지정할 수 있습니다."})
     rules = []
     assigned = {}
     for index, row in enumerate(rows):

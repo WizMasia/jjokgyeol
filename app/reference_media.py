@@ -22,6 +22,7 @@ from app.configuration import CONFIG_DIR, read_config
 from app.list_marks import format_mark
 from app.publication import FONT_LABELS
 from app.running_heads import RUNNING_ROLES, SLOTS, escape_running_literal, parse_running_text
+from app.security import validate_outbound_url, worker_env
 
 MM_PER_BP = 25.4 / 72
 PT_PER_BP = 72.27 / 72
@@ -201,9 +202,9 @@ def _scan_slot(crop):
 
 
 def _vision(unit, settings, deadline, hints):
-    url = urlsplit(settings["vision_url"])
-    if not url.hostname or not settings["vision_model"]:
+    if not settings.get("vision_url") or not settings.get("vision_model"):
         raise ValueError("모델 연결 설정 필요")
+    url = validate_outbound_url(settings["vision_url"], has_token=bool(settings.get("vision_token")))
     deadline = min(deadline, monotonic() + settings["vision_timeout_seconds"])
     cls = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
     conn = cls(url.hostname, url.port, timeout=_remaining(deadline))
@@ -375,8 +376,16 @@ def _run(args, directory, deadline, limit):
     output = directory / "command.out"
     try:
         with output.open("wb") as stream:
-            subprocess.run(args, cwd=directory, timeout=_remaining(deadline), check=True,
-                           stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                args,
+                cwd=directory,
+                env=worker_env("poppler", tmpdir=str(directory)),
+                timeout=_remaining(deadline),
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=stream,
+                stderr=subprocess.DEVNULL,
+            )
     except subprocess.TimeoutExpired as error:
         raise TimeoutError from error
     except subprocess.CalledProcessError as error:

@@ -9,6 +9,7 @@ from app import publication
 from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
 from app.running_heads import RUNNING_ROLES, SLOTS
+from app.security import validate_outbound_url
 from app.style import Style, apply_style
 
 SETTINGS = read_config(CONFIG_DIR / "style-suggestion.json")
@@ -31,11 +32,14 @@ header는 머리글, footer는 바닥글입니다. 가운데 칸은 center이며
 
 
 def _infer(request, fields):
-    url = urlsplit(os.environ.get("JJOKGYEOL_STYLE_URL", SETTINGS["url"]))
+    raw_url = os.environ.get("JJOKGYEOL_STYLE_URL", SETTINGS["url"])
     model = os.environ.get("JJOKGYEOL_STYLE_MODEL", SETTINGS["model"])
-    if (url.scheme not in ("http", "https") or not url.hostname or url.username or url.password
-            or url.fragment or url.query or not model):
+    if not model:
         raise ValueError("양식 모델 연결 설정을 확인하세요.")
+    try:
+        url = validate_outbound_url(raw_url, has_token=False)
+    except ValueError:
+        raise ValueError("양식 모델 연결 설정을 확인하세요.") from None
     item = {"type": "object", "properties": {"field": {"type": "string", "enum": list(fields)},
                                              "value": {"type": "string"}},
             "required": ["field", "value"], "additionalProperties": False}

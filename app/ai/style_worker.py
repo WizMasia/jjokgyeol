@@ -1,9 +1,7 @@
 """File boundary for an isolated style suggestion job."""
 from decimal import Decimal, InvalidOperation
 import json
-import os
 from pathlib import Path
-import resource
 import sys
 
 if __name__ == "__main__":
@@ -11,17 +9,16 @@ if __name__ == "__main__":
 
 from app.ai.style import SETTINGS, suggest_patch
 from app.document import InputError
-from app.jobs import INVALID_INPUT, limit_worker_files
+from app.jobs import INVALID_INPUT, LIMITS
+from app.security import harden_worker
 from app.style import from_editor_style
 
 
 def worker():
-    os.umask(0o077)
-    limit_worker_files()
-    if sys.platform == "linux":
-        _, hard = resource.getrlimit(resource.RLIMIT_AS)
-        limit = SETTINGS["worker_memory_bytes"]
-        resource.setrlimit(resource.RLIMIT_AS, (limit if hard == resource.RLIM_INFINITY else min(hard, limit), hard))
+    harden_worker(
+        max_file_bytes=LIMITS.worker_file_bytes,
+        memory_bytes=SETTINGS["worker_memory_bytes"],
+    )
     try:
         data = json.loads(Path("request.bin").read_bytes().decode("utf-8"), parse_float=Decimal)
     except (ValueError, InvalidOperation, RecursionError):

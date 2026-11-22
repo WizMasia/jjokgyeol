@@ -1,23 +1,20 @@
 """Convert one raw upload inside the supervisor's private working directory."""
 import json
-import os
 from pathlib import Path
-import resource
 import sys
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.jobs import INVALID_INPUT, limit_worker_files
+from app.jobs import INVALID_INPUT, LIMITS
+from app.security import harden_worker, sanitize_user_error
 
 
 def worker(name, memory_bytes):
-    os.umask(0o077)
-    limit_worker_files()
-    if sys.platform == "linux":
-        _, hard = resource.getrlimit(resource.RLIMIT_AS)
-        limit = memory_bytes if hard == resource.RLIM_INFINITY else min(memory_bytes, hard)
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    harden_worker(
+        max_file_bytes=LIMITS.worker_file_bytes,
+        memory_bytes=memory_bytes,
+    )
 
     from app.importers.read import import_file
 
@@ -27,7 +24,8 @@ def worker(name, memory_bytes):
     try:
         result = import_file(name, data)
     except ValueError as error:
-        Path("invalid.json").write_text(json.dumps(["source", str(error)]), encoding="utf-8")
+        message = sanitize_user_error(error, "원고 파일을 읽을 수 없습니다.")
+        Path("invalid.json").write_text(json.dumps(["source", message]), encoding="utf-8")
         return INVALID_INPUT
     Path("response.json").write_text(json.dumps({
         "markdown": result.markdown, "warnings": result.warnings,
