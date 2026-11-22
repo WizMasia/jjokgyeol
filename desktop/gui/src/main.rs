@@ -24,7 +24,9 @@ struct Limits {
     request: u64,
     file: u64,
     timeout: Duration,
-    slots: Arc<Semaphore>,
+    render_slots: Arc<Semaphore>,
+    style_slots: Arc<Semaphore>,
+    save_slots: Arc<Semaphore>,
 }
 
 #[derive(Default)]
@@ -223,11 +225,15 @@ fn limits() -> Limits {
         serde_json::from_str(include_str!("../../../app/config/operations.json"))
             .expect("invalid operations configuration");
     let number = |key: &str| config[key].as_u64().expect("missing operations limit");
+    let slot_count = number("render_slots") as usize;
     Limits {
         request: number("request_body_bytes"),
         file: number("worker_file_bytes"),
         timeout: Duration::from_secs(number("timeout_seconds")),
-        slots: Arc::new(Semaphore::new(number("render_slots") as usize)),
+        render_slots: Arc::new(Semaphore::new(slot_count)),
+        // Saving needs style conversion during renders; previews need it while save dialogs are open.
+        style_slots: Arc::new(Semaphore::new(slot_count)),
+        save_slots: Arc::new(Semaphore::new(slot_count)),
     }
 }
 
@@ -246,12 +252,10 @@ fn runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 async fn run_blocking<T: Send + 'static>(
-    state: &Limits,
+    slots: &Arc<Semaphore>,
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    let permit = state
-        .slots
-        .clone()
+    let permit = Arc::clone(slots)
         .acquire_owned()
         .await
         .map_err(|e| e.to_string())?;
@@ -279,7 +283,7 @@ async fn render_proof(
     }
     let runtime = runtime(&app)?;
     let limit = state.file;
-    run_blocking(&state, move || {
+    run_blocking(&state.render_slots, move || {
         let work = tempfile::tempdir().map_err(|e| e.to_string())?;
         let source_path = work.path().join("source.md");
         let style_path = work.path().join("style.json");
@@ -330,7 +334,7 @@ async fn style_convert(
     let runtime = runtime(&app)?;
     let limit = state.file;
     let timeout = state.timeout;
-    run_blocking(&state, move || {
+    run_blocking(&state.style_slots, move || {
         convert(&runtime, flag, &body, limit, timeout)
     })
     .await
@@ -454,7 +458,7 @@ async fn save_bytes(
         .unwrap_or("");
     let name = safety::decode_header_filename(header_name);
     let bytes = raw.to_vec();
-    run_blocking(&state, move || {
+    run_blocking(&state.save_slots, move || {
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else {
             return Ok(false);
         };
@@ -506,6 +510,50 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("failed to run 쪽결");
+}
+
+#[test]
+fn document_save_runs_with_busy_renders_and_leaves_render_capacity_free() {
+    use std::sync::mpsc;
+
+    let state = limits();
+    let render_slots = Arc::clone(&state.render_slots);
+    let capacity = render_slots.available_permits().try_into().unwrap();
+    let busy_renders = render_slots.try_acquire_many(capacity).unwrap();
+    let (opened, dialog_open) = mpsc::channel();
+    let (close, dialog_closed) = mpsc::channel();
+
+    let save = tauri::async_runtime::spawn(async move {
+        run_blocking(&state.style_slots, || Ok(())).await.unwrap();
+        run_blocking(&state.save_slots, move || {
+            let _ = opened.send(());
+            let _ = dialog_closed.recv();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    });
+    dialog_open
+        .recv_timeout(Duration::from_secs(3))
+        .expect("style conversion and save must start while every render slot is busy");
+    drop(busy_renders);
+    let _next_renders = render_slots
+        .try_acquire_many(capacity)
+        .expect("a waiting save dialog must leave every render slot free");
+    close.send(()).unwrap();
+    tauri::async_runtime::block_on(save).unwrap();
+}
+
+#[test]
+fn full_save_capacity_still_allows_preview_style_conversion() {
+    let state = limits();
+    let save_slots = &state.save_slots;
+    let capacity = save_slots.available_permits().try_into().unwrap();
+    let _open_dialogs = save_slots.try_acquire_many(capacity).unwrap();
+    assert!(
+        state.style_slots.try_acquire().is_ok(),
+        "preview style conversion must proceed while all save dialogs are busy"
+    );
 }
 
 #[cfg(all(test, unix))]
