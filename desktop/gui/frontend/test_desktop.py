@@ -25,8 +25,8 @@ class DesktopTest(unittest.TestCase):
                 page = browser.new_page()
                 page.add_init_script('''
                     window.calls = []; window.pendingRender = null;
-                    window.__TAURI__ = {core: {invoke: async (command, args) => {
-                      window.calls.push({command, args});
+                    window.__TAURI__ = {core: {invoke: async (command, args, options) => {
+                      window.calls.push({command, args, options});
                       if (command === 'style_convert') return {stored: true};
                       if (command === 'render_proof') {
                         if (args.source === 'old') await new Promise(resolve => window.pendingRender = resolve);
@@ -45,8 +45,17 @@ class DesktopTest(unittest.TestCase):
                 self.assertEqual(page.locator('#proof-choice option').count(), 1)
                 page.click('#export')
                 page.wait_for_function("window.calls.some(c => c.command === 'save_bytes')")
-                saved = page.evaluate("window.calls.find(c => c.command === 'save_bytes').args")
+                saved = page.evaluate("""() => {
+                    const call = window.calls.find(c => c.command === 'save_bytes');
+                    return {
+                        isUint8Array: call.args instanceof Uint8Array,
+                        bytes: Array.from(call.args),
+                        name: decodeURIComponent(call.options?.headers?.['x-file-name'] || ''),
+                    };
+                }""")
+                self.assertTrue(saved['isUint8Array'])
                 self.assertEqual(bytes(saved['bytes']), pdf)
+                self.assertTrue(saved['name'].endswith('.pdf'))
                 page.locator('#source').fill('old')
                 page.click('#refresh')
                 page.wait_for_function('window.pendingRender !== null')

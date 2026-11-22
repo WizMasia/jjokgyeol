@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::{
     error::Error,
+    ffi::OsString,
     fs,
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
@@ -11,6 +12,49 @@ use std::{
 };
 
 const WORKER_ERROR_LIMIT: u64 = 16 * 1024;
+// 워커 stderr 디스크 고갈 방지 상한 (4 MiB) / Cap live worker stderr file size (4 MiB).
+const WORKER_STDERR_MONITOR_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// 워커 프로세스에 전달할 최소 OS 환경변수 화이트리스트를 구성합니다.
+/// Build the minimal allowlisted environment variable pairs for worker processes.
+pub fn worker_env_pairs() -> Vec<(OsString, OsString)> {
+    #[cfg(unix)]
+    const BASE_KEYS: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR"];
+    #[cfg(windows)]
+    const BASE_KEYS: &[&str] = &[
+        "PATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+    ];
+    #[cfg(not(any(unix, windows)))]
+    const BASE_KEYS: &[&str] = &["PATH"];
+
+    let mut pairs = Vec::new();
+    for key in BASE_KEYS {
+        if let Some(val) = std::env::var_os(key) {
+            pairs.push((OsString::from(key), val));
+        }
+    }
+    if let Some(val) = std::env::var_os("TEXMFCACHE") {
+        pairs.push((OsString::from("TEXMFCACHE"), val));
+    }
+    if std::env::var_os("JJOKGYEOL_TEST_DIAGNOSTICS").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        pairs.push((
+            OsString::from("JJOKGYEOL_TEST_DIAGNOSTICS"),
+            OsString::from("1"),
+        ));
+    }
+    pairs
+}
 
 pub fn render(
     runtime: &Path,
@@ -72,7 +116,7 @@ pub fn render_with_timeout(
         if qa_diagnostics {
             emit_qa_diagnostics(&mut stderr, work.path(), status);
         }
-        return Err(worker_error(&mut stderr).into());
+        return Err(sanitize_worker_error(&mut stderr).into());
     }
     let pdf = read_limited(
         &work.path().join("response.pdf"),
@@ -118,7 +162,9 @@ fn emit_qa_diagnostics(stderr: &mut fs::File, work: &Path, status: std::process:
     }
 }
 
-fn worker_error(stderr: &mut fs::File) -> String {
+/// 워커 stderr에서 검증된 공개 invalid_input JSON만 추출합니다.
+/// Extract only validated public invalid_input JSON from worker stderr.
+pub fn sanitize_worker_error(stderr: &mut fs::File) -> String {
     let diagnostic = (|| -> Option<String> {
         stderr.seek(SeekFrom::Start(0)).ok()?;
         let mut bytes = Vec::new();
@@ -160,6 +206,70 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(bytes)
 }
 
+/// Unix에서 PID 재사용 경쟁 조건 없이 자식 프로세스 그룹을 감시·종료합니다.
+/// Supervise and terminate a Unix process group without PID-reuse race using waitid(WNOWAIT).
+#[cfg(unix)]
+pub fn wait_unix_process_group<F>(
+    child: &mut std::process::Child,
+    timeout: Duration,
+    mut check_limits: F,
+) -> Result<std::process::ExitStatus, String>
+where
+    F: FnMut() -> Result<(), String>,
+{
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| "invalid timeout".to_owned())?;
+    let pgid = i32::try_from(child.id()).map_err(|_| "invalid worker pid".to_owned())?;
+    loop {
+        if let Err(err) = check_limits() {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            return Err(err);
+        }
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                child.id() as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+            )
+        };
+        if rc == 0 {
+            if info.si_signo != 0 {
+                // 자식이 좀비 상태로 남아 PID가 고정된 시점에 그룹 전체를 정리한 뒤 회수한다.
+                // Child is still a zombie pinning its PGID; kill remaining descendants before reaping.
+                unsafe {
+                    libc::kill(-pgid, libc::SIGKILL);
+                }
+                return child.wait().map_err(|e| e.to_string());
+            }
+            if Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            } else {
+                unsafe {
+                    libc::kill(-pgid, libc::SIGKILL);
+                }
+                let _ = child.wait();
+                return Err("worker timed out".to_owned());
+            }
+        } else {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            return Err(err.to_string());
+        }
+    }
+}
+
 #[cfg(unix)]
 fn run_worker(
     worker: &Path,
@@ -168,37 +278,30 @@ fn run_worker(
     timeout: Duration,
     stderr: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    let deadline = Instant::now()
-        .checked_add(timeout)
-        .ok_or("invalid timeout")?;
-    let mut child = Command::new(worker)
+    let stderr_monitor = stderr.try_clone()?;
+    let mut command = Command::new(worker);
+    command
+        .env_clear()
+        .envs(worker_env_pairs())
         .arg("--runtime")
         .arg(runtime)
         .current_dir(work)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
         .stderr(stderr)
-        .process_group(0)
-        .spawn()?;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
-                return Ok(status);
-            }
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            result => {
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
-                let _ = child.wait();
-                return Err(match result {
-                    Err(error) => error.into(),
-                    _ => "worker timed out".into(),
-                });
-            }
+        .process_group(0);
+    let mut child = command.spawn()?;
+    wait_unix_process_group(&mut child, timeout, || {
+        if stderr_monitor
+            .metadata()
+            .map(|m| m.len() > WORKER_STDERR_MONITOR_LIMIT)
+            .unwrap_or(false)
+        {
+            return Err("worker failed".to_owned());
         }
-    }
+        Ok(())
+    })
+    .map_err(Into::into)
 }
 
 #[cfg(windows)]
@@ -209,18 +312,31 @@ fn run_worker(
     timeout: Duration,
     stderr: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    use windows_spawn::{Command, DropPolicy, SpawnOptions};
+    use windows_spawn::{Command, DropPolicy, SpawnOptions, Stdio};
 
     let deadline = Instant::now()
         .checked_add(timeout)
         .ok_or("invalid timeout")?;
-    let mut child = Command::new(worker)
+    let stderr_monitor = stderr.try_clone()?;
+    let mut command = Command::new(worker);
+    command
+        .env_clear()
+        .envs(worker_env_pairs())
         .arg("--runtime")
         .arg(runtime)
         .current_dir(work)
-        .stderr(stderr)
-        .spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))?;
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(stderr);
+    let mut child = command.spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))?;
     loop {
+        if stderr_monitor
+            .metadata()
+            .map(|m| m.len() > WORKER_STDERR_MONITOR_LIMIT)
+            .unwrap_or(false)
+        {
+            return Err("worker failed".into());
+        }
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),

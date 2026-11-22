@@ -141,6 +141,9 @@ def test_posix_worker_caps_files_written_by_child(tmp_path):
 import resource, subprocess, sys
 from desktop.worker.worker import limit_worker_files
 limit_worker_files(4096)
+soft_fsize, hard_fsize = resource.getrlimit(resource.RLIMIT_FSIZE)
+assert soft_fsize <= 4096 and hard_fsize <= 4096
+assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
 p = subprocess.run([sys.executable, '-c', "f=open('large', 'wb'); f.write(b'x' * 8192); f.close()"])
 assert p.returncode != 0
 assert __import__('os').stat('large').st_size <= 4096
@@ -216,7 +219,7 @@ def test_frozen_windows_restores_dll_search(monkeypatch):
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
     monkeypatch.setattr(ctypes, 'windll', Windll(), raising=False)
     worker.prepare_external_engine()
-    assert calls == [None]
+    assert calls == ['']
 
 
 @pytest.mark.parametrize(('fixture', 'enabled'), [(True, True), (True, False), (False, True)])

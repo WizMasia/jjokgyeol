@@ -73,6 +73,16 @@ fn require_window(window: &WebviewWindow, label: &str) -> Result<(), String> {
     }
 }
 
+/// 허용된 창 목록 중 하나에서 호출된 IPC 명령인지 검증합니다.
+/// Verify an IPC command was invoked from one of the allowed window labels.
+fn require_any_window(window: &WebviewWindow, allowed: &[&str]) -> Result<(), String> {
+    if allowed.contains(&window.label()) {
+        Ok(())
+    } else {
+        Err("unauthorized window".into())
+    }
+}
+
 #[tauri::command]
 async fn open_settings_window(
     window: WebviewWindow,
@@ -220,14 +230,16 @@ fn limits() -> Limits {
 }
 
 fn runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    match std::env::var_os("JJOKGYEOL_NATIVE_RUNTIME") {
-        Some(path) => Ok(path.into()),
-        None => app
-            .path()
-            .resource_dir()
-            .map(|p| p.join("runtime"))
-            .map_err(|e| e.to_string()),
+    // 릴리스 빌드에서는 번들 리소스 외 임의 런타임 주입을 차단합니다.
+    // Block arbitrary runtime directory injection in release builds.
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("JJOKGYEOL_NATIVE_RUNTIME") {
+        return Ok(path.into());
     }
+    app.path()
+        .resource_dir()
+        .map(|p| p.join("runtime"))
+        .map_err(|e| e.to_string())
 }
 
 async fn run_blocking<T: Send + 'static>(
@@ -250,11 +262,13 @@ async fn run_blocking<T: Send + 'static>(
 
 #[tauri::command]
 async fn render_proof(
+    window: WebviewWindow,
     app: tauri::AppHandle,
     state: State<'_, Limits>,
     source: String,
     style: serde_json::Value,
 ) -> Result<tauri::ipc::Response, String> {
+    require_window(&window, "main")?;
     let request = serde_json::to_vec(&serde_json::json!({"source": &source, "style": &style}))
         .map_err(|e| e.to_string())?;
     if !safety::within_limit(&request, state.request) {
@@ -295,11 +309,13 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 async fn style_convert(
+    window: WebviewWindow,
     app: tauri::AppHandle,
     state: State<'_, Limits>,
     action: String,
     body: String,
 ) -> Result<serde_json::Value, String> {
+    require_any_window(&window, &["main", "settings"])?;
     let flag = match action.as_str() {
         "open" => "--style-open",
         "export" => "--style-export",
@@ -335,6 +351,8 @@ fn convert(
             .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX)),
     );
     command
+        .env_clear()
+        .envs(jjokgyeol_proof::worker_env_pairs())
         .arg(flag)
         .current_dir(work.path())
         .stdin(Stdio::from(
@@ -357,8 +375,8 @@ fn convert(
     let mut child = command
         .spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))
         .map_err(|e| e.to_string())?;
-    let deadline = Instant::now() + timeout;
-    let result = loop {
+    #[cfg(unix)]
+    let status = jjokgyeol_proof::wait_unix_process_group(&mut child, timeout, || {
         if fs::metadata(&output)
             .map(|m| m.len() > limit)
             .unwrap_or(false)
@@ -366,30 +384,44 @@ fn convert(
                 .map(|m| m.len() > limit)
                 .unwrap_or(false)
         {
-            break Err("worker output exceeds limit".to_string());
+            return Err("worker output exceeds limit".to_string());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            Ok(None) => break Err("worker timed out".into()),
-            Err(e) => break Err(e.to_string()),
+        Ok(())
+    })?;
+    #[cfg(not(unix))]
+    let status = {
+        let deadline = Instant::now() + timeout;
+        let result = loop {
+            if fs::metadata(&output)
+                .map(|m| m.len() > limit)
+                .unwrap_or(false)
+                || fs::metadata(&errors)
+                    .map(|m| m.len() > limit)
+                    .unwrap_or(false)
+            {
+                break Err("worker output exceeds limit".to_string());
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                Ok(None) => break Err("worker timed out".into()),
+                Err(e) => break Err(e.to_string()),
+            }
+        };
+        #[cfg(windows)]
+        drop(child);
+        #[cfg(not(windows))]
+        {
+            let _ = child.kill();
+            let _ = child.wait();
         }
+        result?
     };
-    #[cfg(unix)]
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    #[cfg(unix)]
-    let _ = child.wait();
-    #[cfg(windows)]
-    drop(child);
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    if !result?.success() {
-        return Err(String::from_utf8_lossy(&read_limited(&errors, limit)?).into_owned());
+    if !status.success() {
+        let mut err_file = fs::File::open(&errors).map_err(|e| e.to_string())?;
+        return Err(jjokgyeol_proof::sanitize_worker_error(&mut err_file));
     }
     let value: serde_json::Value =
         serde_json::from_slice(&read_limited(&output, limit)?).map_err(|e| e.to_string())?;
@@ -401,15 +433,25 @@ fn convert(
 
 #[tauri::command]
 async fn save_bytes(
+    window: WebviewWindow,
     state: State<'_, Limits>,
-    name: String,
-    bytes: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<bool, String> {
-    if !safety::within_limit(&bytes, state.file) {
+    require_any_window(&window, &["main", "settings"])?;
+    let tauri::ipc::InvokeBody::Raw(raw) = request.body() else {
+        return Err("invalid file payload".into());
+    };
+    if !safety::within_limit(raw, state.file) {
         return Err("file exceeds limit".into());
     }
-    let name = safety::safe_name(&name);
-    tauri::async_runtime::spawn_blocking(move || {
+    let header_name = request
+        .headers()
+        .get("x-file-name")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let name = safety::decode_header_filename(header_name);
+    let bytes = raw.to_vec();
+    run_blocking(&state, move || {
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else {
             return Ok(false);
         };
@@ -420,7 +462,6 @@ async fn save_bytes(
         Ok(true)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 fn main() {
@@ -568,5 +609,49 @@ mod tests {
         )
         .is_err());
         assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn style_worker_sanitizes_stderr_and_strips_secret_env() {
+        let root = tempfile::tempdir().unwrap();
+        let worker_dir = root.path().join("worker");
+        fs::create_dir(&worker_dir).unwrap();
+        let worker = worker_dir.join("jjokgyeol-worker");
+        // Verify non-JSON stderr is sanitized and never leaked raw.
+        fs::write(
+            &worker,
+            "#!/bin/sh\necho 'Traceback: /private/secret/path' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o755)).unwrap();
+        let err = convert(
+            root.path(),
+            "--style-open",
+            "{}",
+            1024,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert_eq!(err, "worker failed");
+
+        // Verify valid invalid_input JSON passes through only allowed fields.
+        fs::write(
+            &worker,
+            "#!/bin/sh\nprintf '{\"code\":\"invalid_input\",\"field\":\"body_pt\",\"message\":\"크기 오류\",\"secret\":\"hidden\"}' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let err2 = convert(
+            root.path(),
+            "--style-open",
+            "{}",
+            1024,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        let parsed: serde_json::Value = serde_json::from_str(&err2).unwrap();
+        assert_eq!(
+            parsed,
+            serde_json::json!({"code": "invalid_input", "field": "body_pt", "message": "크기 오류"})
+        );
     }
 }

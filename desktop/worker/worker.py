@@ -30,8 +30,10 @@ def resource(root, value):
 def limit_worker_files(max_bytes):
     if os.name == 'posix':
         import resource
-        soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
-        resource.setrlimit(resource.RLIMIT_FSIZE, (min(soft, max_bytes) if soft != resource.RLIM_INFINITY else max_bytes, hard))
+        _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        limit = min(hard, max_bytes) if hard != resource.RLIM_INFINITY else max_bytes
+        resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
 def engine_path(path):
@@ -48,8 +50,9 @@ def engine_path(path):
 def prepare_external_engine():
     if sys.platform == 'win32' and getattr(sys, 'frozen', False):
         import ctypes
-        if not ctypes.windll.kernel32.SetDllDirectoryW(None):
-            raise OSError('could not restore DLL search path')
+        # 현재 작업 디렉터리를 DLL 검색 경로에서 제거합니다 / Remove CWD from Windows DLL search path.
+        if not ctypes.windll.kernel32.SetDllDirectoryW(''):
+            raise OSError('could not harden DLL search path')
 
 
 def record_exception(diagnostic):

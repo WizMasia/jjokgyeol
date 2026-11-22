@@ -45,6 +45,14 @@ fn main() {
         stderr.write_all(br#""}"#).unwrap();
         std::process::exit(1);
     }
+    if request.contains("check_env") {
+        if env::var_os("JJOKGYEOL_SECRET_LEAK").is_some() {
+            eprintln!(r#"{{"code":"invalid_input","field":"env","message":"secret leaked"}}"#);
+            std::process::exit(1);
+        }
+        fs::write("response.pdf", b"%PDF-1.4\n%%EOF\n").unwrap();
+        return;
+    }
     if request.contains("timeout") || request.contains("descendant") {
         let marker = std::path::Path::new(&args[2])
             .parent()

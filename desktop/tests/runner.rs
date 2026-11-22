@@ -253,3 +253,28 @@ fn fixture_diagnostics_are_opt_in_and_bounded() {
         "worker failed"
     );
 }
+
+#[test]
+fn worker_does_not_inherit_secret_env() {
+    let (runtime, root) = setup();
+    let output = root.path().join("결과.pdf");
+    fs::write(root.path().join("원고.md"), "check_env").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_jjokgyeol-proof"))
+        .env("JJOKGYEOL_SECRET_LEAK", "top-secret-token")
+        .arg("--runtime")
+        .arg(&runtime)
+        .arg("--source")
+        .arg(root.path().join("원고.md"))
+        .arg("--style")
+        .arg(root.path().join("양식.json"))
+        .arg("--output")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "secret env leaked to worker: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(output).unwrap(), b"%PDF-1.4\n%%EOF\n");
+}

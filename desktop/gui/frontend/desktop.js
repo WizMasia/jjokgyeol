@@ -1,9 +1,11 @@
 "use strict";
 
 const desktop = {
-  async invoke(command, args) {
+  async invoke(command, args, options) {
     try {
-      return await window.__TAURI__.core.invoke(command, args);
+      return options === undefined
+        ? await window.__TAURI__.core.invoke(command, args)
+        : await window.__TAURI__.core.invoke(command, args, options);
     } catch (value) {
       let detail = value;
       if (typeof value === "string") {
@@ -24,7 +26,11 @@ const desktop = {
     return new Blob([new Uint8Array(result)], {type: "application/pdf"});
   },
   async save(blob, name) {
-    return this.invoke("save_bytes", {name, bytes: Array.from(new Uint8Array(await blob.arrayBuffer()))});
+    // JSON 배열 직렬화 증폭을 피하고 원시 바이트로 IPC 전송 / Send raw binary payload with encoded filename header.
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return this.invoke("save_bytes", bytes, {
+      headers: {"x-file-name": encodeURIComponent(String(name ?? ""))},
+    });
   },
   setDirty(dirty) {
     return this.invoke("set_dirty", {dirty});
@@ -42,6 +48,7 @@ const desktop = {
     const pdfjs = await import("./pdf.min.mjs");
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("static/pdf.worker.min.mjs", document.baseURI).href;
     const pdf = await pdfjs.getDocument({data: new Uint8Array(await blob.arrayBuffer()),
+      isEvalSupported: false,
       cMapUrl: new URL("static/cmaps/", document.baseURI).href, cMapPacked: true,
       standardFontDataUrl: new URL("static/standard_fonts/", document.baseURI).href}).promise;
     const pages = document.createElement("div");
