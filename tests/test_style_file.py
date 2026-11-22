@@ -170,7 +170,7 @@ def hold_style(desk, action):
             desk.page.locator("#style-file").set_input_files({
                 "name": "양식.json", "mimeType": "application/json", "buffer": b"{}",
             })
-    desk.page.wait_for_function("window.styleRequestHeld")
+    desk.page.wait_for_function("() => window.styleRequestHeld")
     return routes[0]
 
 

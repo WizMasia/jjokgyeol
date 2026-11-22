@@ -50,7 +50,10 @@ class Review(Desk):
             units = UNITS if "page" not in self.analyzed[-1][0] else [unit(3, "본문", candidate("list", "levels.1.gap_mm", 3))]
             route.fulfill(json={"units": units, "warnings": ["3쪽 추정 확인"]})
         elif url.path.startswith("/api/style/"):
-            route.fulfill(response=route.fetch(url=self.service + url.path))
+            headers = {k: v for k, v in route.request.headers.items() if k.lower() not in ("host", "origin", "referer")}
+            headers["origin"] = self.service
+            headers["referer"] = self.service + "/"
+            route.fulfill(response=route.fetch(url=self.service + url.path, headers=headers))
         else:
             super().route(route)
 

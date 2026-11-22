@@ -82,7 +82,7 @@ class Desk:
         button.scroll_into_view_if_needed()
         with self.page.expect_request(ORIGIN + "/api/render"):
             button.click()
-        self.page.wait_for_function("document.readyState !== 'loading'")
+        self.page.wait_for_function("() => document.readyState !== 'loading'")
 
     def reply(self, index, body, status=200):
         route = self.pending[index]
@@ -440,7 +440,14 @@ def toggle_heading(desk, server_url):
     desk.page.locator("#legal-options").click()
     close_settings(desk.page)
     path = "/api/article/pin"
-    desk.page.route(ORIGIN + path, lambda route: route.fulfill(response=route.fetch(url=server_url + path)))
+
+    def forward_pin(route):
+        headers = {k: v for k, v in route.request.headers.items() if k.lower() not in ("host", "origin", "referer")}
+        headers["origin"] = server_url
+        headers["referer"] = server_url + "/"
+        route.fulfill(response=route.fetch(url=server_url + path, headers=headers))
+
+    desk.page.route(ORIGIN + path, forward_pin)
     button = desk.page.get_by_role("button", name="번호 고정/해제", exact=True)
 
     def toggle(token):
