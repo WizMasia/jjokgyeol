@@ -13,10 +13,6 @@ out = HERE / 'dist'
 shutil.rmtree(out, ignore_errors=True)
 shutil.copytree(ROOT / 'app/static', out / 'static')
 shutil.copy(ROOT / 'proofs/engine-comparison/manuscript.md', out / 'sample.md')
-for directory in ('cmaps', 'standard_fonts'):
-    shutil.copytree(HERE / 'node_modules/pdfjs-dist' / directory, out / 'static' / directory)
-for name in ('pdf.min.mjs', 'pdf.worker.min.mjs'):
-    shutil.copy(HERE / 'node_modules/pdfjs-dist/build' / name, out / 'static' / name)
 shutil.copy(HERE / 'desktop.js', out / 'static/desktop.js')
 shutil.copy(HERE / 'desktop.css', out / 'static/desktop.css')
 html = (ROOT / 'app/static/index.html').read_text(encoding='utf-8')

@@ -19,6 +19,14 @@
 !app/static/
 !app/static/*.css
 !app/static/*.js
+!app/static/zip.LICENSE.txt
+!app/static/pdf.min.mjs
+!app/static/pdf.worker.min.mjs
+!app/static/pdfjs.LICENSE.txt
+!app/static/cmaps/
+!app/static/cmaps/*
+!app/static/standard_fonts/
+!app/static/standard_fonts/*
 !app/static/*.html
 !app/static/general-report.json
 !app/tex/
@@ -34,6 +42,8 @@
 !proofs/engine-comparison/
 !proofs/engine-comparison/manuscript.md
 !proofs/engine-comparison/LuaLaTeX.pdf
+!proofs/decision-model/
+!proofs/decision-model/model.pdf
 !proofs/running-heads/
 !proofs/running-heads/style.json
 !packaging/hwp/
