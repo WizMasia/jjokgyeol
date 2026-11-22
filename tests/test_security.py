@@ -282,3 +282,107 @@ def test_workers_sanitize_internal_errors(tmp_path: Path, monkeypatch: pytest.Mo
     _, msg2 = json.loads((ref_dir / "invalid.json").read_text("utf-8"))
     assert "JJOKGYEOL_" not in msg2
 
+
+def _make_spoofed_compress_size_zip(member: str, payload: bytes) -> bytes:
+    """중앙 디렉터리의 compress_size를 위조해 압축률 검사를 우회하려는 ZIP을 생성합니다.
+
+    Build a ZIP whose Central Directory compress_size is inflated to spoof a 1:1 ratio.
+    """
+    from io import BytesIO
+    import struct
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    buf = BytesIO()
+    with ZipFile(buf, "w", compression=ZIP_DEFLATED, compresslevel=9) as zf:
+        zf.writestr(member, payload)
+    raw = bytearray(buf.getvalue())
+    cd_pos = raw.index(b"PK\x01\x02")
+    # Central directory compressed size is at +20..+24; set it equal to len(payload).
+    raw[cd_pos + 20 : cd_pos + 24] = struct.pack("<I", len(payload))
+    return bytes(raw)
+
+
+def test_spoofed_zip_header_rejected_in_import_and_reference() -> None:
+    from app.importers.read import import_file
+    from app.reference import load_settings
+    from app.reference_office import analyze_office
+    from app.security import SafeZipArchive
+
+    # 300 KiB of spaces inside XML compresses to < 400 bytes (> 750x ratio), with spoofed compress_size.
+    payload = b"<w:document>" + (b" " * 300_000) + b"</w:document>"
+    spoofed = _make_spoofed_compress_size_zip("word/document.xml", payload)
+
+    with pytest.raises(ValueError, match="압축 해제 한도"):
+        import_file("bomb.docx", spoofed)
+
+    settings = load_settings()
+    with pytest.raises(ValueError, match="압축 해제 한도"):
+        analyze_office(spoofed, "docx", settings)
+
+    # Also verify streaming read enforces cumulative byte budget even if initial header checks passed.
+    from io import BytesIO
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    buf = BytesIO()
+    with ZipFile(buf, "w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr("a.xml", b"x" * 2000)
+    with SafeZipArchive(
+        buf.getvalue(),
+        max_entries=10,
+        max_uncompressed_bytes=4000,
+        max_compression_ratio=250,
+        limit_message="압축 해제 한도",
+        duplicate_or_encrypted_message="중복",
+        compression_message="압축 형식",
+    ) as archive:
+        archive._max_uncompressed_bytes = 500
+        with pytest.raises(ValueError, match="압축 해제 한도"):
+            archive.read("a.xml")
+
+
+def test_reference_office_rejects_unsupported_zip_compression() -> None:
+    from io import BytesIO
+    from zipfile import ZIP_BZIP2, ZipFile
+    from app.reference import load_settings
+    from app.reference_office import analyze_office
+
+    buf = BytesIO()
+    with ZipFile(buf, "w", compression=ZIP_BZIP2) as zf:
+        zf.writestr("word/document.xml", b"<document><body/></document>")
+    settings = load_settings()
+    with pytest.raises(ValueError, match="압축 형식"):
+        analyze_office(buf.getvalue(), "docx", settings)
+
+
+def test_html_importer_nested_skip_and_href_escape() -> None:
+    from app.importers.read import import_file
+
+    nested = b"<p>\xec\x95\x9e</p><svg><svg>inner</svg>leaked</svg><p>\xeb\x92\xa4</p>"
+    result = import_file("nested.html", nested)
+    assert "leaked" not in result.markdown
+    assert "inner" not in result.markdown
+    assert "앞" in result.markdown and "뒤" in result.markdown
+
+    link = b'<p><a href="https://example.invalid/a*b_c[d]">\xeb\xa7\x81\xed\x81\xac</a></p>'
+    link_res = import_file("link.html", link)
+    assert r"a\*b\_c\[d\]" in link_res.markdown
+
+
+def test_hwp_importer_out_of_bounds_shape_raises_value_error() -> None:
+    import struct
+    from app.importers.common import Manuscript
+    from app.importers import hwp
+
+    # Out-of-bounds char shape in _paragraph.
+    raw = "가".encode("utf-16le")
+    with pytest.raises(ValueError):
+        hwp._paragraph(raw, [(0, 99)], [0], iter(()), lambda _m: None)
+
+    # Out-of-bounds para shape in _section.
+    payload = struct.pack("<IIH", 0, 0, 99) + b"\x00" * 12
+    rec_header = hwp.PARA_HEADER | (0 << 10) | (len(payload) << 20)
+    section_data = struct.pack("<I", rec_header) + payload
+    with pytest.raises(ValueError):
+        hwp._section(section_data, [0], [0], Manuscript())
+
+

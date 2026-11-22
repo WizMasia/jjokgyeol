@@ -16,7 +16,7 @@ from app.security import harden_worker, sanitize_user_error, validate_outbound_u
 
 def load_settings():
     settings = read_config(CONFIG_DIR / "reference.json")
-    for key in ("max_bytes", "max_uncompressed_bytes", "max_entries", "max_units", "max_pages",
+    for key in ("max_bytes", "max_uncompressed_bytes", "max_compression_ratio", "max_entries", "max_units", "max_pages",
                 "max_pixels", "raster_width", "timeout_seconds", "vision_timeout_seconds",
                 "worker_memory_bytes", "slots", "max_candidates_per_unit", "max_excerpt_chars",
                 "max_evidence_chars", "max_vision_response_bytes", "vision_max_tokens"):

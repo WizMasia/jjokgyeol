@@ -6,12 +6,13 @@ import math
 import posixpath
 import re
 from xml.etree import ElementTree as ET
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile
 from zlib import error as CompressionError
 
 from app.publication import FONT_LABELS
 from app.configuration import CONFIG_DIR, read_config
 from app.running_heads import SLOTS, escape_running_literal
+from app.security import SafeZipArchive
 
 
 TWIP_MM = 25.4 / 1440
@@ -1004,12 +1005,15 @@ def analyze_office(data, fmt, settings):
         settings = read_config(CONFIG_DIR / "reference.json") | settings
     fmt = fmt.lower().lstrip(".")
     try:
-        with ZipFile(BytesIO(data)) as z:
-            entries = z.infolist()
-            if len(entries) > settings["max_entries"] or sum(x.file_size for x in entries) > settings["max_uncompressed_bytes"]:
-                raise ValueError("참고 파일의 압축 해제 한도를 넘었습니다.")
-            if len(z.NameToInfo) != len(entries) or any(x.flag_bits & 1 for x in entries):
-                raise ValueError("중복 경로나 암호가 있는 참고 파일은 읽을 수 없습니다.")
+        with SafeZipArchive(
+            data,
+            max_entries=settings["max_entries"],
+            max_uncompressed_bytes=settings["max_uncompressed_bytes"],
+            max_compression_ratio=settings.get("max_compression_ratio", 250),
+            limit_message="참고 파일의 압축 해제 한도를 넘었습니다.",
+            duplicate_or_encrypted_message="중복 경로나 암호가 있는 참고 파일은 읽을 수 없습니다.",
+            compression_message="지원하지 않는 참고 파일 압축 형식입니다.",
+        ) as z:
             if fmt == "docx":
                 units = _word(z, settings, warnings)
                 thumbnail = _rels(z, "").get("thumbnail", "")

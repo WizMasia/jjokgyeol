@@ -66,6 +66,8 @@ def _paragraph(raw, ranges, chars, numbers, warn):
         end = ranges[i + 1][0] if i + 1 < len(ranges) else len(raw) // 2
         if not start <= end <= len(raw) // 2:
             raise ValueError("HWP 글자 모양 위치가 본문 밖입니다.")
+        if not 0 <= shape < len(chars):
+            raise ValueError("HWP 글자 모양 참조가 범위를 벗어났습니다.")
         text = _text(raw[start * 2:end * 2], numbers)
         runs.append((text, bool(chars[shape] & 2), bool(chars[shape] & 1)))
     return styled(runs, warn)
@@ -96,6 +98,8 @@ def _section(data, paras, chars, out, section=1):
             parents.pop()
         if tag == PARA_HEADER:
             shape, = unpack_from("<H", payload, 8)
+            if not 0 <= shape < len(paras):
+                raise ValueError("HWP 문단 모양 참조가 범위를 벗어났습니다.")
             flags = paras[shape]
             kind = ("body", "heading", "ordered", "bullet")[(flags >> 23) & 3]
             location = f"HWP 구역 {section} 문단 {len(paragraphs) + 1}"

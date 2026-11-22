@@ -58,10 +58,13 @@ class _HTML(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         self.out.count()
-        if self.skip:
+        if self.skip is not None:
+            skip_tag, depth = self.skip
+            if tag == skip_tag:
+                self.skip = (skip_tag, depth + 1)
             return
         if tag in ("head", "script", "style", "iframe", "object", "svg"):
-            self.skip = tag
+            self.skip = (tag, 1)
         if tag in ("img", "embed", "iframe", "object", "svg"):
             row, column = self.getpos()
             element = "그림" if tag == "img" else tag
@@ -92,9 +95,10 @@ class _HTML(HTMLParser):
             self.handle_data(" ")
 
     def handle_endtag(self, tag):
-        if self.skip:
-            if self.skip == tag:
-                self.skip = None
+        if self.skip is not None:
+            skip_tag, depth = self.skip
+            if tag == skip_tag:
+                self.skip = None if depth <= 1 else (skip_tag, depth - 1)
             return
         if tag in ("ul", "ol", "li"):
             self.flush(close_item=True)
@@ -112,7 +116,9 @@ class _HTML(HTMLParser):
         elif tag == "a" and self.links:
             href = self.links.pop()
             if href:
-                self.append("](" + href.replace(" ", "%20").replace("(", "%28").replace(")", "%29") + ")")
+                cleaned = re.sub(r"[\x00-\x1f\x7f]+", "", href)
+                cleaned = cleaned.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+                self.append("](" + literal_text(cleaned) + ")")
 
     def handle_data(self, data):
         if not self.skip:

@@ -1,26 +1,25 @@
 """Import one in-memory manuscript without opening paths supplied by the document."""
-from io import BytesIO
 from pathlib import PurePath
 import struct
 from xml.etree.ElementTree import ParseError
-from zipfile import BadZipFile, ZIP_DEFLATED, ZIP_STORED, ZipFile
+from zipfile import BadZipFile
 from zlib import error as CompressionError
 
+from app.security import SafeZipArchive
 from . import docx, hwp, hwpx, text_html
 from .common import ImportResult, LIMITS, Manuscript
 
 
 def _office(data, reader, out):
-    with ZipFile(BytesIO(data)) as z:
-        entries = z.infolist()
-        if (len(entries) > LIMITS["max_entries"]
-                or sum(e.file_size for e in entries) > LIMITS["max_uncompressed_bytes"]
-                or any(e.file_size > max(1, e.compress_size) * LIMITS["max_compression_ratio"] for e in entries)):
-            raise ValueError("Office 파일의 압축 해제 한도를 넘었습니다.")
-        if len(entries) != len(z.NameToInfo) or any(e.flag_bits & 1 for e in entries):
-            raise ValueError("중복 경로나 암호가 있는 파일입니다.")
-        if any(e.compress_type not in (ZIP_DEFLATED, ZIP_STORED) for e in entries):
-            raise ValueError("지원하지 않는 Office 압축 형식입니다.")
+    with SafeZipArchive(
+        data,
+        max_entries=LIMITS["max_entries"],
+        max_uncompressed_bytes=LIMITS["max_uncompressed_bytes"],
+        max_compression_ratio=LIMITS["max_compression_ratio"],
+        limit_message="Office 파일의 압축 해제 한도를 넘었습니다.",
+        duplicate_or_encrypted_message="중복 경로나 암호가 있는 파일입니다.",
+        compression_message="지원하지 않는 Office 압축 형식입니다.",
+    ) as z:
         reader(z, out)
 
 

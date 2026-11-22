@@ -1,6 +1,7 @@
 {
   "max_bytes": 16777216,
   "max_uncompressed_bytes": 67108864,
+  "max_compression_ratio": 250,
   "max_entries": 3000,
   "max_units": 1200,
   "max_pages": 40,

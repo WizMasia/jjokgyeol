@@ -401,13 +401,15 @@ class SafeZipArchive:
 
     def __enter__(self) -> SafeZipArchive:
         z = ZipFile(BytesIO(self._data))
+        archive_bytes = max(1, len(self._data))
         try:
             entries = z.infolist()
             if (
                 len(entries) > self._max_entries
                 or sum(e.file_size for e in entries) > self._max_uncompressed_bytes
+                or sum(e.file_size for e in entries) > archive_bytes * self._max_compression_ratio
                 or any(
-                    e.file_size > max(1, e.compress_size) * self._max_compression_ratio
+                    e.file_size > max(1, min(e.compress_size, archive_bytes)) * self._max_compression_ratio
                     for e in entries
                 )
             ):
@@ -446,16 +448,23 @@ class SafeZipArchive:
         key = info.filename
         if key in self._cache:
             return self._cache[key]
+        archive_bytes = max(1, len(self._data))
+        effective_compressed = max(1, min(info.compress_size, archive_bytes))
+        total_budget = min(
+            self._max_uncompressed_bytes,
+            archive_bytes * self._max_compression_ratio,
+        )
         entry_limit = min(
-            self._max_uncompressed_bytes - self._total_read,
-            max(1, info.compress_size) * self._max_compression_ratio,
+            total_budget - self._total_read,
+            effective_compressed * self._max_compression_ratio,
         )
         if entry_limit < 0:
             raise ValueError(self._limit_message)
         buf = bytearray()
         with self._zip.open(info, "r") as stream:
             while True:
-                chunk = stream.read(_ZIP_CHUNK_BYTES)
+                to_read = min(_ZIP_CHUNK_BYTES, entry_limit - len(buf) + 1)
+                chunk = stream.read(to_read)
                 if not chunk:
                     break
                 if len(buf) + len(chunk) > entry_limit:
