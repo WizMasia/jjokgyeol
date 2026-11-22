@@ -80,6 +80,8 @@ try {
         -not (Test-Path -LiteralPath (Join-Path $installedRuntime 'licenses') -PathType Container)) {
         throw "Installed files are missing from $install"
     }
+    $inventory = Join-Path $work 'installed-files.json'
+    Invoke-Checked 'python' @('desktop/release/verify_uninstall.py', 'snapshot', $install, $inventory)
     $pdf = Join-Path $work 'proof.pdf'
     Invoke-Checked $cli @('--runtime', $installedRuntime, '--source', 'proofs/numbering/manuscript.md', '--style', 'proofs/numbering/odd-even.json', '--output', $pdf)
     Invoke-Checked 'python' @('desktop/qa/compare_pdfs.py', $pdf, 'proofs/numbering/odd-even.pdf')
@@ -91,10 +93,7 @@ try {
     $installed = $false
     # _?= keeps the uninstaller in place so the waited process is the real one.
     if (Test-Path -LiteralPath $uninstaller) { Remove-Item -LiteralPath $uninstaller -Force }
-    if (Test-Path -LiteralPath $install) {
-        $remaining = @(Get-ChildItem -LiteralPath $install -Force -ErrorAction Stop)
-        if ($remaining.Count) { throw "Uninstall left files in $install" }
-    }
+    Invoke-Checked 'python' @('desktop/release/verify_uninstall.py', 'verify', $install, $inventory)
     Copy-Item -LiteralPath $installer -Destination $output
     Write-Host "Release verified: $output"
 } finally {
