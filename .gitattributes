@@ -1,0 +1,4 @@
+# Preserve the bytes of vendored browser builds on Windows checkouts.
+app/static/pdf.min.mjs text eol=lf
+app/static/pdf.worker.min.mjs text eol=lf
+app/static/zip.min.js text eol=lf
