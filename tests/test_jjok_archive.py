@@ -9,7 +9,7 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 import pytest
 from playwright.sync_api import Error as BrowserError, expect
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import DecodedStreamObject, NameObject, NullObject
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NullObject
 
 from test_editor import browser
 from test_slice import server_url
@@ -299,16 +299,16 @@ def unreadable_proof(problem):
         if problem == "missing-page":
             writer.root_object["/Pages"]["/Kids"][0] = NullObject()
         else:
-            # A drawing command still refers to an image omitted during export.
+            # The exporter omitted a resource that the page still uses.
             content = DecodedStreamObject()
-            content.set_data(b"/MissingImage Do")
+            content.set_data({"missing-image": b"/MissingImage Do", "missing-shading": b"/Gradient sh"}[problem])
             page[NameObject("/Contents")] = writer._add_object(content)
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()
 
 
-@pytest.mark.parametrize("problem", ["zero-pages", "missing-page", "missing-image"])
+@pytest.mark.parametrize("problem", ["zero-pages", "missing-page", "missing-image", "missing-shading"])
 def test_readable_first_page_required_on_open_and_save(codec, problem):
     pdf = unreadable_proof(problem)
     data = archive(entries(manifest(proof={"state": "current", "mode": "model"}), pdf))
@@ -325,7 +325,7 @@ def test_first_page_in_compressed_object_stream(codec):
     assert bytes(unpack(codec, pack(codec, pdf=pdf))["proof"]["blob"]) == pdf
 
 
-@pytest.mark.parametrize("problem", ["zero-pages", "missing-image"])
+@pytest.mark.parametrize("problem", ["zero-pages", "missing-image", "missing-shading"])
 def test_invalid_proof_keeps_the_open_manuscript(browser, server_url, pdf, problem):
     data = archive(entries(manifest(proof={"state": "current", "mode": "rule"}), unreadable_proof(problem)))
     with browser.new_page() as page:
@@ -333,6 +333,7 @@ def test_invalid_proof_keeps_the_open_manuscript(browser, server_url, pdf, probl
         page.goto(server_url)
         expect(page.locator("#status")).to_have_text("최신 버전")
         old_preview = page.locator("#preview").get_attribute("src")
+        original_source = page.locator("#source").input_value()
         page.locator("#source").fill("저장 전 원고")
         old_status = page.locator("#status").inner_text()
         prompts = []
@@ -343,6 +344,8 @@ def test_invalid_proof_keeps_the_open_manuscript(browser, server_url, pdf, probl
         expect(page.locator("#status")).to_have_text(old_status)
         assert page.locator("#preview").get_attribute("src") == old_preview
         assert not prompts
+        page.locator("#source").press("ControlOrMeta+z")
+        expect(page.locator("#source")).to_have_value(original_source)
 
 
 @pytest.mark.parametrize("codec", ["old-webkit"], indirect=True)
@@ -357,3 +360,42 @@ def test_offline_pdf_worker_and_zip_without_new_platform_apis(codec):
     zipped = pack(codec, pdf=pdf)
     assert unpack(codec, zipped)["proof"] == {"blob": list(pdf), "state": "stale", "mode": "model"}
     assert len(workers) >= 2 and all(url.endswith("/pdf.worker.min.mjs") for url in workers)
+
+
+def test_first_page_can_paint_a_gradient(codec):
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=720, height=1440)
+    page[NameObject("/Resources")] = DictionaryObject.read_from_stream(io.BytesIO(
+        b"<< /Shading << /Gradient << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 720 1440] "
+        b"/Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >> >> >> >>"
+    ), writer)
+    content = DecodedStreamObject()
+    content.set_data(b"/Gradient sh")
+    page[NameObject("/Contents")] = writer._add_object(content)
+    out = io.BytesIO()
+    writer.write(out)
+    pdf = out.getvalue()
+    assert bytes(unpack(codec, pack(codec, pdf=pdf))["proof"]["blob"]) == pdf
+
+
+@pytest.mark.parametrize("codec", ["old-webkit"], indirect=True)
+def test_drawing_failure_releases_validation_resources_and_allows_retry(codec, pdf):
+    codec.evaluate("""() => {
+        const getContext = HTMLCanvasElement.prototype.getContext;
+        window.drawTargets = [];
+        HTMLCanvasElement.prototype.getContext = function(type, ...options) {
+            if (type === "2d") drawTargets.push({canvas: this, width: this.width, height: this.height});
+            return getContext.call(this, type, ...options);
+        };
+    }""")
+    errors = []
+    codec.on("pageerror", lambda error: errors.append(str(error)))
+    with codec.expect_event("worker") as failed_worker, pytest.raises(BrowserError, match="PDF"):
+        pack(codec, pdf=unreadable_proof("missing-shading"))
+    assert bytes(unpack(codec, pack(codec, pdf=pdf))["proof"]["blob"]) == pdf
+    assert failed_worker.value not in codec.workers
+    assert not errors
+    targets = codec.evaluate("""() => drawTargets.map(({canvas, width, height}) =>
+        [width, height, canvas.width, canvas.height, canvas.isConnected])""")
+    # Each validation must use a bounded detached bitmap and release it, including on failure.
+    assert targets.count([64, 64, 0, 0, False]) == 3

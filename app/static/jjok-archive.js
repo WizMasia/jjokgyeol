@@ -5,6 +5,7 @@ globalThis.JjokArchive = (() => {
   const zipOptions = {useWebWorkers: false};
   const requiredNames = ["manifest.json", "style.json", "manuscript.md"];
   const pdfName = "proof.pdf";
+  const pdfJsStreamError = 5; // StreamKind.ERROR in the pinned PDF.js 4.10.38 worker.
   const assetBase = document.currentScript.src;
   const sizeError = "문서가 허용 크기를 초과합니다.";
 
@@ -40,6 +41,27 @@ globalThis.JjokArchive = (() => {
     return {state: proof.state, mode: proof.mode};
   }
 
+  async function checkDrawing(page, port) {
+    const side = 64;
+    const {width, height} = page.getViewport({scale: 1});
+    const viewport = page.getViewport({scale: side / Math.max(width, height)});
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = side;
+    let task;
+    // render() can resolve after this document’s worker has rejected the drawing stream.
+    const cancelFailedDrawing = ({data}) => {
+      if (data.stream === pdfJsStreamError) task?.cancel();
+    };
+    port.addEventListener("message", cancelFailedDrawing);
+    try {
+      task = page.render({canvasContext: canvas.getContext("2d"), viewport});
+      await task.promise;
+    } finally {
+      port.removeEventListener("message", cancelFailedDrawing);
+      canvas.width = canvas.height = 0;
+    }
+  }
+
   async function checkPdf(blob) {
     const message = "교정 PDF가 손상되었거나 올바른 PDF 파일이 아닙니다.";
     const header = await blob.slice(0, 10).text();
@@ -66,11 +88,13 @@ globalThis.JjokArchive = (() => {
       requireValue(dictionaryEnd >= 0 && /\/Type\s*\/XRef\b/.test(prefix.slice(0, dictionaryEnd)) &&
         /endstream\s+endobj\b/.test(tail.slice(0, end.index)), message);
     }
-    let loading;
+    let worker, loading;
     try {
       const pdfjs = await import("./pdf.min.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = new URL("./pdf.worker.min.mjs", assetBase).href;
+      worker = new pdfjs.PDFWorker();
       loading = pdfjs.getDocument({
+        worker,
         data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false, stopAtErrors: true,
         cMapUrl: new URL("./cmaps/", assetBase).href, cMapPacked: true,
         standardFontDataUrl: new URL("./standard_fonts/", assetBase).href,
@@ -80,11 +104,12 @@ globalThis.JjokArchive = (() => {
       const page = await pdf.getPage(1);
       // Drain the first page even for image-only proofs: a missing resource rejects this stream.
       await page.streamTextContent().pipeTo(new WritableStream());
+      await checkDrawing(page, worker.port);
     } catch (error) {
       if (error instanceof DocumentError) throw error;
       throw new DocumentError("교정 PDF의 첫 쪽을 읽을 수 없습니다.", {cause: error});
     } finally {
-      await loading?.destroy();
+      try { await loading?.destroy(); } finally { worker?.destroy(); }
     }
   }
 
