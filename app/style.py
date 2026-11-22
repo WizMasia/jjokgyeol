@@ -817,6 +817,8 @@ except InputError as error:
 
 
 def editor_bootstrap() -> dict:
+    from app.operations import LIMITS
+
     new = NEW_DOCUMENT_STYLE.to_editor()
     with localcontext() as context:
         context.prec = 40
@@ -824,6 +826,7 @@ def editor_bootstrap() -> dict:
         text_defaults = dict(TEXT_DEFAULTS)
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
+        "document_limits": {"request": LIMITS.request_body_bytes, "file": LIMITS.worker_file_bytes},
         "defaults": Style().to_editor(),
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,
