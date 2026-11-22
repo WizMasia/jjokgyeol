@@ -1,6 +1,8 @@
 """A reader can choose and export both layouts from the same production render."""
 import hashlib
+import json
 import os
+from zipfile import ZipFile
 
 from playwright.sync_api import expect
 import pytest
@@ -50,4 +52,9 @@ def test_selected_proof_is_the_downloaded_pdf(editor):
         with editor.expect_download() as file:
             editor.locator("#export").click()
         assert file.value.path().read_bytes() == pdfs[mode]
+        with editor.expect_download() as saved:
+            editor.locator("#save-document").click()
+        with ZipFile(saved.value.path()) as document:
+            assert document.read("proof.pdf") == pdfs[mode]
+            assert json.loads(document.read("manifest.json"))["proof"] == {"mode": mode, "state": "current"}
     assert len(requests) == 1

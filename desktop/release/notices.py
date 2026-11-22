@@ -16,9 +16,13 @@ def copy_notices(source, target):
 
 
 def main(destination):
-    pdfjs = Path('desktop/gui/frontend/node_modules/pdfjs-dist')
-    for folder in (Path('.'), Path('cmaps'), Path('standard_fonts')):
-        copy_notices(pdfjs / folder, destination / 'pdfjs' / folder)
+    assets = Path('app/static')
+    for name, filename in (('zip.js', 'zip.LICENSE.txt'), ('pdfjs', 'pdfjs.LICENSE.txt')):
+        notice = destination / name / 'LICENSE.txt'
+        notice.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(assets / filename, notice)
+    for folder in ('cmaps', 'standard_fonts'):
+        copy_notices(assets / folder, destination / 'pdfjs' / folder)
 
     python_notices = destination / 'python'
     python_notices.mkdir(parents=True)

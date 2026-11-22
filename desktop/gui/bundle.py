@@ -41,6 +41,7 @@ def resource_config(runtime, platform=sys.platform):
 
 def validate_frontend(dist):
     for name in ('index.html', 'sample.md', 'static/desktop.js', 'static/editor.js',
+                 'static/zip.min.js', 'static/zip.LICENSE.txt', 'static/jjok-archive.js', 'static/jjok-document.js',
                  'static/pdf.min.mjs', 'static/pdf.worker.min.mjs'):
         if not (dist / name).is_file():
             raise ValueError(f'missing frontend asset: {name}; build frontend first')
