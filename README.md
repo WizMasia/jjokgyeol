@@ -8,13 +8,7 @@
 
 ## 배포 상태
 
-2026-11-20 확인 기준입니다.
-
-| 항목 | 상태 |
-| --- | --- |
-| 지금 사용할 수 있는 앱 | Docker 웹 편집기와 macOS용 네이티브 개발 앱에서 PDF 출력을 확인했습니다. |
-| GitHub Releases | 게시된 릴리즈 0개, 초안 0개, 원격 Git 태그 0개입니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) |
-| Windows·macOS·Linux 네이티브 앱 | 세 운영체제 모두 다운로드할 설치 파일은 아직 배포 전입니다. [앱 구조와 운영체제별 출시 기준](docs/superpowers/specs/2026-11-20-native-desktop-design.md) |
+네이티브 내부 시험판은 비공개 GitHub Releases에서 관리합니다. 배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고, 설치물에서 기준 PDF를 대조한 뒤 다운로드 파일과 SHA-256을 초안에 올립니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
 
 ### 네이티브 개발판과 웹판 비교
 

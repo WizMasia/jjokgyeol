@@ -20,6 +20,11 @@ class BundleTest(unittest.TestCase):
     def test_valid_runtime_maps_to_runtime_resource(self):
         self.assertEqual(bundle.resource_config(self.root)['bundle']['resources'], {str(self.root.resolve()): 'runtime'})
 
+    def test_windows_includes_offline_webview_installer(self):
+        config = bundle.resource_config(self.root, platform='win32')['bundle']
+        self.assertEqual(config['windows']['webviewInstallMode'], {'type': 'offlineInstaller'})
+        self.assertNotIn('windows', bundle.resource_config(self.root, platform='darwin')['bundle'])
+
     def test_rejects_missing_worker_invalid_manifest_and_path_escape(self):
         (self.root / 'worker' / bundle.worker_name()).unlink()
         with self.assertRaises(ValueError):

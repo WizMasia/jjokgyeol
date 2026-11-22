@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 GUI = Path(__file__).resolve().parent
 CLI = '@tauri-apps/cli@2.12.6'
@@ -13,7 +14,7 @@ def worker_name():
     return 'jjokgyeol-worker.exe' if os.name == 'nt' else 'jjokgyeol-worker'
 
 
-def resource_config(runtime):
+def resource_config(runtime, platform=sys.platform):
     if not runtime.is_absolute() or not runtime.is_dir():
         raise ValueError('runtime must be an existing absolute directory')
     runtime = runtime.resolve()
@@ -32,7 +33,10 @@ def resource_config(runtime):
         path = (runtime / value).resolve()
         if not path.is_relative_to(runtime) or not (path.is_file() if key == 'engine' else path.is_dir()):
             raise ValueError(f'missing or invalid {key} in runtime.json')
-    return {'bundle': {'active': True, 'resources': {str(runtime): 'runtime'}}}
+    options = {'active': True, 'resources': {str(runtime): 'runtime'}}
+    if platform == 'win32':
+        options['windows'] = {'webviewInstallMode': {'type': 'offlineInstaller'}}
+    return {'bundle': options}
 
 
 def validate_frontend(dist):
@@ -54,9 +58,14 @@ def main():
     config = resource_config(Path(sys.argv[1]))
     validate_frontend(GUI / 'frontend' / 'dist')
     npm = 'npm.cmd' if os.name == 'nt' else 'npm'
-    subprocess.run([npm, 'exec', '--yes', f'--package={CLI}', '--', 'tauri', 'build',
-                    '--config', json.dumps(config, ensure_ascii=False),
-                    '--bundles', 'nsis' if os.name == 'nt' else 'app'], cwd=GUI, check=True)
+    with tempfile.TemporaryDirectory() as directory:
+        override = Path(directory) / 'release.conf.json'
+        override.write_text(json.dumps(config, ensure_ascii=False), encoding='utf-8')
+        subprocess.run(
+            [npm, 'exec', '--yes', f'--package={CLI}', '--', 'tauri', 'build',
+             '--config', str(override), '--bundles', 'nsis' if os.name == 'nt' else 'app'],
+            cwd=GUI, check=True,
+        )
 
 
 if __name__ == '__main__':
