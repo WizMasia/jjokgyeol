@@ -144,9 +144,9 @@ def test_style_rejects_oversized_decimal_and_collections() -> None:
     from app.style import from_editor_style
 
     with pytest.raises(InputError):
-        from_editor_style({"body_pt": "1" + "0" * 100})
+        from_editor_style({"body_pt": "1" + "0" * 140})
     with pytest.raises(InputError):
-        from_editor_style({"body_pt": "11." + "5" * 100})
+        from_editor_style({"body_pt": "11." + "5" * 140})
 
     too_many_levels = [{"expr": "{숫자}.", "indent_mm": "0", "gap_mm": "2"}] * 33
     with pytest.raises(InputError):

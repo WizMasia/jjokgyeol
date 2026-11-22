@@ -38,7 +38,7 @@ HTML_CSP: bytes = (
     b"img-src 'self' data: blob:; "
     b"frame-src 'self' blob:; "
     b"object-src 'self' blob:; "
-    b"connect-src 'self'; "
+    b"connect-src 'self' blob:; "
     b"font-src 'self' data:; "
     b"base-uri 'none'; "
     b"form-action 'self'; "

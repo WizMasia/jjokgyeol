@@ -21,7 +21,7 @@ MAX_BODY_PT = (2048 * publication.RATIO_UNIT - 1) // max(publication.RATIO_UNIT,
 MAX_PAGE_MM = MAX_DIMENSION_PT * 2540 // 7227
 MAX_SAFE_INTEGER = publication.MAX_SAFE_INTEGER
 # 스타일 입력의 수치·컬렉션 DoS 방어 상한 / Defensive caps for style numeric and collection inputs.
-MAX_NUMBER_CHARS = 64
+MAX_NUMBER_CHARS = 128
 MAX_DECIMAL_PREC = 160
 MAX_LIST_LEVELS = 32
 MAX_SECTION_RULES = 256
