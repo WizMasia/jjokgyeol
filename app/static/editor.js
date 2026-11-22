@@ -88,13 +88,17 @@ function markDirty(kind, dirty) {
   if (before !== after && nativeDesktop && !settingsView) queueDirtyUpdate(slot, after);
 }
 
+function hasActiveArchive() {
+  return documentFilename !== null || savingDocument === documentIdentity;
+}
+
 function confirmWebReplacement() {
   return !(manuscriptDirty || styleDirty || documentDirty) ||
     window.confirm("저장하지 않은 변경 사항이 있습니다. 현재 문서를 바꿀까요?");
 }
 
 async function confirmManuscriptReplacement(current) {
-  if (!nativeDesktop) return !documentFilename || confirmWebReplacement();
+  if (!nativeDesktop) return !hasActiveArchive() || confirmWebReplacement();
   try {
     if (!await waitForDirtyUpdate("source") || !current()) return false;
     if (!manuscriptDirty && !documentDirty) return true;
@@ -430,7 +434,7 @@ byId("open-running").addEventListener("click", () => {
 
 function changed() {
   version++;
-  if (documentFilename || savingDocument === documentIdentity) markDirty("document", true);
+  if (hasActiveArchive()) markDirty("document", true);
   referenceStateChanged();
   statusText.textContent = proofStatus();
   byId("placeholder").textContent = "미리보기를 갱신하면 조판된 지면이 열립니다.";
@@ -595,7 +599,7 @@ function showProof(proof, style, state = "current") {
     const {mode, label} = proof.selected;
     proofChoice.replaceChildren(new Option(label.split(" · ")[0], mode));
     proofChoice.disabled = true;
-  } else if (includeProof.checked && (documentFilename || savingDocument === documentIdentity)) {
+  } else if (includeProof.checked && hasActiveArchive()) {
     documentRevision++;
     markDirty("document", true);
   }

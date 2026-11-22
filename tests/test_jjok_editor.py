@@ -448,22 +448,37 @@ def test_browser_download_without_write_acknowledgement_keeps_dirty_guard(editor
 
 
 @pytest.mark.parametrize(("input_id", "name"), [("#file", "다음.md"), ("#import-file", "다음.txt")])
-def test_plain_manuscript_replacement_confirms_dirty_web_archive(editor, input_id, name):
+@pytest.mark.parametrize("pending_first_save", [False, True], ids=["opened", "pending-first-save"])
+def test_plain_manuscript_replacement_confirms_dirty_web_archive(editor, input_id, name, pending_first_save):
     p = editor.page
-    archive = save_document(p)
-    upload(p, "#document-file", "작업.jjok", archive)
-    expect(p.locator("#proof-choice")).to_be_disabled()
+    if pending_first_save:
+        upload(p, "#file", "초고.md", b"first snapshot")
+        expect(editor.source).to_have_value("first snapshot")
+        held = []
+        p.route("**/api/style/export", lambda route: held.append(route), times=1)
+        with p.expect_request("**/api/style/export"):
+            p.locator("#save-document").click()
+    else:
+        archive = save_document(p)
+        upload(p, "#document-file", "작업.jjok", archive)
+        expect(p.locator("#proof-choice")).to_be_disabled()
     editor.source.fill("교정 중인 작업 문서")
     p.route("**/api/import?*", lambda route: route.fulfill(json={"markdown": "next", "warnings": []}))
     old_pdf = editor.frame.get_attribute("src")
     prompts = []
     p.once("dialog", lambda dialog: (prompts.append(dialog.message), dialog.dismiss()))
     upload(p, input_id, name, b"next")
-    expect(p.locator("#save-document")).to_be_enabled()
+    expect(editor.refresh).to_be_enabled()
     assert prompts
     expect(editor.source).to_have_value("교정 중인 작업 문서")
     assert editor.frame.get_attribute("src") == old_pdf
-    p.once("dialog", lambda dialog: dialog.accept())
+    p.once("dialog", lambda dialog: (prompts.append(dialog.message), dialog.accept()))
     upload(p, input_id, name, b"next")
     expect(editor.source).to_have_value("next")
+    assert len(prompts) == 2
+    if pending_first_save:
+        with p.expect_download() as first:
+            editor.route(held[0])
+        assert entries(first.value.path().read_bytes())["manuscript.md"] == b"first snapshot"
+        expect(editor.source).to_have_value("next")
     assert "proof.pdf" not in entries(save_document(p))
