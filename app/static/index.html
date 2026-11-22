@@ -12,12 +12,21 @@
   <script src="/static/typography.js" defer></script>
   <script src="/static/editor.js" defer></script>
   <script src="/static/style-file.js" defer></script>
+  <script src="/static/zip.min.js" defer></script>
+  <script src="/static/jjok-archive.js" defer></script>
+  <script src="/static/jjok-document.js" defer></script>
   <script type="module" src="/static/style-suggestion.js"></script>
 </head>
 <body>
   <a class="skip" href="#source">원고 편집으로 이동</a>
   <header class="masthead">
     <h1><span class="mark" aria-hidden="true"></span><b>쪽결</b><span class="product">원고 편집기</span></h1>
+    <div class="document-actions" role="group" aria-label="쪽결 문서">
+      <button type="button" id="open-document">쪽결 문서 열기</button>
+      <input type="file" id="document-file" accept=".jjok" hidden>
+      <button type="button" id="save-document">쪽결 문서 저장</button>
+      <label><input type="checkbox" id="include-proof" checked> 교정 PDF 포함</label>
+    </div>
     <div class="actions">
       <button id="open-settings" type="button" aria-controls="settings-dialog">설정</button>
       <button id="refresh" type="button"><span aria-hidden="true">↻</span> 미리보기 갱신</button>

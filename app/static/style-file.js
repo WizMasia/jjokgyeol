@@ -20,13 +20,12 @@ function showStyleError(error) {
   (settingsDialog.open ? settingsError : errorText).textContent = error.message || "양식을 처리할 수 없습니다.";
 }
 
-bindFilePicker("open-style", "style-file", async file => {
-  if (!await confirmStyleReplacement()) return;
+bindFilePicker("open-style", "style-file", file => {
   return openFile("style", () => requestStyle("open", file), values => {
     styleForm.set(values);
     styleRevision++;
     markDirty("style", false);
-  }, showStyleError);
+  }, showStyleError, confirmStyleReplacement);
 });
 byId("save-style").addEventListener("click", async () => {
   const values = styleForm.get();

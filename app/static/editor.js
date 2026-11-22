@@ -9,8 +9,14 @@ const settingsView = nativeDesktop && new URLSearchParams(location.search).get("
 if (settingsView) document.documentElement.classList.add("settings-window");
 const settingsDialog = byId("settings-dialog");
 const settingsError = byId("settings-error");
-if (!nativeDesktop) proofChoice.add(new Option("모델 우선", "model"));
-proofChoice.add(new Option("규칙", "rule"));
+function liveProofChoices(preferred = "model") {
+  proofChoice.replaceChildren();
+  if (!nativeDesktop) proofChoice.add(new Option("모델 우선", "model"));
+  proofChoice.add(new Option("규칙", "rule"));
+  proofChoice.value = nativeDesktop ? "rule" : preferred;
+  proofChoice.disabled = false;
+}
+liveProofChoices();
 const inlinePdf = navigator.pdfViewerEnabled !== false;
 // A viewerless browser would download every iframe navigation automatically.
 if (!inlinePdf) preview.setAttribute("sandbox", "");
@@ -19,8 +25,18 @@ const errorText = byId("error");
 let version = 0;
 let displayedVersion = -1;
 let displayedProof = null;
+let documentIdentity = 0;
+let displayedDocument = -1;
+let documentRevision = 0;
+let documentDirty = false;
+let documentFilename = null;
+let savingDocument = null;
+const includeProof = byId("include-proof");
 let pending = null;
-const fileLoads = {source: null, style: null};
+const fileLoads = {
+  source: null, style: null,
+  get document() { return this.source === this.style ? this.source : null; },
+};
 let initialPreviewNeeded = false;
 let original = "";
 let originalView = "";
@@ -56,41 +72,48 @@ async function waitForDirtyUpdate(kind) {
     const succeeded = await latest;
     if (latest !== queue.latest) continue;
     if (succeeded) return true;
-    const dirty = kind === "source" ? manuscriptDirty : styleDirty;
+    const dirty = kind === "source" ? manuscriptDirty || documentDirty : styleDirty;
     const retry = queueDirtyUpdate(kind, dirty);
     if (!await retry && retry === queue.latest) return false;
   }
 }
 
 function markDirty(kind, dirty) {
-  const current = kind === "source" ? manuscriptDirty : styleDirty;
-  if (current === dirty) return;
+  const slot = kind === "style" ? "style" : "source";
+  const before = slot === "source" ? manuscriptDirty || documentDirty : styleDirty;
   if (kind === "source") manuscriptDirty = dirty;
+  else if (kind === "document") documentDirty = dirty;
   else styleDirty = dirty;
-  if (nativeDesktop && !settingsView) queueDirtyUpdate(kind, dirty);
+  const after = slot === "source" ? manuscriptDirty || documentDirty : styleDirty;
+  if (before !== after && nativeDesktop && !settingsView) queueDirtyUpdate(slot, after);
 }
 
-async function confirmManuscriptReplacement() {
-  if (!nativeDesktop) return true;
+function confirmWebReplacement() {
+  return !(manuscriptDirty || styleDirty || documentDirty) ||
+    window.confirm("저장하지 않은 변경 사항이 있습니다. 현재 문서를 바꿀까요?");
+}
+
+async function confirmManuscriptReplacement(current) {
+  if (!nativeDesktop) return !documentFilename || confirmWebReplacement();
   try {
-    if (!await waitForDirtyUpdate("source")) return false;
-    if (!manuscriptDirty) return true;
+    if (!await waitForDirtyUpdate("source") || !current()) return false;
+    if (!manuscriptDirty && !documentDirty) return true;
     return await desktop.confirmDocumentReplacement();
   } catch (error) {
-    errorText.textContent = error.message;
+    if (current()) errorText.textContent = error.message;
     return false;
   }
 }
 
-async function confirmStyleReplacement() {
+async function confirmStyleReplacement(current) {
   if (!nativeDesktop) return true;
   try {
     if (settingsView) return !styleDirty || await desktop.invoke("confirm_settings_replacement");
-    if (!await waitForDirtyUpdate("style")) return false;
+    if (!await waitForDirtyUpdate("style") || !current()) return false;
     if (!styleDirty) return true;
     return await desktop.confirmStyleReplacement();
   } catch (error) {
-    errorText.textContent = error.message;
+    if (current()) errorText.textContent = error.message;
     return false;
   }
 }
@@ -117,6 +140,10 @@ function editedRange(before, after, prefixLimit = Infinity) {
 function sourceText() {
   if (source.value === originalView) return original;
   return source.value.replaceAll("\n", newline);
+}
+
+function manuscriptFileText() {
+  return (withBom ? "\uFEFF" : "") + sourceText();
 }
 
 function editManuscript() {
@@ -403,8 +430,9 @@ byId("open-running").addEventListener("click", () => {
 
 function changed() {
   version++;
+  if (documentFilename || savingDocument === documentIdentity) markDirty("document", true);
   referenceStateChanged();
-  statusText.textContent = displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
+  statusText.textContent = proofStatus();
   byId("placeholder").textContent = "미리보기를 갱신하면 조판된 지면이 열립니다.";
 }
 
@@ -415,10 +443,10 @@ function download(url, name) {
   link.click();
 }
 
-function saveBlob(blob, name) {
+function saveBlob(blob, name, onError = showStyleError) {
   if (nativeDesktop) {
     return desktop.save(blob, name).catch(error => {
-      (settingsDialog.open ? settingsError : errorText).textContent = error.message;
+      onError(error);
       return false;
     });
   }
@@ -428,7 +456,7 @@ function saveBlob(blob, name) {
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return true;
+  return null; // The browser accepts the download but cannot acknowledge a disk write.
 }
 
 function bindFilePicker(buttonId, inputId, open) {
@@ -443,7 +471,7 @@ function bindFilePicker(buttonId, inputId, open) {
 
 function exportPdf() {
   if (nativeDesktop) {
-    saveBlob(displayedProof.blob, byId("filename").textContent.replace(/\.(?:md|markdown)$/i, "") + ".pdf");
+    saveBlob(displayedProof.selected.blob, byId("filename").textContent.replace(/\.(?:md|markdown)$/i, "") + ".pdf");
     return;
   }
   download(preview.src, byId("filename").textContent.replace(/\.(?:md|markdown)$/i, "") + ".pdf");
@@ -496,23 +524,26 @@ async function fetchProof(style, signal) {
 
 // Only current responses acquire URLs. A reference trial transfers these URLs on apply.
 class ProofUrls {
-  constructor({rule, model, decision}) {
-    this.blob = rule;
-    this.rule = URL.createObjectURL(rule);
-    this.model = model && URL.createObjectURL(model);
-    this.decision = decision;
+  constructor({rule, model, decision, saved}) {
+    const file = (blob, mode) => ({blob, mode, url: URL.createObjectURL(blob)});
+    this.rule = rule && file(rule, "rule");
+    this.model = model && file(model, decision);
+    this.saved = saved && file(saved.blob, saved.mode);
   }
 
   get selected() {
-    const useModel = this.model && proofChoice.value === "model";
-    let label = this.model || nativeDesktop ? "규칙 조판" : "규칙 조판 · 모델 결과 없음";
-    if (useModel) label = this.decision === "mixed" ? "혼합 조판 · 일부 문단에 모델 적용" : "모델 조판";
-    return {href: (useModel ? this.model : this.rule) + "#navpanes=0&view=FitH", label};
+    const file = this.saved || (proofChoice.value !== "rule" && this.model) || this.rule;
+    let label = "규칙 조판";
+    if (file.mode === "model") label = "모델 조판";
+    else if (file.mode === "mixed") label = "혼합 조판 · 일부 문단에 모델 적용";
+    else if (!this.saved && !this.model && !nativeDesktop) label += " · 모델 결과 없음";
+    return {...file, href: file.url + "#navpanes=0&view=FitH", label};
   }
 
   release() {
-    URL.revokeObjectURL(this.rule);
-    if (this.model) URL.revokeObjectURL(this.model);
+    for (const file of [this.rule, this.model, this.saved]) {
+      if (file) URL.revokeObjectURL(file.url);
+    }
   }
 }
 
@@ -534,9 +565,41 @@ function displaySelectedProof() {
   byId("proof-decision").textContent = "표시 중 · " + label;
 }
 
-proofChoice.addEventListener("change", displaySelectedProof);
+function editedDocumentOption() {
+  documentRevision++;
+  markDirty("document", true);
+  if (fileLoads.document) finishFileOpen("document", fileLoads.document);
+}
 
-function showProof(proof, style) {
+proofChoice.addEventListener("change", () => {
+  displaySelectedProof();
+  if (includeProof.checked && displayedDocument === documentIdentity && displayedProof?.model) {
+    editedDocumentOption();
+  }
+});
+
+function clearSavedChoice() {
+  if (proofChoice.disabled) liveProofChoices(proofChoice.value === "rule" ? "rule" : "model");
+}
+
+function proofStatus() {
+  if (displayedVersion === version) return "최신 버전";
+  if (displayedProof?.saved && displayedDocument === documentIdentity) return "수정 전 교정본 · 갱신 필요";
+  return displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
+}
+
+function showProof(proof, style, state = "current") {
+  clearSavedChoice();
+  if (proof.saved) {
+    proof.openedAt = version;
+    const {mode, label} = proof.selected;
+    proofChoice.replaceChildren(new Option(label.split(" · ")[0], mode));
+    proofChoice.disabled = true;
+  } else if (includeProof.checked && (documentFilename || savingDocument === documentIdentity)) {
+    documentRevision++;
+    markDirty("document", true);
+  }
+  displayedDocument = documentIdentity;
   const previous = displayedProof;
   displayedProof = proof;
   displaySelectedProof();
@@ -544,10 +607,10 @@ function showProof(proof, style) {
   preview.hidden = nativeDesktop || !inlinePdf;
   byId("viewer-fallback").hidden = nativeDesktop || inlinePdf;
   byId("placeholder").hidden = true;
-  displayedVersion = version;
-  byId("proof-size").textContent = `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt`;
-  byId("applied-ratios").textContent = spacingCaption(style);
-  statusText.textContent = "최신 버전";
+  displayedVersion = state === "current" ? version : -1;
+  byId("proof-size").textContent = style ? `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt` : "PDF";
+  byId("applied-ratios").textContent = style ? spacingCaption(style) : "";
+  statusText.textContent = proofStatus();
 }
 
 async function render(job) {
@@ -583,7 +646,7 @@ function requestPdf(exporting) {
     pending.exporting ||= exporting;
     return;
   }
-  if (exporting && displayedVersion === version) {
+  if (exporting && (displayedVersion === version || displayedProof?.openedAt === version)) {
     exportPdf();
     return;
   }
@@ -597,50 +660,64 @@ function requestPdf(exporting) {
 
 function updateFileActions() {
   const busy = Boolean(fileLoads.source || fileLoads.style);
+  byId("save-document").disabled = busy || savingDocument !== null;
   byId("refresh").disabled = busy;
   byId("export").disabled = busy;
   byId("save").disabled = Boolean(fileLoads.source);
   pinButton.disabled = Boolean(fileLoads.source);
   byId("save-style").disabled = Boolean(fileLoads.style);
-  if (busy) statusText.textContent = fileLoads.style ? "양식 불러오는 중" : "원고 처리 중";
+  if (busy) statusText.textContent = fileLoads.document ? "쪽결 문서 불러오는 중" :
+    fileLoads.style ? "양식 불러오는 중" : "원고 처리 중";
+}
+
+// A document read owns both slots. Replacing either half cancels the entire read.
+function cancelFileOpen(kind) {
+  if (kind === "document" || fileLoads.document) {
+    fileLoads.source = fileLoads.style = null;
+  } else {
+    fileLoads[kind] = null;
+  }
 }
 
 function beginFileOpen(kind) {
-  if (kind === "style") document.dispatchEvent(new Event("style-suggestion-invalidate"));
+  cancelFileOpen(kind);
+  if (kind !== "source") document.dispatchEvent(new Event("style-suggestion-invalidate"));
   const token = Symbol();
-  fileLoads[kind] = token;
+  if (kind === "document") fileLoads.source = fileLoads.style = token;
+  else fileLoads[kind] = token;
   referenceStateChanged();
   pending = null;
   errorText.textContent = "";
-  if (kind === "style") settingsError.textContent = "";
+  if (kind !== "source") settingsError.textContent = "";
   updateFileActions();
   return token;
 }
 
 function finishFileOpen(kind, token) {
   if (fileLoads[kind] !== token) return;
-  fileLoads[kind] = null;
+  cancelFileOpen(kind);
   referenceStateChanged();
   updateFileActions();
   if (fileLoads.source || fileLoads.style) return;
-  statusText.textContent = displayedVersion === version ? "최신 버전" :
-    displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
+  statusText.textContent = proofStatus();
   if (initialPreviewNeeded) {
     initialPreviewNeeded = false;
     if (!errorText.textContent) requestPdf(false);
   }
 }
 
-async function openFile(kind, read, apply, onError) {
+async function openFile(kind, read, apply, onError, confirmReplacement) {
   const turn = beginFileOpen(kind);
+  const current = () => fileLoads[kind] === turn;
   try {
+    if (confirmReplacement && (!await confirmReplacement(current) || !current())) return;
     const data = await read();
-    if (fileLoads[kind] === turn) {
+    if (current()) {
       apply(data);
       changed();
     }
   } catch (error) {
-    if (fileLoads[kind] === turn) onError(error);
+    if (current()) onError(error);
   } finally {
     finishFileOpen(kind, turn);
   }
@@ -653,6 +730,10 @@ async function readMarkdown(file) {
 }
 
 function applyManuscript(text, name, warnings = []) {
+  documentIdentity++;
+  documentFilename = null;
+  includeProof.checked = true;
+  markDirty("document", false);
   withBom = text.startsWith("\uFEFF");
   const manuscript = withBom ? text.slice(1) : text;
   source.value = manuscript;
@@ -671,7 +752,6 @@ function applyManuscript(text, name, warnings = []) {
 }
 
 async function openMarkdown(file) {
-  if (!await confirmManuscriptReplacement()) return;
   initialPreviewNeeded = false;
   return openFile("source", () => readMarkdown(file), text => {
     applyManuscript(text, file?.name || "비교 원고.md");
@@ -683,7 +763,7 @@ async function openMarkdown(file) {
       statusText.textContent = "원고 열기 실패";
       byId("placeholder").textContent = "원고를 입력하고 미리보기를 갱신하세요.";
     }
-  });
+  }, confirmManuscriptReplacement);
 }
 
 async function requestImport(file) {
@@ -701,13 +781,12 @@ async function requestImport(file) {
 }
 
 async function importManuscript(file) {
-  if (!await confirmManuscriptReplacement()) return;
   initialPreviewNeeded = false;
   return openFile("source", () => requestImport(file), ({markdown, warnings}) => {
     applyManuscript(markdown, file.name.replace(/\.[^.]*$/, "") + ".md", warnings);
   }, error => {
     errorText.textContent = error instanceof TypeError ? "연결을 확인하고 원고 가져오기를 다시 시도하세요." : error.message;
-  });
+  }, confirmManuscriptReplacement);
 }
 
 function edited(kind) {
@@ -718,7 +797,7 @@ function edited(kind) {
     typography.clearError();
     document.dispatchEvent(new Event("style-suggestion-invalidate"));
   }
-  fileLoads[kind] = null;
+  cancelFileOpen(kind);
   initialPreviewNeeded = false;
   errorText.textContent = "";
   if (kind === "style") settingsError.textContent = "";
@@ -834,7 +913,7 @@ byId("refresh").addEventListener("click", () => requestPdf(false));
 byId("export").addEventListener("click", () => requestPdf(true));
 byId("save").addEventListener("click", async () => {
   const revision = manuscriptRevision;
-  const blob = new Blob([withBom ? "\uFEFF" : "", sourceText()], {type: "text/markdown;charset=utf-8"});
+  const blob = new Blob([manuscriptFileText()], {type: "text/markdown;charset=utf-8"});
   if (await saveBlob(blob, byId("filename").textContent) && revision === manuscriptRevision) {
     markDirty("source", false);
   }
@@ -898,6 +977,8 @@ if (settingsView) {
     styleForm.set(snapshot.style, {preserveDraft: true, inactiveArticleExpr: snapshot.inactiveArticleExpr});
     if (changedStyle) {
       styleRevision++;
+      cancelFileOpen("style");
+      updateFileActions();
       changed();
     }
     markDirty("style", snapshot.dirty);

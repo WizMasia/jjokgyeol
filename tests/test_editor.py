@@ -5,6 +5,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import pytest
 from app import server, style
@@ -59,12 +60,11 @@ class Desk:
         elif url == ORIGIN + "/":
             route.fulfill(content_type="text/html; charset=utf-8", body=server.editor_html())
         else:
-            files = {"/static/decimal.js": "decimal.js", "/static/editor.css": "editor.css", "/static/indent-units.js": "indent-units.js",
-                     "/static/style-suggestion.js": "style-suggestion.js",
-                     "/static/typography.js": "typography.js", "/static/list-style.js": "list-style.js", "/static/editor.js": "editor.js", "/static/style-file.js": "style-file.js"}
-            for path, name in files.items():
-                if url == ORIGIN + path and (STATIC / name).is_file():
-                    route.fulfill(path=STATIC / name)
+            if url.startswith(ORIGIN + "/static/"):
+                relative = unquote(urlsplit(url).path).removeprefix("/static/")
+                asset = (STATIC / relative).resolve()
+                if asset.is_relative_to(STATIC) and asset.is_file():
+                    route.fulfill(path=asset)
                     return
             route.fulfill(status=404, body="")
 

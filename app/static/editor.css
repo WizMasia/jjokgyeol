@@ -34,6 +34,8 @@ h1 b { font: 700 2.25rem/1.15 var(--serif); letter-spacing: -.09em; }
 .product { color: var(--muted); font-size: .87rem; font-weight: 500; border-left: 1px solid var(--line); padding-left: .8rem; margin-left: .2rem; }
 .actions, .file-actions { gap: .5rem; }
 .actions { flex-wrap: wrap; }
+.document-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.document-actions label { white-space: nowrap; }
 #style .file-actions { flex-wrap: wrap; }
 #style .file-actions a { color: var(--accent); font-size: .875rem; }
 .manuscript .file-actions { flex-wrap: wrap; justify-content: flex-end; }
