@@ -23,6 +23,7 @@ pub fn worker_env_pairs() -> Vec<(OsString, OsString)> {
     #[cfg(windows)]
     const BASE_KEYS: &[&str] = &[
         "PATH",
+        "SYSTEMDRIVE",
         "SYSTEMROOT",
         "WINDIR",
         "COMSPEC",

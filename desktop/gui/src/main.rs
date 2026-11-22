@@ -11,8 +11,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+#[cfg(any(not(unix), test))]
+use std::time::Instant;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::Semaphore;
 #[cfg(windows)]

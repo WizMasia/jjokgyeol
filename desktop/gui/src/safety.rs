@@ -1,36 +1,3 @@
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn suggested_name_cannot_escape_or_use_special_names() {
-        assert_eq!(safe_name("../../원고.pdf"), "원고.pdf");
-        assert_eq!(safe_name(".."), "untitled");
-        assert_eq!(safe_name("folder\\evil.pdf"), "evil.pdf");
-        assert_eq!(safe_name("원고.pdf. ."), "원고.pdf");
-        assert_eq!(safe_name("..."), "untitled");
-        assert_eq!(safe_name("CON"), "untitled");
-        assert_eq!(safe_name("nul.pdf"), "untitled");
-        assert_eq!(safe_name("Com1.txt"), "untitled");
-        assert_eq!(safe_name("lpt9.json"), "untitled");
-        assert_eq!(safe_name("console.pdf"), "console.pdf");
-    }
-
-    #[test]
-    fn header_filename_decodes_utf8_and_sanitizes() {
-        assert_eq!(decode_header_filename("%EC%9B%90%EA%B3%A0.pdf"), "원고.pdf");
-        assert_eq!(decode_header_filename("..%2F..%2Fevil.pdf"), "evil.pdf");
-        assert_eq!(decode_header_filename("CON.pdf"), "untitled");
-        assert_eq!(decode_header_filename(""), "untitled");
-    }
-
-    #[test]
-    fn request_size_counts_utf8_bytes() {
-        assert!(within_limit("한글".as_bytes(), 6));
-        assert!(!within_limit("한글".as_bytes(), 5));
-    }
-}
-
 fn is_windows_reserved_device(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").trim();
     let upper = stem.to_ascii_uppercase();
@@ -115,4 +82,37 @@ pub fn decode_header_filename(raw: &str) -> String {
 
 pub fn within_limit(bytes: &[u8], limit: u64) -> bool {
     bytes.len() as u64 <= limit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggested_name_cannot_escape_or_use_special_names() {
+        assert_eq!(safe_name("../../원고.pdf"), "원고.pdf");
+        assert_eq!(safe_name(".."), "untitled");
+        assert_eq!(safe_name("folder\\evil.pdf"), "evil.pdf");
+        assert_eq!(safe_name("원고.pdf. ."), "원고.pdf");
+        assert_eq!(safe_name("..."), "untitled");
+        assert_eq!(safe_name("CON"), "untitled");
+        assert_eq!(safe_name("nul.pdf"), "untitled");
+        assert_eq!(safe_name("Com1.txt"), "untitled");
+        assert_eq!(safe_name("lpt9.json"), "untitled");
+        assert_eq!(safe_name("console.pdf"), "console.pdf");
+    }
+
+    #[test]
+    fn header_filename_decodes_utf8_and_sanitizes() {
+        assert_eq!(decode_header_filename("%EC%9B%90%EA%B3%A0.pdf"), "원고.pdf");
+        assert_eq!(decode_header_filename("..%2F..%2Fevil.pdf"), "evil.pdf");
+        assert_eq!(decode_header_filename("CON.pdf"), "untitled");
+        assert_eq!(decode_header_filename(""), "untitled");
+    }
+
+    #[test]
+    fn request_size_counts_utf8_bytes() {
+        assert!(within_limit("한글".as_bytes(), 6));
+        assert!(!within_limit("한글".as_bytes(), 5));
+    }
 }

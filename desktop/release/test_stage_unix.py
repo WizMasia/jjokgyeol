@@ -52,10 +52,17 @@ class StageUnixTest(unittest.TestCase):
                         item.size = len(content)
                         tar.addfile(item, io.BytesIO(content))
                 archives[package] = data.getvalue()
-            database = lzma.compress('\n\n'.join(f'name {name}\ncontainerchecksum {hashlib.sha512(data).hexdigest()}' for name, data in archives.items()).encode())
+            digests = {name: hashlib.sha512(data).hexdigest() for name, data in archives.items()}
+            database = lzma.compress('\n\n'.join(f'name {name}\ncontainerchecksum {digest}' for name, digest in digests.items()).encode())
             def download(url, dest):
                 dest.write_bytes(database if url.endswith('texlive.tlpdb.xz') else archives[dest.name[:-7]])
-            with patch.object(stage, 'download', side_effect=download), patch.object(stage.platform, 'system', return_value='Darwin'), patch.object(stage.platform, 'machine', return_value='arm64'):
+            with (
+                patch.object(stage, 'download', side_effect=download),
+                patch.object(stage, 'TLPDB_SHA512', hashlib.sha512(database).hexdigest()),
+                patch.object(stage, 'UNIX_PACKAGE_SHA512', digests),
+                patch.object(stage.platform, 'system', return_value='Darwin'),
+                patch.object(stage.platform, 'machine', return_value='arm64'),
+            ):
                 stage.stage(resources, root / 'runtime')
             runtime = root / 'runtime'
             self.assertEqual(json.loads((runtime / 'runtime.json').read_text()), {'engine': 'texlive/bin/universal-darwin/lualatex', 'font_dir': 'fonts'})
@@ -70,6 +77,22 @@ class StageUnixTest(unittest.TestCase):
             self.assertEqual((runtime / 'licenses/example').read_text(), 'licenses')
             self.assertEqual((runtime / 'fonts/example').read_text(), 'nanum')
             self.assertFalse((runtime / 'downloads').exists())
+
+    def test_pinned_checksums_cover_all_unix_packages(self):
+        spec = importlib.util.spec_from_file_location('stage_unix', SCRIPT)
+        stage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stage)
+        expected = {
+            'kpathsea',
+            'kpathsea.universal-darwin', 'luahbtex.universal-darwin', 'latex-bin.universal-darwin',
+            'kpathsea.x86_64-linux', 'luahbtex.x86_64-linux', 'latex-bin.x86_64-linux',
+        }
+        self.assertEqual(set(stage.UNIX_PACKAGE_SHA512), expected)
+        self.assertEqual(len(stage.TLPDB_SHA512), 128)
+        int(stage.TLPDB_SHA512, 16)
+        for digest in stage.UNIX_PACKAGE_SHA512.values():
+            self.assertEqual(len(digest), 128)
+            int(digest, 16)
 
     def test_rejects_archive_traversal(self):
         spec = importlib.util.spec_from_file_location('stage_unix', SCRIPT)

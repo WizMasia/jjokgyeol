@@ -58,7 +58,10 @@ fn main() {
             .parent()
             .unwrap()
             .join("descendant-survived");
-        Command::new(env::current_exe().unwrap())
+        // 프로세스 그룹 종료 테스트를 위해 의도적으로 대기하지 않고 자식 프로세스를 남깁니다.
+        // Intentionally leave child unwaited to verify process-group cleanup on exit/timeout.
+        #[allow(clippy::zombie_processes)]
+        let _child = Command::new(env::current_exe().unwrap())
             .arg("--child")
             .arg(marker)
             .spawn()
