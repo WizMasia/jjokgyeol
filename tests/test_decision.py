@@ -362,8 +362,8 @@ def test_real_local_model():
     assert pair[0][1] == pair[1][1]
 
 
-@pytest.mark.parametrize("mode", [None, "rule", "model"])
-def test_only_explicit_evaluation_requests_collect_measured_rows(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize(("mode", "compare"), [(None, False), (None, True), ("rule", False), ("model", False)])
+def test_only_explicit_evaluation_requests_collect_measured_rows(tmp_path, monkeypatch, mode, compare):
     import subprocess
     from app.jobs import WORKER_CMD
 
@@ -372,7 +372,8 @@ def test_only_explicit_evaluation_requests_collect_measured_rows(tmp_path, monke
     if mode is not None:
         payload["decision"] = mode
     (tmp_path / "request.json").write_text(json.dumps(payload))
-    subprocess.run(WORKER_CMD, cwd=tmp_path, check=True)
+    command = (*WORKER_CMD, str(time.monotonic() + 30), "--compare") if compare else WORKER_CMD
+    subprocess.run(command, cwd=tmp_path, check=True)
     trace = tmp_path / "paragraph-candidates.jsonl"
     assert trace.exists() == (mode is not None)
     if trace.exists():

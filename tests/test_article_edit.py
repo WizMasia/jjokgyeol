@@ -82,7 +82,7 @@ async def test_rejects_ineligible_source_or_selection(client, source, first, las
 
 
 async def test_body_limits_and_input_errors(client, monkeypatch):
-    for body in (b"[]", b"{}", b"broken", b"\xff"):
+    for body in (b"", b"[]", b"{}", b"broken", b"\xff"):
         response = await client.post(URL, content=body)
         assert response.status_code == 422
         assert response.json()["field"] == "source"
@@ -106,6 +106,33 @@ async def test_markdown_processing_obeys_request_deadline(client, monkeypatch):
     assert response.status_code == 504
     if children.exists():
         assert set(children.read_text().split()) <= previous
+
+
+async def test_deadline_during_worker_startup_reaps_child(client, monkeypatch):
+    loop = asyncio.get_running_loop()
+    connect = loop.connect_write_pipe
+    children = Path(f"/proc/self/task/{os.getpid()}/children")
+    if not children.exists():
+        pytest.skip("Linux child process accounting required")
+    previous = set(children.read_text().split())
+    starting = asyncio.Event()
+    resume = asyncio.Event()
+
+    async def delayed_pipe(*args, **kwargs):
+        starting.set()
+        await resume.wait()
+        return await connect(*args, **kwargs)
+
+    monkeypatch.setattr(loop, "connect_write_pipe", delayed_pipe)
+    monkeypatch.setattr(jobs, "TIMEOUT", .05)
+    request = asyncio.create_task(edit(client, "# 제8조 목적", 0, 0))
+    await asyncio.wait_for(starting.wait(), 2)
+    loop.call_later(.1, resume.set)
+    try:
+        assert (await request).status_code == 504
+        assert set(children.read_text().split()) <= previous
+    finally:
+        resume.set()
 
 
 async def test_pin_workers_share_the_configured_concurrency_bound(client, monkeypatch):

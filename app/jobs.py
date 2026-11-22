@@ -73,7 +73,7 @@ def worker():
             from app.ai.decision import render_choice
             deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT
             pdf, status = render_choice(doc, style, workdir, deadline)
-        elif compare or "decision" in payload:
+        elif "decision" in payload:
             pdf = typeset(doc, style, workdir, collect_candidates=True)
         else:
             pdf = typeset(doc, style, workdir)

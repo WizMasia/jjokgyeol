@@ -49,8 +49,7 @@ class _HTML(HTMLParser):
         item = self.lists[-1] if self.lists else None
         if item is not None and item.first is not None:
             if text or (close_item and item.first):
-                self.out.block(text, item.kind if item.first else "continuation", len(self.lists),
-                               empty_item=not text)
+                self.out.block(text, item.kind if item.first else "continuation", len(self.lists))
                 item.first = False
         elif text:
             self.out.block(text, "heading" if self.heading else "body", self.heading or 1)
@@ -58,10 +57,13 @@ class _HTML(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         self.out.count()
-        if self.skip:
+        if self.skip is not None:
+            skip_tag, depth = self.skip
+            if tag == skip_tag:
+                self.skip = (skip_tag, depth + 1)
             return
         if tag in ("head", "script", "style", "iframe", "object", "svg"):
-            self.skip = tag
+            self.skip = (tag, 1)
         if tag in ("img", "embed", "iframe", "object", "svg"):
             row, column = self.getpos()
             element = "그림" if tag == "img" else tag
@@ -92,9 +94,10 @@ class _HTML(HTMLParser):
             self.handle_data(" ")
 
     def handle_endtag(self, tag):
-        if self.skip:
-            if self.skip == tag:
-                self.skip = None
+        if self.skip is not None:
+            skip_tag, depth = self.skip
+            if tag == skip_tag:
+                self.skip = None if depth <= 1 else (skip_tag, depth - 1)
             return
         if tag in ("ul", "ol", "li"):
             self.flush(close_item=True)

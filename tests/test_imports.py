@@ -231,12 +231,37 @@ def test_word_list_instance_overrides_format(convert):
     assert (item.list_kind, item.level, visible(item.inlines)) == ("ordered", 1, "관측")
 
 
+def test_empty_word_list_item_keeps_child_and_next_number(convert):
+    def item(level, text):
+        return (f'<p><pPr><numPr><ilvl val="{level}"/><numId val="2"/></numPr></pPr>'
+                f'<r><t>{text}</t></r></p>')
+
+    numbering = """<numbering><abstractNum abstractNumId="1">
+      <lvl ilvl="0"><numFmt val="decimal"/></lvl><lvl ilvl="1"><numFmt val="decimal"/></lvl>
+      </abstractNum><num numId="2"><abstractNumId val="1"/></num></numbering>"""
+    data = word_body(item(0, "") + item(1, "세부 항목") + item(0, "다음 항목"),
+                     **{"word/numbering.xml": numbering})
+    result = convert("목록.docx", data)
+    blocks = parse_md(result.markdown).blocks
+    assert [(item.level, item.ordinal, visible(item.inlines)) for item in blocks] == [
+        (1, 1, ""), (2, 1, "세부 항목"), (1, 2, "다음 항목")]
+    assert not result.warnings
+
+
 def test_source_loss_locations(convert):
     html = "<p>저녁<img src='moon.png'>달</p>\n<p>아침<img src='venus.png'>별</p>"
     result = convert("하늘.html", html.encode())
     assert reopened(result) == [("paragraph", None, "저녁달"), ("paragraph", None, "아침별")]
     assert len(result.warnings) == 2
     assert "1행" in result.warnings[0] and "2행" in result.warnings[1]
+
+
+@pytest.mark.parametrize("tag", ["svg", "object"])
+def test_nested_embed_is_omitted_as_one_element(convert, tag):
+    markup = f"<p>앞<{tag}><{tag}>안쪽</{tag}>바깥 설명</{tag}>뒤</p>"
+    result = convert("원고.html", markup.encode())
+    assert reopened(result) == [("paragraph", None, "앞뒤")]
+    assert result.warnings == [f"HTML 1행 5열의 {tag} 요소를 생략했습니다."]
 
 
 def test_only_visible_word_tables_report_flattening(convert):
