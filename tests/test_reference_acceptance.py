@@ -110,7 +110,7 @@ def upload(page, name, *, directory=PROOF):
     response = incoming.value
     assert response.ok, response.text()
     assert int(response.request.header_value("content-length")) == path.stat().st_size
-    page.wait_for_function("window.referenceReplies.length === 1", timeout=10000)
+    page.wait_for_function("() => window.referenceReplies.length === 1", timeout=10000)
     result = page.evaluate("window.referenceReplies[0]")
     assert isinstance(result["warnings"], list) and all(isinstance(w, str) for w in result["warnings"])
     expect(page.locator("#reference-analyze")).to_be_enabled(timeout=10000)
@@ -163,7 +163,7 @@ def test_pdf_scan_and_mixed_real_analysis(editor, name, tmp_path):
         with editor.expect_response(lambda r: "/api/reference/analyze?" in r.url, timeout=210000) as reply:
             editor.get_by_role("button", name="2쪽 다시 분석").click()
         assert reply.value.ok and "page=2" in reply.value.url
-        editor.wait_for_function("window.referenceReplies.length === 2", timeout=10000)
+        editor.wait_for_function("() => window.referenceReplies.length === 2", timeout=10000)
         retried = editor.evaluate("window.referenceReplies[1]")
         assert len(retried["units"]) == 1 and not retried["warnings"]
         assert retried["units"][0]["location"] == units[1]["location"]
@@ -388,7 +388,7 @@ def test_mixed_partial_success_without_operator_connection(url, request):
         with page.expect_response(lambda r: "/api/reference/analyze?" in r.url) as retried:
             page.get_by_role("button", name="2쪽 다시 분석").click()
         assert "page=2" in retried.value.url and retried.value.ok
-        page.wait_for_function("window.referenceReplies.length === 2")
+        page.wait_for_function("() => window.referenceReplies.length === 2")
         assert page.evaluate("window.referenceReplies[1].units.length") == 1
         only_unit(page, 0)
         expect(candidate(page, "body", "font_pt").get_by_role("checkbox")).to_be_enabled()

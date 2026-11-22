@@ -889,6 +889,7 @@ async function analyze(page) {
     if (page !== undefined) query.set("page", String(page));
     const result = await jsonRequest("/api/reference/analyze?" + query, {
       method: "POST", body: file, signal: controller.signal,
+      headers: {"Content-Type": "application/octet-stream"},
     });
     if (analysis !== controller) return;
     if (page === undefined) {

@@ -92,7 +92,7 @@ def test_configured_limits_reach_requests_and_worker(installation, tmp_path):
 async def check_live_limits():
     from app.server import app, editor_html
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as api:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as api:
         first = await api.get("/")
         assert first.status_code == 200
         assert first.text == editor_html()

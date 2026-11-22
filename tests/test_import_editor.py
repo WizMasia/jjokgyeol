@@ -40,7 +40,7 @@ def test_import_picker_save_and_render(browser, server_url, name, phrase):
     with browser.new_context() as context:
         page = context.new_page()
         page.goto(os.environ.get("JJOKGYEOL_IMPORT_URL", server_url))
-        page.wait_for_function("document.querySelector('#status').textContent === '최신 버전'", timeout=45000)
+        page.wait_for_function("() => document.querySelector('#status').textContent === '최신 버전'", timeout=45000)
         open_settings(page)
         page.locator("#body_pt").fill("12")
         close_settings(page)

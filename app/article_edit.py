@@ -1,8 +1,13 @@
 """Toggle a heading's pin in its original Markdown source."""
 
 import json
+from pathlib import Path
 import re
 import sys
+
+if __name__ == "__main__":
+    # -I는 현재 작업 디렉터리를 제외하므로 설치 경로만 추가합니다. / -I excludes cwd; import only from the installed app.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.document import InputError, heading_title, heading_tokens
 
@@ -119,7 +124,10 @@ def toggle_pin(source: str, first_line: int, last_line: int) -> str:
 
 if __name__ == "__main__":
     from app.jobs import INVALID_INPUT
+    from app.operations import LIMITS
+    from app.security import harden_worker
 
+    harden_worker(max_file_bytes=LIMITS.worker_file_bytes)
     try:
         values = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
         if not isinstance(values, dict) or values.keys() != {"source", "first_line", "last_line"}:

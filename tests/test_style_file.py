@@ -19,7 +19,7 @@ def anyio_backend():
 
 @pytest.mark.anyio
 async def test_style_file_round_trip():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         encoded = await client.post("/api/style/export", json={
             "ko_tracking_pct": "-7.245", "space_pct": ["70", "129.995"],
             "body_pt": "11.125", "rest_indent_mm": "6",
@@ -48,7 +48,7 @@ async def test_style_file_round_trip():
 
 @pytest.mark.anyio
 async def test_sparse_typography_through_style_file_api():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         old = (await client.post("/api/style/export", json={})).json()
         opened = (await client.post("/api/style/open", json=old)).json()
         assert "text_styles" not in opened and "ko_tracking_bounds_pct" not in opened
@@ -69,7 +69,7 @@ async def test_running_areas_round_trip_selected_fields_through_style_api():
         {"path": ["표지"], "role": "footer", "values": {"visible": False, "center": ""}},
         {"path": ["부록"], "role": "header", "values": {"left": "{{현재쪽}}"}},
     ]
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         encoded = await client.post("/api/style/export", json={"section_rules": rules})
         assert encoded.status_code == 200, encoded.text
         stored = encoded.json()
@@ -96,7 +96,7 @@ async def test_duplex_style_api_keeps_faces_and_sparse_fields():
         {"path": [], "role": "footer", "face": "even", "values": {"center": "", "left": "{현재쪽}"}},
         {"path": ["부록"], "role": "footer", "face": "first", "values": {"visible": False}},
     ]
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         exported = await client.post("/api/style/export", json={"section_rules": rules})
         assert exported.status_code == 200, exported.text
         stored = exported.json()
@@ -109,7 +109,7 @@ async def test_duplex_style_api_keeps_faces_and_sparse_fields():
 
 @pytest.mark.anyio
 async def test_justified_shorthand_and_fixed_file_have_distinct_spacing():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as api:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as api:
         preset = (await api.post("/api/style/export", json={"paragraph_layout": "justified"})).json()
         assert preset["ko_tracking_bounds_per_10000"] == [-1500, 1500] and preset["space_per_10000"] == [7000, 13000]
         fixed = {**preset, "space_per_10000": [10000, 10000]}
@@ -274,7 +274,7 @@ def test_list_style_file_recovery(browser, server_url):
         page = context.new_page()
         page.goto(server_url)
         viewer = page.locator("#preview")
-        page.wait_for_function("document.querySelector('#preview').src.startsWith('blob:')")
+        page.wait_for_function("() => document.querySelector('#preview').src.startsWith('blob:')")
         open_settings(page)
         page.locator("#style summary").click()
         preset = page.get_by_label("목록 양식", exact=True)

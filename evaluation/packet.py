@@ -407,7 +407,7 @@ def _tracking_packet(dest, experiment, options):
     cells = [(font, pt, leading) for font in ("nanum-myeongjo", "nanum-gothic")
              for pt, leading in [(11, 17), (16, 24)]]
     RNG.shuffle(cells)
-    with new_run(dest, experiment) as (tmp, key), TestClient(app) as client:
+    with new_run(dest, experiment) as (tmp, key), TestClient(app, base_url="http://127.0.0.1") as client:
         for font, pt, leading in cells:
             _, group = new_group(key, manuscript)
             for tracking in RNG.sample([0, -3, -7], 3):

@@ -288,7 +288,7 @@ def test_compare_returns_pdfs_from_one_measured_job(installed, measured_jobs, mo
         result["choices"][0]["message"]["content"] = json.dumps({"id": selected})
         return result
 
-    with model_server(answer) as port, TestClient(app) as client:
+    with model_server(answer) as port, TestClient(app, base_url="http://127.0.0.1") as client:
         monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
         response = client.post("/api/render", headers={"Accept": "multipart/form-data"},
                                json={"source": "풀잎 사이 Dew 은빛 이슬\n\n" * 2, "style": STYLE})
@@ -336,7 +336,7 @@ def test_single_pdf_with_connected_model_requires_explicit_choice(installed, mea
     payload = {"source": SOURCE, "style": STYLE}
     if mode is not None:
         payload["decision"] = mode
-    with model_server(answer) as port, TestClient(app) as client:
+    with model_server(answer) as port, TestClient(app, base_url="http://127.0.0.1") as client:
         monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
         response = client.post("/api/render", json=payload)
     assert response.status_code == 200 and response.headers["Content-Type"] == "application/pdf"

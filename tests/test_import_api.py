@@ -20,7 +20,7 @@ def anyio_backend():
 
 @pytest.fixture
 async def api():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(server.app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(server.app), base_url="http://127.0.0.1") as client:
         yield client
 
 

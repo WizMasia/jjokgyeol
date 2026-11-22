@@ -315,7 +315,7 @@ def test_text_pdf_reassigns_face_and_keeps_edit_through_retry(editor, url, tmp_p
     with editor.expect_response(lambda r: "/api/reference/analyze?" in r.url and "page=1" in r.url) as response:
         editor.get_by_role("button", name="1쪽 다시 분석").click()
     assert response.value.ok
-    editor.wait_for_function("window.referenceReplies.length === 2")
+    editor.wait_for_function("() => window.referenceReplies.length === 2")
     expect(editor.locator("#reference-analyze")).to_be_enabled()
     for keep in row.get_by_role("button", name="기존 선택 유지").all():
         keep.click()

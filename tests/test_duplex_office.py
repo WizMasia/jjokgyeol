@@ -159,7 +159,7 @@ def test_inherited_paragraph_decoration_requires_review_until_cleared(decoration
 async def test_duplex_office_analysis_api(fmt, anyio_backend):
     from app.server import app
     data = duplex_docx() if fmt == "docx" else outside_hwpx()
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         response = await client.post("/api/reference/analyze", params={"name": "proof." + fmt}, content=data)
     assert response.status_code == 200
     cover = response.json()["units"][0]

@@ -69,7 +69,7 @@ def export(dest, *, justified=False):
                     "source": "풀잎 사이 Dew 은빛 이슬\n\n" * 3}]
     manuscripts = corpus()
     verify_split(manuscripts, development)
-    with TemporaryDirectory(dir=dest.parent) as tmp, TestClient(app) as client:
+    with TemporaryDirectory(dir=dest.parent) as tmp, TestClient(app, base_url="http://127.0.0.1") as client:
         stage = Path(tmp)
         style = model_style(justified)
         for ms in manuscripts:

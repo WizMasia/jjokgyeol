@@ -112,7 +112,7 @@ def anyio_backend():
 
 @pytest.mark.anyio
 async def test_style_file_and_render_endpoints_use_the_same_gutter():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         # The numeric tokens differ beyond binary float precision, across half a scaled point.
         for tail, expected in [("7", 0), ("8", 1)]:
             raw = '{"gutter_mm":0.00000268142550288847377888473778884' + tail + '}'

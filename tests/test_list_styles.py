@@ -160,7 +160,7 @@ async def test_article_style_file_http_round_trip(anyio_backend):
     from app.server import app
 
     expr = "  <em>조 {숫자}</em>  "
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1") as client:
         saved = await client.post("/api/style/export", json={"article_expr": expr})
         assert saved.status_code == 200 and saved.json() == {**LEGACY, "article_expr": expr}
         opened = await client.post("/api/style/open", json=saved.json())

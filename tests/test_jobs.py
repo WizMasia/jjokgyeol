@@ -66,7 +66,7 @@ def typeset(doc, style, workdir, *, collect_candidates=False):
         "runpy.run_module('app.jobs', run_name='__main__')"
     )
     monkeypatch.setattr(jobs, "WORKER_CMD", (sys.executable, "-IB", "-c", launcher))
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url="http://local")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url="http://127.0.0.1")
 
 
 def render(client, source, **extra):
@@ -138,7 +138,7 @@ async def test_cleanup_and_retry(api, tmp_path, monkeypatch, mode, accept):
             async def send(event):
                 sent.append(event)
             scope = {"type": "http", "method": "POST", "path": "/api/render",
-                     "root_path": "", "headers": [(b"accept", accept.encode())], "query_string": b""}
+                     "root_path": "", "headers": [(b"host", b"127.0.0.1"), (b"accept", accept.encode())], "query_string": b""}
             task = asyncio.create_task(server.app(scope, incoming.get, send))
         else:
             task = asyncio.create_task(render(api, source))
@@ -206,7 +206,7 @@ async def test_static_paths(api):
 async def test_input_error_reaches_editor(source, style, field, message):
     from app.server import app
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
         response = await render(client, source, style=style)
     assert response.status_code == 422
     assert response.json() == {"code": "invalid_input", "field": field, "message": message}
@@ -217,7 +217,7 @@ async def test_stalled_pdf_delivery_releases_slots(api, monkeypatch):
 
     monkeypatch.setattr(jobs, "TIMEOUT", 1)
     scope = {"type": "http", "method": "POST", "path": "/api/render", "root_path": "",
-             "headers": [], "query_string": b""}
+             "headers": [(b"host", b"127.0.0.1")], "query_string": b""}
     started = asyncio.Queue()
 
     async def stalled_client():

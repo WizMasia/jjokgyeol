@@ -293,7 +293,7 @@ def test_import_edit_running_text_without_reference_body(editor, name, tmp_path)
         with editor.expect_response(lambda r: "/api/reference/analyze?" in r.url) as retry:
             editor.get_by_role("button", name=f"{i+1}쪽 다시 분석").click()
         assert retry.value.ok and f"page={i+1}" in retry.value.url
-        editor.wait_for_function("window.referenceReplies.length === 2")
+        editor.wait_for_function("() => window.referenceReplies.length === 2")
         expect(editor.locator("#reference-analyze")).to_be_enabled()
         for keep in editor.get_by_role("button", name="기존 선택 유지").all():
             keep.click()

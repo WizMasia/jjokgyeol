@@ -17,6 +17,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.operations import LIMITS
+from app.security import harden_worker, worker_env
 
 TIMEOUT = LIMITS.timeout_seconds
 MAX_FILE = LIMITS.worker_file_bytes
@@ -47,10 +48,7 @@ def worker():
     from app.style import NEW_DOCUMENT_STYLE, from_editor_style
     from app.typeset import typeset
 
-    if os.geteuid() == 0:
-        raise RuntimeError("unprivileged worker required")
-    os.umask(0o077)
-    limit_worker_files()
+    harden_worker(max_file_bytes=MAX_FILE)
     workdir = Path.cwd()
     request = workdir / "request.json"
     try:
@@ -105,16 +103,25 @@ def stop_group(process):
 async def render(body, deadline=None, *, compare=False):
     if deadline is None:
         if not compare:
-            return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf")
+            return await isolated_job(body, WORKER_CMD, "request.json", "response.pdf", env_role="render")
         deadline = monotonic() + TIMEOUT
     command = (*WORKER_CMD, str(deadline))
     if compare:
         command += ("--compare",)
     return await isolated_job(body, command, "request.json", "response.pdf",
-                              with_decision=True, compare=compare)
+                              with_decision=True, compare=compare, env_role="render")
 
 
-async def isolated_job(body, command, request_name, response_name, *, with_decision=False, compare=False):
+async def isolated_job(
+    body,
+    command,
+    request_name,
+    response_name,
+    env_role="render",
+    *,
+    with_decision=False,
+    compare=False,
+):
     if sys.platform == "linux":
         # PR_SET_CHILD_SUBREAPER adopts orphaned descendants for group-scoped waitpid.
         if ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) != 0:
@@ -124,7 +131,7 @@ async def isolated_job(body, command, request_name, response_name, *, with_decis
         (workdir / request_name).write_bytes(body)
         process = subprocess.Popen(
             command, cwd=workdir, start_new_session=True,
-            env={**os.environ, "TMPDIR": tmp}, stdin=subprocess.DEVNULL,
+            env=worker_env(env_role, tmpdir=tmp), stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         try:

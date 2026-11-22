@@ -4,6 +4,7 @@ import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from subprocess import DEVNULL
+from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 from time import monotonic
 from uuid import uuid4
@@ -21,11 +22,13 @@ from app.ai.style import SETTINGS as SUGGESTION
 from app.document import InputError
 from app.operations import LIMITS
 from app.reference import load_settings
+from app.security import SecurityMiddleware, worker_env
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app/static"
 MAX_BODY = LIMITS.request_body_bytes
 SLOTS = BoundedSemaphore(LIMITS.render_slots)
+STYLE_SLOTS = BoundedSemaphore(LIMITS.render_slots)
 PIN_WORKERS = CapacityLimiter(LIMITS.render_slots)
 TARGET_SLOTS = BoundedSemaphore(LIMITS.render_slots)
 IMPORT_MAX_BYTES = read_config(CONFIG_DIR / "imports.json")["max_bytes"]
@@ -176,13 +179,16 @@ class DocumentJob:
                 raise jobs.JobError(422, "source", "가져올 원고의 파일 이름을 확인하세요.")
             command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), name,
                        str(REFERENCE["worker_memory_bytes"]))
+            role = "import"
         elif self.action == "suggest":
             command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"))
+            role = "suggest"
         else:
             command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
+            role = "reference"
         body = await read_body(request, byte_limit)
         result = await while_connected(
-            jobs.isolated_job(body, command, "request.bin", "response.json"), request.receive)
+            jobs.isolated_job(body, command, "request.bin", "response.json", role), request.receive)
         return Response(result, media_type="application/json", headers=NO_STORE)
 
     async def __call__(self, scope, receive, send):
@@ -214,6 +220,7 @@ class DocumentJob:
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SecurityMiddleware)
 app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
 app.add_route("/api/style-suggestion", DocumentJob("suggest"), methods=["POST"])
 app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
@@ -234,13 +241,16 @@ async def reference_settings():
 async def article_pin(request: Request):
     try:
         with fail_after(jobs.TIMEOUT):
-            body = await read_body(request)
+            # 슬롯을 먼저 확보한 뒤 본문을 읽고 격리된 임시 디렉터리에서 실행 / Acquire slot before reading body and run in isolated tempdir.
             async with PIN_WORKERS:
-                # Own the process from launch so even a deadline during startup reaps it.
-                worker = await run_process(
-                    [sys.executable, "-B", "-m", "app.article_edit"], cwd=ROOT,
-                    input=bytes(body), stdin=None if body else DEVNULL, stderr=DEVNULL, check=False,
-                )
+                body = await read_body(request)
+                with TemporaryDirectory(prefix="jjokgyeol-pin-") as tmp:
+                    # Own the process from launch so even a deadline during startup reaps it.
+                    worker = await run_process(
+                        [sys.executable, "-IB", str(ROOT / "app/article_edit.py")], cwd=tmp,
+                        env=worker_env("pin", tmpdir=tmp),
+                        input=bytes(body), stdin=None if body else DEVNULL, stderr=DEVNULL, check=False,
+                    )
         if worker.returncode == jobs.INVALID_INPUT:
             return failure(422, "source", worker.stdout.decode())
         if worker.returncode:
@@ -252,17 +262,25 @@ async def article_pin(request: Request):
         return failure(504)
 
 
+def _convert_style_payload(raw: bytes, *, export: bool) -> dict:
+    """양식 JSON 파싱 및 단위 변환을 워커 스레드에서 수행합니다. / Parse and convert style JSON off the event loop."""
+    values = json.loads(raw.decode("utf-8-sig"), parse_float=Decimal)
+    if export:
+        return styles.from_editor_style(values).to_stored()
+    return styles.from_stored_style(values).to_editor()
+
+
 @app.post("/api/style/export")
 @app.post("/api/style/open")
 async def style_file(request: Request):
+    if not STYLE_SLOTS.acquire(blocking=False):
+        return failure(429)
     try:
         async with asyncio.timeout(jobs.TIMEOUT):
             body = await read_body(request)
-        values = json.loads(body.decode("utf-8-sig"), parse_float=Decimal)
-        if request.url.path.endswith("/export"):
-            result = styles.from_editor_style(values).to_stored()
-        else:
-            result = styles.from_stored_style(values).to_editor()
+            result = await asyncio.to_thread(
+                _convert_style_payload, bytes(body), export=request.url.path.endswith("/export")
+            )
         return JSONResponse(result, headers=NO_STORE)
     except InputError as error:
         return failure(422, error.field, error.message)
@@ -272,6 +290,8 @@ async def style_file(request: Request):
         return failure(error.status)
     except TimeoutError:
         return failure(504)
+    finally:
+        STYLE_SLOTS.release()
 
 
 def editor_html() -> str:

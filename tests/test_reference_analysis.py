@@ -13,7 +13,7 @@ def anyio_backend():
 @pytest.fixture
 def api():
     from app.server import app
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://local")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1")
 
 
 @pytest.mark.anyio
@@ -132,7 +132,7 @@ async def test_analysis_slot_covers_delivery_of_page_images(api, monkeypatch):
 
     path = "/api/reference/analyze"
     scope = {"type": "http", "method": "POST", "path": path, "root_path": "",
-             "headers": [], "query_string": b"name=x.png"}
+             "headers": [(b"host", b"127.0.0.1")], "query_string": b"name=x.png"}
     first = asyncio.create_task(server.app(scope, incoming.get, send))
     try:
         await asyncio.wait_for(writing.wait(), 2)
