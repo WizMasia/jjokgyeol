@@ -1,5 +1,25 @@
 "use strict";
 
+function modelProofFiles(result) {
+  const bytes = new Uint8Array(result);
+  try {
+    const start = 4 + new DataView(bytes.buffer).getUint32(0, false);
+    if (start > bytes.length) throw new RangeError();
+    const header = new TextDecoder("utf-8", {fatal: true}).decode(bytes.subarray(4, start));
+    const {decision, reason, rule_bytes} = JSON.parse(header);
+    const split = start + rule_bytes;
+    if (!Number.isSafeInteger(rule_bytes) || rule_bytes <= 0 || split > bytes.length ||
+        !["rule", "model", "mixed"].includes(decision) || (decision === "rule") !== (split === bytes.length)) {
+      throw new Error();
+    }
+    const pdf = data => new Blob([data], {type: "application/pdf"});
+    return {decision, reason, rule: pdf(bytes.subarray(start, split)),
+      model: decision === "rule" ? null : pdf(bytes.subarray(split))};
+  } catch {
+    throw new Error("올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
+  }
+}
+
 const desktop = {
   async invoke(command, args, options) {
     try {
@@ -9,9 +29,10 @@ const desktop = {
     } catch (value) {
       let detail = value;
       if (typeof value === "string") {
-        try { detail = JSON.parse(value); } catch { detail = {message: value}; }
+        try { detail = JSON.parse(value); } catch { detail = {code: value, message: value}; }
       }
       const error = new Error(detail?.message || "데스크톱 작업에 실패했습니다.");
+      error.code = detail?.code;
       error.field = detail?.field;
       error.status = detail?.status || 422;
       throw error;
@@ -24,6 +45,14 @@ const desktop = {
     const stored = await this.style("export", JSON.stringify(style));
     const result = await this.invoke("render_proof", {source, style: stored});
     return new Blob([new Uint8Array(result)], {type: "application/pdf"});
+  },
+  async modelProof(source, style, connection) {
+    const stored = await this.style("export", JSON.stringify(style));
+    const result = await this.invoke("render_model_proof", {source, style: stored, connection}).catch(error => {
+      if (error.code === "invalid_input") throw error;
+      throw new Error(decisionMessage(error.code) || decisionMessages.unavailable);
+    });
+    return modelProofFiles(result);
   },
   async save(blob, name) {
     // JSON 배열 직렬화 증폭을 피하고 원시 바이트로 IPC 전송 / Send raw binary payload with encoded filename header.

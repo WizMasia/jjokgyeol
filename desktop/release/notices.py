@@ -29,7 +29,7 @@ def main(destination):
     license_paths = [Path(sys.base_prefix) / 'LICENSE.txt', Path(sysconfig.get_path('stdlib')) / 'LICENSE.txt']
     python_license = next(path for path in license_paths if path.is_file())
     shutil.copyfile(python_license, python_notices / 'CPython-LICENSE.txt')
-    for name in ('markdown-it-py', 'mdurl', 'pyinstaller'):
+    for name in ('markdown-it-py', 'mdurl', 'pyinstaller', 'certifi'):
         dist = distribution(name)
         for path in dist.files or ():
             if '.dist-info' in str(path) and path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE')):

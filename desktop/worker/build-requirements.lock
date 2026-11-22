@@ -6,3 +6,4 @@ setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e44
 pywin32-ctypes==0.2.3; sys_platform == "win32" --hash=sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8
 macholib==1.16.3; sys_platform == "darwin" --hash=sha256:0e315d7583d38b8c77e815b1ecbdbf504a8258d8b3e17b61165c6feb60d18f2c
 pefile==2023.2.7; sys_platform == "win32" --hash=sha256:da185cd2af68c08a6cd4481f7325ed600a88f6a813bad9dea07ab3ef73d8d8d6
+certifi==2026.10.23 --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1

@@ -13,6 +13,7 @@
 !app/config/numbering.json
 !app/config/operations.json
 !app/config/decision.json
+!app/config/decision-providers.json
 !app/config/reference.json
 !app/config/style-suggestion.json
 !app/ai/

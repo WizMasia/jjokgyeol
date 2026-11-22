@@ -6,6 +6,87 @@ fn main() {
         fs::write(&args[2], "survived").unwrap();
         return;
     }
+    if args[1] == "--model-proof" || args[1] == "--check-decision" {
+        use std::io::Read;
+        if env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("block-stdin")
+            .exists()
+        {
+            thread::sleep(Duration::from_secs(6));
+        }
+        let mut request = String::new();
+        std::io::stdin().read_to_string(&mut request).unwrap();
+        assert!(request.contains("test-only-secret"));
+        assert!(args
+            .iter()
+            .all(|arg| !arg.to_string_lossy().contains("test-only-secret")));
+        assert!(env::vars_os().all(|(_, val)| !val.to_string_lossy().contains("test-only-secret")));
+        assert_eq!(fs::read_dir(".").unwrap().count(), 0);
+        if args[1] == "--check-decision" {
+            if request.contains("reject") {
+                eprintln!(r#"{{"code":"authentication","message":"test-only-secret"}}"#);
+                std::process::exit(1);
+            }
+            if request.contains("private") {
+                eprintln!(r#"{{"code":"test-only-secret"}}"#);
+                std::process::exit(1);
+            }
+            println!(r#"{{"ok":true}}"#);
+            return;
+        }
+        fs::create_dir("measure").unwrap();
+        fs::write("measure/book.pdf", b"%PDF-1.4\nrule\n%%EOF\n").unwrap();
+        if request.contains("incomplete") {
+            thread::sleep(Duration::from_secs(4));
+        }
+        fs::write("baseline-ready", "").unwrap();
+        if request.contains("hang") {
+            let marker = std::path::Path::new(&args[2])
+                .parent()
+                .unwrap()
+                .join("descendant-survived");
+            #[allow(clippy::zombie_processes)]
+            let _child = Command::new(env::current_exe().unwrap())
+                .arg("--late-child")
+                .arg(marker)
+                .spawn()
+                .unwrap();
+            thread::sleep(Duration::from_secs(30));
+        }
+        let status = if request.contains("mixed") {
+            "mixed"
+        } else if request.contains("rule") {
+            "rule"
+        } else {
+            "model"
+        };
+        let reason = if status == "model" {
+            "null"
+        } else if status == "mixed" {
+            r#""rate_limit""#
+        } else {
+            r#""authentication""#
+        };
+        fs::write(
+            "decision.json",
+            format!(r#"{{"decision":"{status}","reason":{reason}}}"#),
+        )
+        .unwrap();
+        if status != "rule" {
+            fs::write("response.pdf", b"%PDF-1.4\nselected\n%%EOF\n").unwrap();
+        }
+        return;
+    }
+    if args[1] == "--late-child" {
+        thread::sleep(Duration::from_secs(17));
+        fs::write(&args[2], "survived").unwrap();
+        return;
+    }
     assert_eq!(args[1], "--runtime");
     let request = fs::read_to_string("request.json").unwrap();
     if request.contains("교정용 현장 조사 보고서") {

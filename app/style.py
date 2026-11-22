@@ -1,11 +1,13 @@
 """Convert editor units once and validate the integer style consumed by LuaTeX."""
 
+import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, MAX_EMAX, MIN_EMIN, ROUND_HALF_UP, localcontext
 from fractions import Fraction
 
 from app import publication
+from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
 from app.list_marks import format_mark
 from app.running_heads import RUNNING_FACES, RUNNING_ROLES, SLOTS, parse_running_text
@@ -826,6 +828,8 @@ def editor_bootstrap() -> dict:
         text_defaults = dict(TEXT_DEFAULTS)
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
+        "decision_providers": read_config(CONFIG_DIR / "decision-providers.json")["providers"],
+        "operator_decision": bool(os.getenv("JJOKGYEOL_DECISION_HOST")),
         "document_limits": {"request": LIMITS.request_body_bytes, "file": LIMITS.worker_file_bytes},
         "defaults": Style().to_editor(),
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},

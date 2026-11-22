@@ -1,20 +1,17 @@
 """Exercise the settings entry points through the bundled editor."""
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import threading
 import unittest
 
 from playwright.sync_api import sync_playwright
 
-HERE = Path(__file__).resolve().parent
+from editor_server import EditorServer
 
 
 class SettingsTest(unittest.TestCase):
     def test_native_snapshot_apply_and_child_isolation(self):
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with sync_playwright() as p:
@@ -87,7 +84,7 @@ class SettingsTest(unittest.TestCase):
             server.server_close()
 
     def test_child_does_not_apply_while_style_save_is_pending(self):
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with sync_playwright() as p:

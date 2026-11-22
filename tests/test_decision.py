@@ -4,6 +4,7 @@ from email import policy
 from email.parser import BytesParser
 from functools import partial
 import hashlib
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
@@ -34,6 +35,9 @@ def model_server(answer):
             self.reply(answer(self.path, payload))
 
         def reply(self, value):
+            if isinstance(value, HTTPStatus):
+                self.send_error(value)
+                return
             data = json.dumps(value).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
@@ -248,6 +252,34 @@ def test_job_deadline_returns_measured_rule_pdf(installed, monkeypatch, tmp_path
         pdf, status = decision.render_choice(doc, style, tmp_path, time.monotonic() + 25)
     assert len(calls) == 2
     assert status == "rule" and pdf == (tmp_path / "measure/book.pdf").read_bytes()
+
+
+@pytest.mark.parametrize("during_inventory", [True, False])
+def test_operator_rate_limit_stops_render(installed, monkeypatch, tmp_path, during_inventory):
+    inventory, result = installed
+    calls = []
+    limited = []
+
+    def answer(path, data):
+        calls.append(path)
+        if not during_inventory and data is None:
+            return inventory
+        if not during_inventory and calls.count(path) == 1:
+            options = json.loads(data["messages"][-1]["content"])
+            result["choices"][0]["message"]["content"] = json.dumps({"id": next(iter(options))})
+            return result
+        limited.append(len(calls))
+        return HTTPStatus.TOO_MANY_REQUESTS
+
+    with model_server(answer) as port:
+        monkeypatch.setenv("JJOKGYEOL_DECISION_PORT", str(port))
+        doc = parse_md("풀잎 사이 Dew 은빛 이슬\n\n" * 4)
+        pdf, status, reason = decision.render_provider_choice(
+            doc, apply_style(Style(), STYLE), tmp_path, time.monotonic() + 25, None)
+    assert limited == [len(calls)]
+    assert reason == "rate_limit"
+    assert status == ("rule" if during_inventory else "mixed")
+    assert pdf == (tmp_path / ("measure" if during_inventory else "replay") / "book.pdf").read_bytes()
 
 
 @pytest.fixture

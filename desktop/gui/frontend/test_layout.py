@@ -1,22 +1,16 @@
 """Browser layout regression for the shared Korean editor controls."""
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 import os
 import threading
 import unittest
 
 from playwright.sync_api import sync_playwright
 
-HERE = Path(__file__).resolve().parent
+from editor_server import EditorServer
 
 
 class EditorLayoutTest(unittest.TestCase):
     def test_shared_controls_align_and_fit_narrow_viewport(self):
-        server = ThreadingHTTPServer(
-            ("127.0.0.1", 0),
-            partial(SimpleHTTPRequestHandler, directory=str(HERE / "dist")),
-        )
+        server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with sync_playwright() as playwright:

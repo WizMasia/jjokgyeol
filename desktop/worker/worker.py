@@ -1,5 +1,6 @@
-"""One local, rule-only render request; the caller owns the working directory."""
+"""One native worker request; the caller supervises the process and owns its directory."""
 import argparse
+from functools import partial
 import hashlib
 from decimal import Decimal
 import json
@@ -10,10 +11,12 @@ from pathlib import Path
 import sys
 import tempfile
 import traceback
+from time import monotonic
 
 from app.configuration import unique_fields
 from app.document import InputError, parse_md
 from app.operations import LIMITS
+from app.security import complete_pdf
 from app.style import from_editor_style, from_stored_style
 from app.typeset import typeset
 
@@ -78,16 +81,101 @@ class ArgumentParser(argparse.ArgumentParser):
         raise ValueError(message)
 
 
+def manuscript(request):
+    if not isinstance(request, dict) or set(request) != {'source', 'style'}:
+        raise InputError({'request': '원고와 양식이 필요합니다.'})
+    if not isinstance(request['source'], str):
+        raise InputError({'source': '원고는 문자열이어야 합니다.'})
+    if not isinstance(request['style'], dict):
+        raise InputError({'style': '양식은 객체여야 합니다.'})
+    return parse_md(request['source']), from_stored_style(request['style'])
+
+
+def bundled_typesetter(runtime):
+    root = runtime.resolve(strict=True)
+    config = json.loads((root / 'runtime.json').read_text(encoding='utf-8'), object_pairs_hook=unique_fields)
+    if not isinstance(config, dict) or set(config) != {'engine', 'font_dir'}:
+        raise ValueError('invalid runtime.json')
+    engine = resource(root, config['engine'])
+    fonts = resource(root, config['font_dir'])
+    if not engine.is_file() or not fonts.is_dir():
+        raise ValueError('invalid runtime resources')
+    prepare_external_engine()
+    return partial(typeset, engine=Path(engine_path(engine)), font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
+
+
+def decision_request(runtime):
+    from app.ai.providers import ProviderError, check_connection, parse_render_connection
+
+    deadline = monotonic() + LIMITS.timeout_seconds
+    if getattr(sys, 'frozen', False):
+        import ssl
+        if not ssl.get_default_verify_paths().cafile:
+            # Some packaged OpenSSL builds point at a CA file on the build machine.
+            os.environ['SSL_CERT_FILE'] = str(Path(sys._MEIPASS) / 'certifi' / 'cacert.pem')
+    try:
+        raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
+        if len(raw) > LIMITS.request_body_bytes:
+            raise ValueError
+        request = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_fields)
+    except (ValueError, RecursionError):
+        print(json.dumps({'code': 'invalid_connection'}), file=sys.stderr)
+        return 1
+    try:
+        if runtime is None:
+            check_connection(request, desktop=True)
+            print(json.dumps({'ok': True}))
+            return 0
+        connection = None
+        reason = None
+        if isinstance(request, dict) and 'connection' in request:
+            raw_connection = request.pop('connection')
+            if raw_connection != {'provider': 'rule'}:
+                connection, reason = parse_render_connection(raw_connection, desktop=True)
+        doc, style = manuscript(request)
+        bundled = bundled_typesetter(runtime)
+        workdir = Path.cwd()
+        measure = workdir / 'measure'
+
+        def render(doc, style, folder, **options):
+            pdf = bundled(doc, style, folder, **options)
+            if folder == measure and complete_pdf(pdf):
+                # TeX may have an incomplete book.pdf on disk until it exits.
+                (workdir / 'baseline-ready').touch()
+            return pdf
+
+        if connection is None:
+            measure.mkdir()
+            pdf = render(doc, style, measure, collect_candidates=True)
+            status = 'rule'
+        else:
+            from app.ai.decision import render_provider_choice
+            pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection, typesetter=render)
+        if not complete_pdf(pdf):
+            raise ValueError('incomplete PDF')
+        if status != 'rule':
+            (workdir / 'response.pdf').write_bytes(pdf)
+        (workdir / 'decision.json').write_text(json.dumps({'decision': status, 'reason': reason}), encoding='utf-8')
+        return 0
+    except ProviderError as error:
+        print(json.dumps({'code': error.code}), file=sys.stderr)
+        return 1
+
+
 def main():
     parser = ArgumentParser()
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--runtime', type=Path)
+    modes.add_argument('--model-proof', type=Path)
+    modes.add_argument('--check-decision', action='store_true')
     modes.add_argument('--style-open', action='store_true')
     modes.add_argument('--style-export', action='store_true')
     diagnostic = False
     try:
         args = parser.parse_args()
         limit_worker_files(LIMITS.worker_file_bytes)
+        if args.model_proof or args.check_decision:
+            return decision_request(args.model_proof)
         if args.style_open or args.style_export:
             raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
             if len(raw) > LIMITS.request_body_bytes:
@@ -103,26 +191,11 @@ def main():
             raise InputError({'request': '요청 크기가 너무 큽니다.'})
         request = json.loads(raw, object_pairs_hook=unique_fields)
         diagnostic = fixture_diagnostics(request)
-        if not isinstance(request, dict) or set(request) != {'source', 'style'}:
-            raise InputError({'request': '원고와 양식이 필요합니다.'})
-        if not isinstance(request['source'], str):
-            raise InputError({'source': '원고는 문자열이어야 합니다.'})
-        if not isinstance(request['style'], dict):
-            raise InputError({'style': '양식은 객체여야 합니다.'})
-        doc = parse_md(request['source'])
-        style = from_stored_style(request['style'])
-        root = args.runtime.resolve(strict=True)
-        config = json.loads((root / 'runtime.json').read_text(encoding='utf-8'), object_pairs_hook=unique_fields)
-        if not isinstance(config, dict) or set(config) != {'engine', 'font_dir'}:
-            raise ValueError('invalid runtime.json')
-        engine = resource(root, config['engine'])
-        fonts = resource(root, config['font_dir'])
-        if not engine.is_file() or not fonts.is_dir():
-            raise ValueError('invalid runtime resources')
-        prepare_external_engine()
+        doc, style = manuscript(request)
+        bundled = bundled_typesetter(args.runtime)
         with tempfile.TemporaryDirectory(dir='.') as folder:
             try:
-                pdf = typeset(doc, style, Path(folder), engine=Path(engine_path(engine)), font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
+                pdf = bundled(doc, style, Path(folder))
             finally:
                 log = Path(folder) / 'book.log'
                 if diagnostic and log.is_file():
@@ -133,10 +206,10 @@ def main():
         return 0
     except InputError as error:
         record_exception(diagnostic)
-        print(json.dumps({'code': error.code, 'field': error.field, 'message': error.message}, ensure_ascii=False), file=sys.stderr)
+        print(json.dumps({'code': error.code, 'field': error.field, 'message': error.message}, ensure_ascii=True), file=sys.stderr)
     except Exception:
         record_exception(diagnostic)
-        print(json.dumps({'code': 'worker_error', 'message': '작업을 처리할 수 없습니다.'}, ensure_ascii=False), file=sys.stderr)
+        print(json.dumps({'code': 'worker_error', 'message': '작업을 처리할 수 없습니다.'}, ensure_ascii=True), file=sys.stderr)
     return 1
 
 

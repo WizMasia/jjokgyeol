@@ -54,6 +54,16 @@ def test_corrupt_runtime_does_not_expose_paths(tmp_path):
     assert not (job / 'response.pdf').exists()
 
 
+def test_redirected_cp949_stderr_preserves_manuscript_error(tmp_path, monkeypatch):
+    monkeypatch.setenv('PYTHONIOENCODING', 'cp949')
+    raw = json.dumps({'source': '[^주]: 하나\n[^주]: 둘', 'style': STYLE}).encode()
+    result, _ = run(tmp_path, raw)
+    assert result.returncode == 1
+    assert result.stderr.isascii()
+    assert json.loads(result.stderr) == {'code': 'invalid_input', 'field': 'source',
+                                         'message': '각주 정의가 중복되었습니다.'}
+
+
 @pytest.mark.parametrize('raw', [b'{"source":', b'[' * 2000 + b'0' + b']' * 2000, b'\xff'])
 def test_bad_json_is_json_error_without_traceback(tmp_path, raw):
     result, job = run(tmp_path, raw)
@@ -282,6 +292,8 @@ class WorkerOnlyFinder:
         raise ModuleNotFoundError(f'Forbidden non-worker third-party import: {fullname}')
 sys.meta_path.insert(0, WorkerOnlyFinder())
 import desktop.worker.worker
+import app.ai.providers
+import app.ai.decision
 """
     result = subprocess.run(
         [sys.executable, '-c', code],
@@ -292,3 +304,138 @@ import desktop.worker.worker
     )
     assert result.returncode == 0, result.stderr
 
+
+
+def test_check_rejects_unsafe_address_without_leaking_key(tmp_path):
+    connection = {'provider': 'chat', 'model': 'test', 'api_key': 'private-test-key',
+                  'base_url': 'http://public.example.test/v1'}
+    result = style_cli(tmp_path, '--check-decision', json.dumps(connection).encode())
+    assert result.returncode == 1
+    assert json.loads(result.stderr) == {'code': 'address'}
+    assert result.stdout == b''
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_worker_checks_and_replays_through_bundled_engine(tmp_path, monkeypatch, capsys):
+    import io
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            options = json.loads(data['messages'][-1]['content'])
+            seen.append((self.path, self.headers.get('Authorization')))
+            answer = 'other' if 'other' in options else next(iter(options))
+            body = json.dumps({'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {
+                'role': 'assistant', 'content': json.dumps({'id': answer})}}]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    runtime = runtime_dir(tmp_path)
+    job = tmp_path / 'job'
+    job.mkdir()
+    service = HTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=service.serve_forever)
+    thread.start()
+    try:
+        secret = 'private-native-test-key'
+        connection = {'provider': 'chat', 'base_url': f'http://127.0.0.1:{service.server_port}/v1',
+                      'model': 'fixture', 'api_key': secret}
+        checked = style_cli(job, '--check-decision', json.dumps(connection).encode())
+        assert checked.returncode == 0, checked.stderr
+        assert json.loads(checked.stdout) == {'ok': True}
+
+        monkeypatch.setattr(worker, 'limit_worker_files', lambda size: None)
+        monkeypatch.chdir(job)
+        monkeypatch.setattr(sys, 'argv', ['worker', '--model-proof', str(runtime)])
+        payload = {'source': '글', 'style': STYLE, 'connection': connection}
+        monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode())))
+
+        def engine(args, *, cwd, env, stdin, **kwargs):
+            assert Path(args[0]) == runtime / 'engine'
+            assert not (cwd / 'fonts').is_symlink()
+            assert stdin == subprocess.DEVNULL and secret not in repr(env)
+            raw = (cwd / 'input.json').read_text(encoding='utf-8')
+            assert secret not in raw
+            choices = json.loads(raw)['paragraphs']['choices']
+            selected = choices['1'] if choices else 'rule'
+            if choices:
+                assert (job / 'baseline-ready').is_file()
+            line = dict(end_glyph=1, start_sp=0, available_sp=10000, remaining_sp=0,
+                        tracking_per_10000=0, space_per_10000=10000, tracking_delta=0,
+                        space_deviation=0, tracking_change=0, space_change=0, split_word=False)
+            row = {'block': 1, 'rule_id': 'rule', 'selected_id': selected,
+                   'candidates': [{'id': key, 'lines': [line]} for key in ('rule', 'other')]}
+            (cwd / 'paragraph-candidates.jsonl').write_text(json.dumps(row))
+            (cwd / 'book.pdf').write_bytes(f'%PDF-1.4\n{selected}\n%%EOF\n'.encode())
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(subprocess, 'run', engine)
+        assert worker.main() == 0
+        assert (job / 'measure/book.pdf').read_bytes() == b'%PDF-1.4\nrule\n%%EOF\n'
+        assert (job / 'response.pdf').read_bytes() == b'%PDF-1.4\nother\n%%EOF\n'
+        assert json.loads((job / 'decision.json').read_text()) == {'decision': 'model', 'reason': None}
+        assert seen == [('/v1/chat/completions', 'Bearer ' + secret)] * 2
+        assert all(secret.encode() not in p.read_bytes() for p in job.rglob('*') if p.is_file())
+        assert capsys.readouterr().err == ''
+    finally:
+        service.shutdown()
+        thread.join()
+        service.server_close()
+
+
+@pytest.mark.parametrize(('base_url', 'provider', 'model', 'reason', 'style', 'pdf', 'error'), [
+    ('http://public.example.test/v1', 'chat', 'test', 'address', STYLE, b'%PDF-1.4\nrule\n%%EOF\n', None),
+    ('https://[bad', 'chat', 'test', 'address', STYLE, b'%PDF-1.4\nrule\n%%EOF\n', None),
+    ('https://gemini.test', 'gemini', 'Gemini Flash', 'model', STYLE, b'%PDF-1.4\nrule\n%%EOF\n', None),
+    ('http://public.example.test/v1', 'chat', 'test', 'address', {**STYLE, 'body_sp': -1}, None, 'invalid_input'),
+    ('http://public.example.test/v1', 'chat', 'test', 'address', STYLE, b'%PDF-1.4\n', 'worker_error'),
+])
+def test_model_setting_fallback_validates_rule_proof(tmp_path, monkeypatch, capsys, base_url, provider, model,
+                                                    reason, style, pdf, error):
+    import io
+    from app.ai.providers import Connection
+
+    runtime = runtime_dir(tmp_path)
+    job = tmp_path / 'job'
+    job.mkdir()
+    monkeypatch.chdir(job)
+    monkeypatch.setattr(worker, 'limit_worker_files', lambda size: None)
+    monkeypatch.setattr(sys, 'argv', ['worker', '--model-proof', str(runtime)])
+    connection = {'provider': provider, 'model': model, 'base_url': base_url, 'api_key': 'test-key'}
+    checked = style_cli(job, '--check-decision', json.dumps(connection).encode())
+    assert checked.returncode == 1 and json.loads(checked.stderr) == {'code': reason}
+    data = {'source': '글', 'style': style, 'connection': connection}
+    monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(data).encode())))
+
+    def engine(args, *, cwd, **kwargs):
+        assert Path(args[0]) == runtime / 'engine'
+        assert cwd == job / 'measure'
+        assert json.loads((cwd / 'input.json').read_bytes())['paragraphs']['collect']
+        (cwd / 'book.pdf').write_bytes(pdf)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, 'run', engine)
+    monkeypatch.setattr(Connection, 'predict', lambda *a, **kw: pytest.fail('invalid setting reached provider'))
+    status = worker.main()
+    if error is None:
+        assert status == 0
+        assert (job / 'baseline-ready').is_file()
+        assert (job / 'measure/book.pdf').read_bytes() == pdf
+        assert json.loads((job / 'decision.json').read_bytes()) == {'decision': 'rule', 'reason': reason}
+        assert not (job / 'response.pdf').exists()
+    else:
+        assert status == 1
+        diagnostic = json.loads(capsys.readouterr().err)
+        assert diagnostic['code'] == error
+        if error == 'invalid_input':
+            assert diagnostic['field'] == 'body_sp'
+        assert not (job / 'baseline-ready').exists()
+        assert not (job / 'decision.json').exists()

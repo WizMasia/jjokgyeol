@@ -9,11 +9,12 @@ const settingsView = nativeDesktop && new URLSearchParams(location.search).get("
 if (settingsView) document.documentElement.classList.add("settings-window");
 const settingsDialog = byId("settings-dialog");
 const settingsError = byId("settings-error");
-function liveProofChoices(preferred = "model") {
+let nativePreference = "model";
+function liveProofChoices(preferred = "model", allowModel = !nativeDesktop) {
   proofChoice.replaceChildren();
-  if (!nativeDesktop) proofChoice.add(new Option("모델 우선", "model"));
+  if (allowModel) proofChoice.add(new Option("모델 우선", "model"));
   proofChoice.add(new Option("규칙", "rule"));
-  proofChoice.value = nativeDesktop ? "rule" : preferred;
+  proofChoice.value = allowModel ? preferred : "rule";
   proofChoice.disabled = false;
 }
 liveProofChoices();
@@ -170,6 +171,8 @@ function editManuscript() {
 }
 
 const settings = JSON.parse(byId("editor-settings").textContent);
+let decisionConnection;
+const connectionForm = decisionSettings(settings.decision_providers ?? [], !nativeDesktop && settings.operator_decision);
 const stylePanel = byId("style");
 const marginMode = byId("margin-mode");
 marginMode.add(new Option("고정 좌우 여백", "fixed"));
@@ -432,9 +435,27 @@ byId("open-running").addEventListener("click", () => {
   import("./reference.js").then(module => module.openReview(true)).catch(showReferenceError);
 });
 
+// Rust settings snapshots can reorder JSON object fields.
+function settingsJson(value) {
+  return JSON.stringify(value, (_, item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]));
+  });
+}
+
+function applyConnection(connection) {
+  if (settingsJson(connection) === settingsJson(decisionConnection)) return;
+  decisionConnection = connection;
+  invalidatePreview();
+}
+
 function changed() {
-  version++;
   if (hasActiveArchive()) markDirty("document", true);
+  invalidatePreview();
+}
+
+function invalidatePreview() {
+  version++;
   referenceStateChanged();
   statusText.textContent = proofStatus();
   byId("placeholder").textContent = "미리보기를 갱신하면 조판된 지면이 열립니다.";
@@ -499,36 +520,45 @@ const httpMessages = {
 };
 
 async function fetchProof(style, signal) {
-  if (nativeDesktop) return {rule: await desktop.proof(sourceText(), style)};
+  const connection = decisionConnection;
+  if (nativeDesktop) {
+    if (!connection || connection.provider === "rule") return {rule: await desktop.proof(sourceText(), style)};
+    return desktop.modelProof(sourceText(), style, connection);
+  }
+  if (connection?.api_key && !connectionForm.keyAllowed) throw new Error(byId("decision-key-help").textContent);
   const response = await fetch("/api/render", {
     method: "POST", headers: {"Content-Type": "application/json", Accept: "multipart/form-data"}, signal,
-    body: JSON.stringify({source: sourceText(), style}), redirect: "error",
+    body: JSON.stringify({source: sourceText(), style, connection}), redirect: "error",
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    const error = new Error(detail?.message || httpMessages[response.status] || "조판을 마치지 못했습니다. 다시 시도하세요.");
+    const error = new Error(decisionMessage(detail?.code) || detail?.message || httpMessages[response.status] || "조판을 마치지 못했습니다. 다시 시도하세요.");
     error.field = detail?.field;
     throw error;
   }
   const type = response.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
   const decision = response.headers.get("X-Jjokgyeol-Decision");
+  const reason = response.headers.get("X-Jjokgyeol-Decision-Reason");
+  const legacy = connection === undefined;
   const validPdf = file => file instanceof Blob && file.type.split(";")[0] === "application/pdf" && file.size > 0;
   if (type === "application/pdf" && (decision === null || decision === "rule")) {
     const rule = await response.blob();
-    if (validPdf(rule)) return {rule};
+    if (validPdf(rule)) return {rule, reason, legacy};
   }
   if (type === "multipart/form-data" && (decision === "model" || decision === "mixed")) {
     const parts = await response.formData().catch(() => null);
     const rule = parts?.get("rule");
     const model = parts?.get("model");
-    if (validPdf(rule) && validPdf(model)) return {rule, model, decision};
+    if (validPdf(rule) && validPdf(model)) return {rule, model, decision, reason};
   }
   throw new Error("서버에서 올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
 }
 
 // Only current responses acquire URLs. A reference trial transfers these URLs on apply.
 class ProofUrls {
-  constructor({rule, model, decision, saved}) {
+  constructor({rule, model, decision, saved, reason, legacy}) {
+    this.reason = decisionMessage(reason);
+    this.legacy = legacy;
     const file = (blob, mode) => ({blob, mode, url: URL.createObjectURL(blob)});
     this.rule = rule && file(rule, "rule");
     this.model = model && file(model, decision);
@@ -536,11 +566,13 @@ class ProofUrls {
   }
 
   get selected() {
-    const file = this.saved || (proofChoice.value !== "rule" && this.model) || this.rule;
+    const mode = this.nativeMode ?? proofChoice.value;
+    const file = this.saved || (mode !== "rule" && this.model) || this.rule;
     let label = "규칙 조판";
     if (file.mode === "model") label = "모델 조판";
     else if (file.mode === "mixed") label = "혼합 조판 · 일부 문단에 모델 적용";
-    else if (!this.saved && !this.model && !nativeDesktop) label += " · 모델 결과 없음";
+    else if (this.legacy && !this.model) label += " · 모델 결과 없음";
+    if (this.reason && (!this.model || file === this.model)) label += " · " + this.reason;
     return {...file, href: file.url + "#navpanes=0&view=FitH", label};
   }
 
@@ -575,7 +607,33 @@ function editedDocumentOption() {
   if (fileLoads.document) finishFileOpen("document", fileLoads.document);
 }
 
-proofChoice.addEventListener("change", () => {
+let switchingProof = null;
+proofChoice.addEventListener("change", async () => {
+  if (proofChoice.disabled) return;
+  const mode = proofChoice.value;
+  if (nativeDesktop) nativePreference = mode;
+  if (nativeDesktop && displayedProof?.model) {
+    const proof = displayedProof;
+    const turn = {proof};
+    switchingProof = turn;
+    updateFileActions();
+    try {
+      const pages = await desktop.pages(proof[mode].blob);
+      if (turn !== switchingProof || displayedProof !== proof) return;
+      byId("desktop-pages").replaceWith(pages);
+      proof.nativeMode = mode;
+    } catch {
+      if (turn !== switchingProof || displayedProof !== proof) return;
+      proofChoice.value = nativePreference = proof.nativeMode;
+      errorText.textContent = "선택한 교정 PDF를 표시하지 못했습니다.";
+      return;
+    } finally {
+      if (switchingProof === turn) {
+        switchingProof = null;
+        updateFileActions();
+      }
+    }
+  }
   displaySelectedProof();
   if (includeProof.checked && displayedDocument === documentIdentity && displayedProof?.model) {
     editedDocumentOption();
@@ -594,6 +652,7 @@ function proofStatus() {
 
 function showProof(proof, style, state = "current") {
   clearSavedChoice();
+  if (nativeDesktop && !proof.saved) liveProofChoices(nativePreference, Boolean(proof.model || proof.reason));
   if (proof.saved) {
     proof.openedAt = version;
     const {mode, label} = proof.selected;
@@ -606,6 +665,10 @@ function showProof(proof, style, state = "current") {
   displayedDocument = documentIdentity;
   const previous = displayedProof;
   displayedProof = proof;
+  if (switchingProof) {
+    switchingProof = null;
+    updateFileActions();
+  }
   displaySelectedProof();
   previous?.release();
   preview.hidden = nativeDesktop || !inlinePdf;
@@ -622,13 +685,20 @@ async function render(job) {
   try {
     const files = await fetchProof(style);
     if (pending !== job || version !== job.version) return;
+    let mode;
     if (nativeDesktop) {
-      const pages = await desktop.pages(files.rule);
-      if (pending !== job || version !== job.version) return;
+      let pages;
+      do {
+        mode = files.model ? nativePreference : "rule";
+        pages = await desktop.pages(files[mode]);
+        if (pending !== job || version !== job.version) return;
+      } while (files.model && mode !== nativePreference);
       byId("desktop-pages")?.remove();
       preview.parentNode.append(pages);
     }
-    showProof(new ProofUrls(files), style);
+    const proof = new ProofUrls(files);
+    proof.nativeMode = mode;
+    showProof(proof, style);
     if (job.exporting) exportPdf();
   } catch (error) {
     if (pending !== job || version !== job.version) return;
@@ -664,9 +734,10 @@ function requestPdf(exporting) {
 
 function updateFileActions() {
   const busy = Boolean(fileLoads.source || fileLoads.style);
-  byId("save-document").disabled = busy || savingDocument !== null;
+  const choosing = switchingProof !== null && switchingProof.proof === displayedProof;
+  byId("save-document").disabled = busy || savingDocument !== null || choosing;
   byId("refresh").disabled = busy;
-  byId("export").disabled = busy;
+  byId("export").disabled = busy || choosing;
   byId("save").disabled = Boolean(fileLoads.source);
   pinButton.disabled = Boolean(fileLoads.source);
   byId("save-style").disabled = Boolean(fileLoads.style);
@@ -933,11 +1004,14 @@ if (settingsView) {
   settingsDialog.showModal();
   const applyButton = byId("apply-settings");
   const closeButton = byId("close-settings");
+  byId("decision-settings").disabled = true;
   stylePanel.inert = true;
   applyButton.disabled = true;
   let initialSnapshot;
   desktop.invoke("settings_snapshot").then(snapshot => {
     initialSnapshot = snapshot;
+    connectionForm.open(snapshot.connection);
+    byId("decision-settings").disabled = false;
     styleForm.set(snapshot.style, {inactiveArticleExpr: snapshot.inactiveArticleExpr});
     styleDirty = snapshot.dirty;
     stylePanel.inert = false;
@@ -947,9 +1021,10 @@ if (settingsView) {
   closeButton.addEventListener("click", cancel);
   settingsDialog.addEventListener("cancel", event => { event.preventDefault(); if (!closeButton.disabled) cancel(); });
   applyButton.addEventListener("click", async () => {
-    if (fileLoads.style || styleSavesPending) return;
+    if (fileLoads.style || styleSavesPending || !connectionForm.valid()) return;
     const revision = styleRevision;
-    const snapshot = {...initialSnapshot, ...settingsSnapshot(), baseRevision: initialSnapshot.baseRevision};
+    const snapshot = {...settingsSnapshot(), baseRevision: initialSnapshot.baseRevision};
+    byId("decision-settings").disabled = true;
     applyButton.disabled = true;
     closeButton.disabled = true;
     stylePanel.inert = true;
@@ -958,27 +1033,48 @@ if (settingsView) {
       const stored = await requestStyle("export", JSON.stringify(snapshot.style));
       await requestStyle("open", JSON.stringify(stored));
       if (revision !== styleRevision || fileLoads.style) return;
-      await desktop.invoke("apply_settings", {snapshot});
+      await desktop.invoke("apply_settings", {snapshot: {...snapshot, connection: connectionForm.value()}});
     } catch (error) {
       if (revision === styleRevision) {
         showStyleFieldError(error.field, error.message, {clearMargin: true});
         showStyleError(error);
       }
     } finally {
+      byId("decision-settings").disabled = false;
       stylePanel.inert = false;
       closeButton.disabled = false;
       applyButton.disabled = false;
     }
   });
 } else if (nativeDesktop) {
-  const listener = window.__TAURI__.event?.listen?.("settings-applied", event => {
+  let latestRevision = 0;
+  const openSettings = byId("open-settings");
+  const listener = window.__TAURI__.event?.listen?.("settings-applied", async event => {
     const snapshot = event.payload;
+    const revision = snapshot.connectionRevision;
+    let connection;
+    if (revision !== undefined) {
+      if (revision <= latestRevision) return;
+      latestRevision = revision;
+      openSettings.disabled = true;
+      try {
+        connection = await desktop.invoke("take_settings_connection", {revision}) ?? undefined;
+      } catch {
+        if (revision === latestRevision) errorText.textContent = "연결 설정을 적용하지 못했습니다. 다시 열어 확인하세요.";
+        return;
+      } finally {
+        if (revision === latestRevision) openSettings.disabled = false;
+      }
+      if (revision !== latestRevision) return;
+    }
     if (snapshot.baseRevision !== styleRevision) {
       errorText.textContent = "설정창을 연 뒤 양식이 바뀌어 적용하지 못했습니다. 다시 열어 확인하세요.";
       return;
     }
-    const changedStyle = JSON.stringify(styleForm.get()) !== JSON.stringify(snapshot.style);
-    styleForm.set(snapshot.style, {preserveDraft: true, inactiveArticleExpr: snapshot.inactiveArticleExpr});
+    const changedStyle = settingsJson(styleForm.get()) !== settingsJson(snapshot.style);
+    if (changedStyle || snapshot.inactiveArticleExpr !== articleExpr.value) {
+      styleForm.set(snapshot.style, {preserveDraft: true, inactiveArticleExpr: snapshot.inactiveArticleExpr});
+    }
     if (changedStyle) {
       styleRevision++;
       cancelFileOpen("style");
@@ -986,14 +1082,24 @@ if (settingsView) {
       changed();
     }
     markDirty("style", snapshot.dirty);
+    if (revision !== undefined) applyConnection(connection);
   }) ?? Promise.resolve();
-  byId("open-settings").addEventListener("click", async () => {
+  openSettings.addEventListener("click", async () => {
     try {
       await listener;
-      await desktop.invoke("open_settings_window", {snapshot: settingsSnapshot()});
+      await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), connection: decisionConnection}});
     } catch (error) { errorText.textContent = error.message; }
   });
 } else {
-  byId("open-settings").addEventListener("click", () => settingsDialog.showModal());
+  byId("open-settings").addEventListener("click", () => {
+    connectionForm.open(decisionConnection);
+    settingsDialog.showModal();
+  });
+  byId("apply-settings").addEventListener("click", () => {
+    if (!connectionForm.valid()) return;
+    applyConnection(connectionForm.value());
+    settingsDialog.close();
+  });
+  settingsDialog.addEventListener("close", () => connectionForm.open(undefined));
   byId("close-settings").addEventListener("click", () => settingsDialog.close());
 }

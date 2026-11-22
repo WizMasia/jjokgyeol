@@ -71,7 +71,14 @@ h2 { font: 700 clamp(1.12rem, 1.6vw, 1.65rem)/1.3 var(--serif); letter-spacing: 
 .settings-window main { width: 100%; padding: 0; }
 .settings-window #settings-dialog { display: block; position: relative; inset: auto; width: 100%; min-height: 100vh; max-height: none; margin: 0; border: 0; box-shadow: none; }
 .settings-window #settings-dialog::backdrop { background: transparent; }
-.settings-window #apply-settings { display: inline-block; }
+.settings-window #apply-settings, #settings-dialog.decision-edited #apply-settings { display: inline-block; }
+#decision-settings { margin: 1rem 0 0; }
+#decision-settings[hidden] { display: none; }
+#decision-fields:not([hidden]) { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem 1rem; margin-top: .7rem; }
+#decision-fields label { display: grid; gap: .2rem; min-width: 0; max-width: 100%; }
+#decision-fields input { min-height: 36px; min-width: 0; padding: .3rem .45rem; }
+.decision-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; width: 100%; font-size: .85rem; }
+#proof-decision { white-space: normal; overflow-wrap: anywhere; }
 #style { border-bottom: 1px solid var(--line); }
 .typebar { padding-block: 1rem; }
 .typebar-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem 1rem; min-width: 0; }

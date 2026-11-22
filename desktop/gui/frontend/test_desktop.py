@@ -1,7 +1,5 @@
 """Browser integration against a local fixture server, never used by the app."""
 import base64
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -10,13 +8,15 @@ import unittest
 
 from playwright.sync_api import sync_playwright
 
+from editor_server import EditorServer
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
 class DesktopTest(unittest.TestCase):
     def test_initial_pdf_save_and_late_render(self):
         pdf = (ROOT / 'proofs/numbering/odd-even.pdf').read_bytes()
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        server = EditorServer()
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -73,7 +73,7 @@ class DesktopTest(unittest.TestCase):
             server.server_close()
 
     def test_dirty_open_and_save_outcomes(self):
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with sync_playwright() as p:
@@ -147,7 +147,7 @@ class DesktopTest(unittest.TestCase):
             server.server_close()
 
     def test_replacement_waits_for_pending_dirty_clear(self):
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(HERE / 'dist')))
+        server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with sync_playwright() as p:

@@ -1,6 +1,6 @@
-# Rule render worker
+# Native render worker
 
-Build on the target OS and architecture from the repository root with a clean Python 3.12 environment. The native runtime needs only `markdown-it-py` and `mdurl`; do not use the Linux arm64 server `requirements.lock` for this build.
+Build on the target OS and architecture from the repository root with a clean Python 3.12 environment. The worker parses Markdown with `markdown-it-py` and `mdurl` and uses the standard library to contact decision APIs. The frozen build includes fallback TLS roots. Install the worker lockfiles for the target OS and architecture as shown below.
 
 ```sh
 python3.12 -m venv .venv-worker
@@ -21,3 +21,5 @@ Worker tests are run with `PYTHONPATH=. python -m pytest desktop/worker/tests/te
 This build is a development prototype. Dependencies are pinned and hash checked; byte-for-byte reproducibility and platform-specific engine bundles require separate validation.
 
 For native style files, invoke the same executable with either `--style-open` or `--style-export` and no `--runtime`. Send one UTF-8 JSON object on stdin (a UTF-8 BOM is accepted); stdout contains the converted JSON object. Open converts stored integer units to editor values, and export converts editor values to stored units. Input is limited to the configured request size; invalid input exits nonzero with a JSON error on stderr. These modes do not render or require a runtime directory.
+
+For session-scoped model rendering, the GUI supervisor invokes `--model-proof <runtime>` and sends one JSON object with `source`, stored `style`, and `connection` over stdin. It returns the measured rule PDF and, when model choices pass replay verification, the selected PDF. `--check-decision` takes the connection alone on stdin and tests a synthetic choice. The regular `--runtime` CLI continues to use the local rule renderer.

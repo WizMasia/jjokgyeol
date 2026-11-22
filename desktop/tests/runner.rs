@@ -288,3 +288,130 @@ fn worker_does_not_inherit_secret_env() {
     );
     assert_eq!(fs::read(output).unwrap(), b"%PDF-1.4\n%%EOF\n");
 }
+
+#[test]
+fn decision_worker_uses_private_stdin_and_returns_binary_comparison() {
+    use std::time::Duration;
+    let (runtime, _root) = setup();
+    let connection = serde_json::json!({"provider":"chat","api_key":"test-only-secret"});
+    let timeout = Duration::from_secs(5);
+    jjokgyeol_proof::check_decision_connection(
+        &runtime,
+        connection.to_string().into_bytes(),
+        timeout,
+    )
+    .unwrap();
+    for source in ["model", "mixed", "rule"] {
+        let request =
+            serde_json::json!({"source":source,"style":{"size":65536},"connection":connection});
+        let frame = jjokgyeol_proof::render_model_proof(
+            &runtime,
+            request.to_string().into_bytes(),
+            timeout,
+        )
+        .unwrap();
+        let size = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+        let header: serde_json::Value = serde_json::from_slice(&frame[4..4 + size]).unwrap();
+        let rule = b"%PDF-1.4\nrule\n%%EOF\n";
+        let reason = match source {
+            "mixed" => Some("rate_limit"),
+            "rule" => Some("authentication"),
+            _ => None,
+        };
+        assert_eq!(
+            header,
+            serde_json::json!({"decision":source,"rule_bytes":rule.len(),"reason":reason})
+        );
+        assert_eq!(&frame[4 + size..4 + size + rule.len()], rule);
+        let extra: &[u8] = if source == "rule" {
+            b""
+        } else {
+            b"%PDF-1.4\nselected\n%%EOF\n"
+        };
+        assert_eq!(&frame[4 + size + rule.len()..], extra);
+    }
+}
+
+#[test]
+fn failed_check_returns_only_a_public_code() {
+    let (runtime, _root) = setup();
+    for (scenario, expected) in [("reject", "authentication"), ("private", "unavailable")] {
+        let request = serde_json::json!({"model":scenario, "api_key":"test-only-secret"});
+        let error = jjokgyeol_proof::check_decision_connection(
+            &runtime,
+            request.to_string().into_bytes(),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&error).unwrap(),
+            serde_json::json!({"code":expected})
+        );
+    }
+}
+
+#[test]
+fn decision_timeout_while_writing_stdin_is_bounded() {
+    let (runtime, _root) = setup();
+    fs::write(runtime.join("block-stdin"), "").unwrap();
+    let start = std::time::Instant::now();
+    let error = jjokgyeol_proof::check_decision_connection(
+        &runtime,
+        vec![b'x'; 900_000],
+        std::time::Duration::from_millis(400),
+    )
+    .unwrap_err();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&error).unwrap()["code"],
+        "timeout"
+    );
+    assert!(start.elapsed() < std::time::Duration::from_secs(3));
+}
+
+#[test]
+fn hung_replay_returns_only_committed_baseline_within_decision_budget() {
+    let (runtime, root) = setup();
+    let source = serde_json::json!({"source":"hang", "connection":{"api_key":"test-only-secret"}});
+    let start = std::time::Instant::now();
+    let frame = jjokgyeol_proof::render_model_proof(
+        &runtime,
+        source.to_string().into_bytes(),
+        std::time::Duration::from_secs(30),
+    )
+    .unwrap();
+    assert!(start.elapsed() < std::time::Duration::from_secs(20));
+    let size = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+    let header: serde_json::Value = serde_json::from_slice(&frame[4..4 + size]).unwrap();
+    assert_eq!(header["decision"], "rule");
+    assert_eq!(header["reason"], "timeout");
+    assert_eq!(&frame[4 + size..], b"%PDF-1.4\nrule\n%%EOF\n");
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert!(!root.path().join("descendant-survived").exists());
+}
+
+#[test]
+fn unpublished_measurement_cannot_be_delivered() {
+    let (runtime, _root) = setup();
+    let source =
+        serde_json::json!({"source":"incomplete", "connection":{"api_key":"test-only-secret"}});
+    assert!(jjokgyeol_proof::render_model_proof(
+        &runtime,
+        source.to_string().into_bytes(),
+        std::time::Duration::from_millis(400)
+    )
+    .is_err());
+}
+
+#[test]
+fn expired_decision_reports_timeout_before_opening_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing");
+    let zero = std::time::Duration::ZERO;
+    let errors = [
+        jjokgyeol_proof::check_decision_connection(&missing, b"{}".to_vec(), zero).unwrap_err(),
+        jjokgyeol_proof::render_model_proof(&missing, b"{}".to_vec(), zero).unwrap_err(),
+    ];
+    for error in errors {
+        assert_eq!(error, r#"{"code":"timeout"}"#);
+    }
+}

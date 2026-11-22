@@ -18,7 +18,7 @@
 python desktop/qa/compare_pdfs.py 네이티브.pdf 웹판.pdf
 ```
 
-Mac 개발 앱에서 원고를 열고 편집한 뒤 PDF를 미리보고 저장했습니다. 원고만 고치거나 양식만 고친 경우 각각 창 닫기를 취소하면 수정값이 보존됩니다. 양면 줄 번호, 9단계 목록, 일반 보고서, 주석의 본문 크기 변경(11pt·16pt), 양끝맞춤 예제와 새 원고의 지면이 웹판과 일치했습니다. Mac 앱을 다른 폴더로 복사하고 네트워크와 개발 저장소 읽기를 차단한 상태에서도 같은 양면 PDF가 생성됐습니다. 데스크톱 개발판은 규칙 조판을 지원합니다. 웹판에서는 모델판과 규칙판을 선택할 수 있습니다. [네이티브 앱 빌드](desktop/gui/README.md) · [조판 작업자 준비](desktop/worker/README.md) · [Windows 검증](desktop/qa/runtime/README.md) · [Linux 검증](desktop/qa/linux/README.md)
+Mac 개발 앱에서 원고를 열고 편집한 뒤 PDF를 미리보고 저장했습니다. 원고만 고치거나 양식만 고친 경우 각각 창 닫기를 취소하면 수정값이 보존됩니다. 양면 줄 번호, 9단계 목록, 일반 보고서, 주석의 본문 크기 변경(11pt·16pt), 양끝맞춤 예제와 새 원고의 지면이 웹판과 일치했습니다. Mac 앱을 다른 폴더로 복사하고 네트워크와 개발 저장소 읽기를 차단한 상태에서도 같은 양면 PDF가 생성됐습니다. [네이티브 앱 빌드](desktop/gui/README.md) · [조판 작업자 준비](desktop/worker/README.md) · [Windows 검증](desktop/qa/runtime/README.md) · [Linux 검증](desktop/qa/linux/README.md)
 
 Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서는 쪽결의 설정 버튼으로 별도 창을 열고, 설정창을 닫은 뒤에도 원고 창이 열려 있음을 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324666) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324648)
 
@@ -37,7 +37,7 @@ docker run -d --name jjokgyeol-local -p 127.0.0.1:8780:8000 \
 
 [로컬 편집기 열기](http://127.0.0.1:8780/). 예제 원고와 첫 PDF가 표시되면 준비된 상태입니다. 작업을 마칠 때는 `docker stop jjokgyeol-local`, 다음에 다시 열 때는 `docker start jjokgyeol-local`을 사용합니다.
 
-> **보안 실행 안내**: 외부 모델·AI 서버를 쓰지 않는 순수 오프라인 규칙 조판이라면 `--network none` 대신 로컬 브리지 격리 또는 방화벽으로 외부 아웃바운드를 차단해 실행할 수 있습니다. 서버는 기본적으로 루프백 `Host` 헤더(`127.0.0.1`, `localhost`, `[::1]`)와 동일 출처(Same-Origin) 요청만 허용합니다. 별도 호스트명으로 접속해야 하면 `JJOKGYEOL_ALLOWED_HOSTS`에 쉼표로 구분해 명시하세요. 원격 AI 엔드포인트(`JJOKGYEOL_STYLE_URL`, `JJOKGYEOL_VISION_URL`)에 인증 토큰을 전송할 때는 루프백·`host.docker.internal`을 제외하고 반드시 `https://`를 사용해야 합니다.
+> **보안 실행 안내**: 외부 모델·AI 서버를 쓰지 않는 순수 오프라인 규칙 조판이라면 `--network none` 대신 로컬 브리지 격리 또는 방화벽으로 외부 아웃바운드를 차단해 실행할 수 있습니다. 서버는 기본적으로 루프백 `Host` 헤더(`127.0.0.1`, `localhost`, `[::1]`)와 동일 출처(Same-Origin) 요청만 허용합니다. 별도 호스트명으로 접속해야 하면 `JJOKGYEOL_ALLOWED_HOSTS`에 쉼표로 구분해 명시하세요. 원격 AI 엔드포인트(`JJOKGYEOL_STYLE_URL`, `JJOKGYEOL_VISION_URL`)에 인증 토큰을 전송할 때는 루프백 주소를 제외하고 반드시 `https://`를 사용해야 합니다.
 
 ## 첫 PDF 만들기
 
@@ -90,9 +90,23 @@ docker run -d --name jjokgyeol-local -p 127.0.0.1:8780:8000 \
 
 ### 모델·규칙 조판 선택
 
-기본 실행에서는 규칙 지면을 사용합니다. 호환되는 로컬 모델을 연결하면 같은 원고의 모델·규칙 지면을 함께 만들고 **모델 우선**으로 표시합니다. 미리보기의 **조판 방식**을 바꾸면 다시 조판할 필요 없이 두 결과를 비교할 수 있습니다. 모델 결과를 사용할 수 없으면 규칙 지면이 표시됩니다.
+웹과 네이티브 모두 기본값은 규칙 조판입니다. **설정**에서 API 형식과 모델 ID, 기본 주소, 필요한 API 키를 입력하세요. **연결 확인**은 예제 후보를 보내 모델이 유효한 ID를 고르는지 검사합니다. 유료 서비스에서는 이 요청과 이후 모델 조판에 요금이 발생할 수 있습니다. 설정을 적용한 뒤 **미리보기 갱신**을 누르면, **조판 방식**에서 규칙과 모델 지면을 비교하고 선택한 PDF를 내려받을 수 있습니다.
 
-Apple Silicon Mac과 Docker Desktop에서 검증한 모델은 LM Studio의 `google/gemma-4-e2b@4bit`입니다. 모델을 로드하고 로컬 서버를 켠 뒤, 아래 `model_dir`을 실제 모델 파일이 들어 있는 절대 경로로 바꿉니다. 모델 파일과 MLX 런타임은 저장소에 지정한 버전과 일치해야 합니다. [모델 식별값·파일 해시](app/config/decision.json) · [실모델 검증 기록](docs/superpowers/decision-acceptance.md)
+| API 형식 | 연결 방법 |
+| --- | --- |
+| OpenAI Responses | OpenAI API 키와 해당 계정에서 사용할 수 있는 GPT 또는 Codex 모델 ID를 입력합니다. |
+| OpenAI Chat Completions 호환 | 서비스의 모델 ID와 버전 경로를 포함한 기본 주소를 입력합니다. 자체 서버도 같은 형식으로 연결합니다. |
+| Google Gemini | Gemini Developer API 키와 모델 ID를 입력합니다. |
+| Anthropic Claude | Anthropic API 키와 Messages API에서 사용할 모델 ID를 입력합니다. |
+| Ollama | Ollama 서버의 기본 주소와 설치한 모델 태그를 입력합니다. |
+
+키와 연결 설정은 현재 웹 탭 또는 데스크톱 편집 세션에서만 유지됩니다. 모델은 조판기가 계산한 줄 끝, 간격, 문자 분류와 후보 ID를 받아 그중 하나를 고릅니다. 원고 본문은 편집기의 조판 작업자 안에 머뭅니다. 일부 문단만 모델 답을 적용한 경우 미리보기에 표시됩니다. 응답을 검증할 수 없거나 조판 기한을 넘기면 먼저 만든 규칙 PDF를 사용할 수 있습니다.
+
+네이티브 앱에서 자체 서버는 HTTPS 주소를 사용합니다. 같은 컴퓨터의 서버는 루프백 HTTP 주소도 쓸 수 있습니다. Docker 웹판에서 사용자 지정 서버를 쓰려면 운영자가 컨테이너 실행 시 `JJOKGYEOL_DECISION_BASE_URLS`에 허용할 기본 주소를 쉼표로 나열해야 합니다. 예를 들어 Docker Desktop에서 호스트의 Ollama에 연결하려면 `-e JJOKGYEOL_DECISION_BASE_URLS=http://host.docker.internal:11434`를 추가하고 편집기에도 같은 주소를 입력합니다. API 키가 필요한 원격 서버는 HTTPS로 연결하세요. 웹 편집기에 다른 컴퓨터에서 접속해 키를 입력할 때는 편집기 자체도 HTTPS로 여세요.
+
+#### 기존 운영자 모델 설정
+
+기존 고정 모델로 수행한 평가를 재현할 때는 LM Studio의 `google/gemma-4-e2b@4bit`를 사용합니다. 모델을 로드하고 로컬 서버를 켠 뒤, 아래 `model_dir`을 실제 모델 파일이 들어 있는 절대 경로로 바꿉니다. 모델 파일과 MLX 런타임은 저장소에 지정한 버전과 일치해야 합니다. [모델 식별값·파일 해시](app/config/decision.json) · [실모델 검증 기록](docs/superpowers/decision-acceptance.md)
 
 ```sh
 model_dir='/모델을/저장한/절대경로'

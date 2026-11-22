@@ -17,12 +17,13 @@ from starlette.staticfiles import StaticFiles
 
 from app import jobs, publication
 from app import style as styles
-from app.configuration import CONFIG_DIR, read_config
+from app.ai.decision import PIN as DECISION
 from app.ai.style import SETTINGS as SUGGESTION
+from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
 from app.operations import LIMITS
 from app.reference import load_settings
-from app.security import SecurityMiddleware, worker_env
+from app.security import SecurityMiddleware, allows_decision_key, worker_env
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app/static"
@@ -46,11 +47,11 @@ ERRORS = {
 }
 
 
-def failure(status, field=None, message=None, *, byte_limit=None):
-    code, fallback = ERRORS[status]
+def failure(status, field=None, message=None, *, byte_limit=None, code=None):
+    default_code, fallback = ERRORS[status]
     if status == 413 and not message:
         fallback = fallback.format(limit=MAX_BODY if byte_limit is None else byte_limit)
-    return JSONResponse({"code": code, "field": field, "message": message or fallback},
+    return JSONResponse({"code": code or default_code, "field": field, "message": message or fallback},
                         status_code=status, headers=NO_STORE)
 
 
@@ -140,7 +141,10 @@ class DocumentJob:
                 504: "양식 제안 시간이 초과되었습니다.",
             }.get(status)
             return failure(status, field or "request", message)
-        if self.action != "render" and not message:
+        if self.action == "check" and status in (500, 504):
+            code = "timeout" if status == 504 else "unavailable"
+            return failure(status, "connection", "모델 연결을 확인할 수 없습니다.", code=code)
+        if self.action not in ("render", "check") and not message:
             field = "reference" if self.action == "analyze" else "source"
             message = {
                 413: f"파일은 {byte_limit:,}바이트 이하여야 합니다.",
@@ -153,6 +157,8 @@ class DocumentJob:
     def limits(self):
         if self.action == "render":
             return MAX_BODY, SLOTS, jobs.TIMEOUT
+        if self.action == "check":
+            return MAX_BODY, SLOTS, min(jobs.TIMEOUT, DECISION["decision_seconds"])
         if self.action == "import":
             return IMPORT_MAX_BYTES, SLOTS, jobs.TIMEOUT
         if self.action == "targets":
@@ -164,12 +170,20 @@ class DocumentJob:
         raise KeyError(self.action)
 
     async def result(self, request, worker_deadline, byte_limit):
-        if self.action == "render":
+        if self.action in ("render", "check"):
             body = await read_body(request, byte_limit)
+            allow_key = allows_decision_key(request.scope.get("scheme", "http"), request.url.hostname)
+            if self.action == "check":
+                command = jobs.decision_command("--check", allow_key=allow_key)
+                result = await while_connected(
+                    jobs.isolated_job(body, command, request_name=None, response_name=None), request.receive)
+                return Response(result, media_type="application/json", headers=NO_STORE)
             compare = request.headers.get("accept", "").strip().lower() == "multipart/form-data"
-            result, status = await while_connected(
-                jobs.render(body, worker_deadline, compare=compare), request.receive)
+            result, status, reason = await while_connected(
+                jobs.render(body, worker_deadline, compare=compare, allow_key=allow_key), request.receive)
             headers = {**NO_STORE, "X-Jjokgyeol-Decision": status}
+            if reason is not None:
+                headers["X-Jjokgyeol-Decision-Reason"] = reason
             if isinstance(result, tuple):
                 return proof_pair_response(*result, headers=headers)
             return Response(result, media_type="application/pdf", headers=headers)
@@ -207,7 +221,10 @@ class DocumentJob:
             except TimeoutError:
                 response = self.error(504, byte_limit)
             except jobs.JobError as error:
-                response = self.error(error.status, byte_limit, error.field, error.message)
+                if error.code:
+                    response = failure(error.status, error.field, error.message, code=error.code)
+                else:
+                    response = self.error(error.status, byte_limit, error.field, error.message)
             except OSError:
                 response = self.error(500, byte_limit)
             # Once headers go out a deadline must close the transfer.
@@ -223,6 +240,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware)
 app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
 app.add_route("/api/style-suggestion", DocumentJob("suggest"), methods=["POST"])
+app.add_route("/api/decision/check", DocumentJob("check"), methods=["POST"])
 app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
 app.add_route("/api/reference/analyze", DocumentJob("analyze"), methods=["POST"])
 app.add_route("/api/reference/targets", DocumentJob("targets"), methods=["POST"])

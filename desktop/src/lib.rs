@@ -1,7 +1,12 @@
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-#[cfg(unix)]
-use std::process::Command;
+#[cfg(not(windows))]
+use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use windows_spawn::{Child, Command, DropPolicy, SpawnOptions, Stdio};
+
+mod decision;
+pub use decision::{check_decision_connection, decision_check_timeout, render_model_proof};
 use std::{
     error::Error,
     ffi::OsString,
@@ -56,14 +61,17 @@ pub fn worker_env_pairs() -> Vec<(OsString, OsString)> {
     pairs
 }
 
+fn operations() -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str(include_str!("../../app/config/operations.json"))
+}
+
 pub fn render(
     runtime: &Path,
     source: &Path,
     style: &Path,
     output: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let operations: serde_json::Value =
-        serde_json::from_str(include_str!("../../app/config/operations.json"))?;
+    let operations = operations()?;
     let timeout = Duration::from_secs(
         operations["timeout_seconds"]
             .as_u64()
@@ -80,8 +88,7 @@ pub fn render_with_timeout(
     timeout: Duration,
 ) -> Result<(), Box<dyn Error>> {
     let runtime = fs::canonicalize(runtime)?;
-    let operations: serde_json::Value =
-        serde_json::from_str(include_str!("../../app/config/operations.json"))?;
+    let operations = operations()?;
     let request_limit = operations["request_body_bytes"]
         .as_u64()
         .ok_or("invalid request limit")?;
@@ -100,35 +107,25 @@ pub fn render_with_timeout(
                 "../../proofs/numbering/odd-even.json"
             ))?;
     let request = serde_json::to_vec(&serde_json::json!({"source": source, "style": style}))?;
-    if request.len() as u64
-        > operations["request_body_bytes"]
-            .as_u64()
-            .ok_or("invalid request limit")?
-    {
+    if request.len() as u64 > request_limit {
         return Err("request exceeds limit".into());
     }
     let work = tempfile::tempdir()?;
     fs::write(work.path().join("request.json"), request)?;
-    let worker = runtime
-        .join("worker")
-        .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX));
     let mut stderr = tempfile::tempfile()?;
-    let status = run_worker(&worker, &runtime, work.path(), timeout, stderr.try_clone()?)?;
+    let status = run_worker(&runtime, work.path(), timeout, stderr.try_clone()?)?;
     if !status.success() {
         if qa_diagnostics {
             emit_qa_diagnostics(&mut stderr, work.path(), status);
         }
         return Err(sanitize_worker_error(&mut stderr).into());
     }
-    let pdf = read_limited(
+    let pdf = read_pdf(
         &work.path().join("response.pdf"),
         operations["worker_file_bytes"]
             .as_u64()
             .ok_or("invalid worker file limit")?,
     )?;
-    if !pdf.starts_with(b"%PDF-") || !pdf.trim_ascii_end().ends_with(b"%%EOF") {
-        return Err("invalid PDF".into());
-    }
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -167,34 +164,40 @@ fn emit_qa_diagnostics(stderr: &mut fs::File, work: &Path, status: std::process:
 /// 워커 stderr에서 검증된 공개 invalid_input JSON만 추출합니다.
 /// Extract only validated public invalid_input JSON from worker stderr.
 pub fn sanitize_worker_error(stderr: &mut fs::File) -> String {
-    let diagnostic = (|| -> Option<String> {
-        stderr.seek(SeekFrom::Start(0)).ok()?;
-        let mut bytes = Vec::new();
-        stderr
-            .take(WORKER_ERROR_LIMIT + 1)
-            .read_to_end(&mut bytes)
-            .ok()?;
-        if bytes.len() as u64 > WORKER_ERROR_LIMIT {
-            return None;
-        }
-        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-        if value.get("code")?.as_str()? != "invalid_input" {
-            return None;
-        }
-        let field = value.get("field")?.as_str()?;
-        let message = value.get("message")?.as_str()?;
-        if field.is_empty()
-            || message.is_empty()
-            || field.chars().chain(message.chars()).any(char::is_control)
-        {
-            return None;
-        }
-        Some(
-            serde_json::json!({"code": "invalid_input", "field": field, "message": message})
-                .to_string(),
-        )
-    })();
-    diagnostic.unwrap_or_else(|| "worker failed".to_owned())
+    if stderr.seek(SeekFrom::Start(0)).is_err() {
+        return "worker failed".to_owned();
+    }
+    let mut bytes = Vec::new();
+    if stderr
+        .take(WORKER_ERROR_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return "worker failed".to_owned();
+    }
+    validation_error(&bytes).unwrap_or_else(|| "worker failed".to_owned())
+}
+
+fn validation_error(bytes: &[u8]) -> Option<String> {
+    if bytes.len() as u64 > WORKER_ERROR_LIMIT {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if value.get("code")?.as_str()? != "invalid_input" {
+        return None;
+    }
+    let field = value.get("field")?.as_str()?;
+    let message = value.get("message")?.as_str()?;
+    if field.is_empty()
+        || message.is_empty()
+        || field.chars().chain(message.chars()).any(char::is_control)
+    {
+        return None;
+    }
+    Some(
+        serde_json::json!({"code": "invalid_input", "field": field, "message": message})
+            .to_string(),
+    )
 }
 
 fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -206,6 +209,14 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
         return Err("file exceeds limit".into());
     }
     Ok(bytes)
+}
+
+fn read_pdf(path: &Path, limit: u64) -> Result<Vec<u8>, Box<dyn Error>> {
+    let pdf = read_limited(path, limit)?;
+    if !pdf.starts_with(b"%PDF-") || !pdf.trim_ascii_end().ends_with(b"%%EOF") {
+        return Err("invalid PDF".into());
+    }
+    Ok(pdf)
 }
 
 /// Unix에서 PID 재사용 경쟁 조건 없이 자식 프로세스 그룹을 감시·종료합니다.
@@ -272,89 +283,84 @@ where
     }
 }
 
-#[cfg(unix)]
-fn run_worker(
-    worker: &Path,
+fn spawn_worker(
     runtime: &Path,
     work: &Path,
-    timeout: Duration,
-    stderr: fs::File,
-) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    let stderr_monitor = stderr.try_clone()?;
+    flag: &str,
+    stdin: Stdio,
+    stderr: Stdio,
+) -> std::io::Result<Child> {
+    let worker = runtime
+        .join("worker")
+        .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX));
     let mut command = Command::new(worker);
+    command.env_clear().envs(worker_env_pairs()).arg(flag);
+    if flag != "--check-decision" {
+        command.arg(runtime);
+    }
     command
-        .env_clear()
-        .envs(worker_env_pairs())
-        .arg("--runtime")
-        .arg(runtime)
         .current_dir(work)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(stderr)
-        .process_group(0);
-    let mut child = command.spawn()?;
-    wait_unix_process_group(&mut child, timeout, || {
-        if stderr_monitor
-            .metadata()
-            .map(|m| m.len() > WORKER_STDERR_MONITOR_LIMIT)
-            .unwrap_or(false)
-        {
-            return Err("worker failed".to_owned());
-        }
-        Ok(())
-    })
-    .map_err(Into::into)
+        .stdin(stdin)
+        .stdout(Stdio::null())
+        .stderr(stderr);
+    #[cfg(unix)]
+    return command.process_group(0).spawn();
+    #[cfg(windows)]
+    return command.spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree));
+    #[cfg(not(any(windows, unix)))]
+    return Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "process-tree timeout unavailable",
+    ));
 }
 
-#[cfg(windows)]
-fn run_worker(
-    worker: &Path,
-    runtime: &Path,
-    work: &Path,
-    timeout: Duration,
-    stderr: fs::File,
-) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    use windows_spawn::{Command, DropPolicy, SpawnOptions, Stdio};
+#[cfg(unix)]
+use wait_unix_process_group as wait_worker;
 
+#[cfg(windows)]
+fn wait_worker(
+    child: &mut Child,
+    timeout: Duration,
+    mut check_limits: impl FnMut() -> Result<(), String>,
+) -> Result<std::process::ExitStatus, String> {
     let deadline = Instant::now()
         .checked_add(timeout)
         .ok_or("invalid timeout")?;
-    let stderr_monitor = stderr.try_clone()?;
-    let mut command = Command::new(worker);
-    command
-        .env_clear()
-        .envs(worker_env_pairs())
-        .arg("--runtime")
-        .arg(runtime)
-        .current_dir(work)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(stderr);
-    let mut child = command.spawn_with(SpawnOptions::new().drop_policy(DropPolicy::KillTree))?;
     loop {
-        if stderr_monitor
+        check_limits()?;
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(status) => return Ok(status),
+            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => return Err("worker timed out".into()),
+        }
+    }
+}
+
+#[cfg(not(any(windows, unix)))]
+fn wait_worker(
+    _: &mut Child,
+    _: Duration,
+    _: impl FnMut() -> Result<(), String>,
+) -> Result<std::process::ExitStatus, String> {
+    Err("process-tree timeout unavailable".into())
+}
+
+fn run_worker(
+    runtime: &Path,
+    work: &Path,
+    timeout: Duration,
+    stderr: fs::File,
+) -> Result<std::process::ExitStatus, Box<dyn Error>> {
+    let monitor = stderr.try_clone()?;
+    let mut child = spawn_worker(runtime, work, "--runtime", Stdio::null(), stderr.into())?;
+    Ok(wait_worker(&mut child, timeout, || {
+        if monitor
             .metadata()
             .map(|m| m.len() > WORKER_STDERR_MONITOR_LIMIT)
             .unwrap_or(false)
         {
             return Err("worker failed".into());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            Err(error) => return Err(error.into()),
-            _ => return Err("worker timed out".into()),
-        }
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn run_worker(
-    _: &Path,
-    _: &Path,
-    _: &Path,
-    _: Duration,
-    _: fs::File,
-) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    Err("process-tree timeout is not implemented on this platform".into())
+        Ok(())
+    })?)
 }

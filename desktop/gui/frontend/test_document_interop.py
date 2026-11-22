@@ -1,7 +1,5 @@
 """Round-trip a working document through a running web editor and the built desktop UI."""
 import base64
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
 import os
@@ -13,6 +11,8 @@ import unittest
 from zipfile import ZipFile
 
 from playwright.sync_api import expect, sync_playwright
+
+from editor_server import EditorServer
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -27,7 +27,7 @@ def convert_style(action, text):
 @unittest.skipUnless(os.getenv("JJOKGYEOL_REFERENCE_URL"), "requires a running web editor")
 class DocumentInteropTest(unittest.TestCase):
     def test_web_to_desktop_to_web(self):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=HERE / "dist"))
+        server = EditorServer()
         self.addCleanup(server.server_close)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.shutdown)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from io import BytesIO
+from ipaddress import ip_address
 import json
 import os
 import re
@@ -63,6 +64,7 @@ _ROLE_ENV_KEYS: dict[str, tuple[str, ...]] = {
     "render": (
         "JJOKGYEOL_FONT_DIR",
         "JJOKGYEOL_DECISION_HOST",
+        "JJOKGYEOL_DECISION_BASE_URLS",
         "JJOKGYEOL_DECISION_PORT",
         "JJOKGYEOL_DECISION_MODEL_DIR",
         "TEXMFCACHE",
@@ -140,6 +142,18 @@ def validate_host_header(host: str | None) -> tuple[str, int | None] | None:
     if hostname in hosts or (port is not None and (hostname, port) in host_ports):
         return parsed
     return None
+
+
+def allows_decision_key(scheme: str, hostname: str | None) -> bool:
+    """Use the ASGI scheme and the Host already checked by SecurityMiddleware."""
+    if scheme != "http":
+        return scheme == "https"
+    if hostname in LOOPBACK_HOSTS:
+        return True
+    try:
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def _default_port(scheme: str, port: int | None) -> int | None:
@@ -320,6 +334,10 @@ def validate_outbound_url(raw: str, *, has_token: bool = False) -> SplitResult:
             raise ValueError("인증 토큰이 설정된 원격 엔드포인트는 HTTPS만 허용됩니다.")
         raise ValueError("로컬 외 원격 엔드포인트는 HTTPS만 허용됩니다.")
     return parsed
+
+
+def complete_pdf(pdf: bytes) -> bool:
+    return pdf.startswith(b"%PDF-") and pdf[-1024:].rstrip().endswith(b"%%EOF")
 
 
 def worker_env(

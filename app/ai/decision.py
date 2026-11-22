@@ -1,4 +1,5 @@
-"""Select from measured layouts on one operator-owned LM Studio instance."""
+"""Choose and verify paragraph layouts against the measured rule proof."""
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 from http.client import HTTPConnection, HTTPException
@@ -7,12 +8,14 @@ import os
 import signal
 import subprocess
 from pathlib import Path
+from threading import current_thread, main_thread
 from time import monotonic
 from unicodedata import category
 
+from app.ai.providers import Connection, ProviderError
 from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.document import InputError
-from app.jobs import complete_pdf
+from app.security import complete_pdf
 from app.style import Style
 from app.typeset import typeset
 
@@ -53,6 +56,8 @@ class LocalModel:
                         return None
             if model.loaded() and file_identity() == model.identity:
                 return model
+        except ProviderError:
+            raise
         except MODEL_ERRORS:
             pass
         return None
@@ -65,6 +70,8 @@ class LocalModel:
                          None if data is None else json.dumps(data).encode(),
                          {"Content-Type": "application/json"})
             response = conn.getresponse()
+            if response.status == 429:
+                raise ProviderError("rate_limit")
             if response.status != 200:
                 raise ValueError("model unavailable")
             raw = response.read(PIN["max_response_bytes"] + 1)
@@ -140,11 +147,13 @@ def features(lines, style, final_glyph):
 class ParagraphDecision:
     style: Style
     rule_id: str
-    model: LocalModel | None
+    model: LocalModel | Connection | None
     used_model: bool = False
+    reason: str | None = None
 
-    def choose(self, candidates: list[dict]) -> str:
+    def choose(self, candidates: list[dict], *, timeout=None) -> str:
         self.used_model = False
+        self.reason = None
         if self.model is None or len(candidates) < 2:
             return self.rule_id
         try:
@@ -161,10 +170,15 @@ class ParagraphDecision:
                 if lines:
                     options[key] = lines
             if self.rule_id in options and len(options) > 1:
-                selected = self.model.predict(options)
+                if timeout is None:
+                    selected = self.model.predict(options)
+                else:
+                    selected = self.model.predict(options, timeout=timeout)
                 if isinstance(selected, str) and selected in options:
                     self.used_model = True
                     return selected
+        except ProviderError as error:
+            self.reason = error.code
         except MODEL_ERRORS:
             pass
         return self.rule_id
@@ -207,7 +221,7 @@ def candidate_catalog(row):
     return rule, by_id
 
 
-def replay_status(doc, style, measure, replay, choices, mixed):
+def replay_status(doc, style, measure, replay, choices, mixed, *, typesetter=typeset):
     honored = 0
     catalog_changed = False
     for before, after in zip(measured_rows(measure), measured_rows(replay), strict=True):
@@ -237,7 +251,7 @@ def replay_status(doc, style, measure, replay, choices, mixed):
         # before accepting a partial replay with a different measurement set.
         check = replay.parent / "rule-check"
         check.mkdir()
-        if not complete_pdf(typeset(doc, style, check, collect_candidates=True)):
+        if not complete_pdf(typesetter(doc, style, check, collect_candidates=True)):
             return "rule"
         for proof, after in zip(measured_rows(check), measured_rows(replay), strict=True):
             if (proof["block"] != after["block"] or proof["selected_id"] != proof["rule_id"]
@@ -246,52 +260,94 @@ def replay_status(doc, style, measure, replay, choices, mixed):
     return "mixed" if mixed or honored < len(choices) else "model"
 
 
-def render_choice(doc, style, workdir, deadline):
-    """Called in a single-threaded POSIX render worker. Keep its rule proof for fallback."""
-    measure = workdir / "measure"
-    measure.mkdir()
-    baseline = typeset(doc, style, measure, collect_candidates=True)
-    fallback = (baseline, "rule")
-    remaining = min(PIN["decision_seconds"], deadline - PIN["delivery_reserve_seconds"] - monotonic())
+def seconds_left(end):
+    remaining = end - monotonic()
     if remaining <= 0:
-        return fallback
-    old_handler = signal.signal(signal.SIGALRM, expire)
+        raise DecisionExpired
+    return remaining
+
+
+@contextmanager
+def decision_timer(end):
+    remaining = seconds_left(end)
+    # The native supervisor interrupts a blocked engine on platforms without SIGALRM.
+    interruptible = hasattr(signal, "setitimer") and current_thread() is main_thread()
+    if interruptible:
+        old_handler = signal.signal(signal.SIGALRM, expire)
     try:
-        # Socket timeouts alone restart after each read and cannot bound TeX replay.
-        signal.setitimer(signal.ITIMER_REAL, remaining)
-        model = None
-        choices = {}
-        mixed = False
-        for row in measured_rows(measure):
-            rule, catalog = candidate_catalog(row)
-            total = catalog[rule][-1]["end_glyph"]
-            if row["selected_id"] != rule or any(features(lines, style, total) is None for lines in catalog.values()):
-                return fallback
-            if len(row["candidates"]) < 2:
-                continue
-            if model is None:
-                model = LocalModel.verified()
-                if model is None:
-                    return fallback
-            selector = ParagraphDecision(style, row["rule_id"], model)
-            selected = selector.choose(row["candidates"])
-            if selector.used_model:
-                choices[row["block"]] = selected
-            else:
-                mixed = True
-        if not choices:
-            return fallback
-        replay = workdir / "replay"
-        replay.mkdir()
-        pdf = typeset(doc, style, replay, paragraph_choices=choices, collect_candidates=True)
-        if not complete_pdf(pdf):
-            return fallback
-        status = replay_status(doc, style, measure, replay, choices, mixed)
-        if status != "rule":
-            return pdf, status
-    except (*MODEL_ERRORS, DecisionExpired, subprocess.CalledProcessError, InputError):
-        pass
+        if interruptible:
+            signal.setitimer(signal.ITIMER_REAL, remaining)
+        yield
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, old_handler)
-    return fallback
+        if interruptible:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old_handler)
+        seconds_left(end)
+
+
+def render_choice(doc, style, workdir, deadline):
+    """Legacy operator-selected model and two-value result."""
+    pdf, status, _ = render_provider_choice(doc, style, workdir, deadline, None, typesetter=typeset)
+    return pdf, status
+
+
+def measure_rule(doc, style, measure, *, typesetter=typeset):
+    measure.mkdir()
+    baseline = typesetter(doc, style, measure, collect_candidates=True)
+    if not complete_pdf(baseline):
+        raise ValueError("incomplete rule PDF")
+    return baseline
+
+
+def render_provider_choice(doc, style, workdir, deadline, connection, *, typesetter=typeset):
+    measure = workdir / "measure"
+    baseline = measure_rule(doc, style, measure, typesetter=typesetter)
+    end = min(monotonic() + PIN["decision_seconds"], deadline - PIN["delivery_reserve_seconds"])
+    try:
+        with decision_timer(end):
+            choices = {}
+            reason = None
+            model = connection
+            for row in measured_rows(measure):
+                rule, catalog = candidate_catalog(row)
+                total = catalog[rule][-1]["end_glyph"]
+                if row["selected_id"] != rule or any(features(lines, style, total) is None
+                                                      for lines in catalog.values()):
+                    return baseline, "rule", "invalid_response"
+                if len(catalog) < 2:
+                    continue
+                if model is None:
+                    model = LocalModel.verified()
+                    if model is None:
+                        return baseline, "rule", "unavailable"
+                remaining = seconds_left(end)
+                selector = ParagraphDecision(style, rule, model)
+                selected = selector.choose(row["candidates"], timeout=remaining if connection is not None else None)
+                seconds_left(end)
+                if selector.used_model:
+                    choices[row["block"]] = selected
+                elif selector.reason in ("authentication", "model", "address", "rate_limit"):
+                    reason = selector.reason
+                    break
+                else:
+                    reason = reason or selector.reason or "invalid_response"
+            if not choices:
+                return baseline, "rule", reason
+            seconds_left(end)
+            replay = workdir / "replay"
+            replay.mkdir()
+            pdf = typesetter(doc, style, replay, paragraph_choices=choices, collect_candidates=True)
+            seconds_left(end)
+            if complete_pdf(pdf):
+                status = replay_status(doc, style, measure, replay, choices, reason is not None, typesetter=typesetter)
+                if status == "model":
+                    return pdf, status, None
+                if status == "mixed":
+                    return pdf, status, reason or "invalid_response"
+    except (DecisionExpired, TimeoutError, subprocess.TimeoutExpired):
+        return baseline, "rule", "timeout"
+    except ProviderError as error:
+        return baseline, "rule", error.code
+    except (*MODEL_ERRORS, subprocess.CalledProcessError, InputError):
+        pass
+    return baseline, "rule", "invalid_response"
