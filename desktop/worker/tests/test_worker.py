@@ -266,3 +266,29 @@ def test_fixture_diagnostics_accepts_windows_line_endings(monkeypatch):
     source = (ROOT / 'proofs/numbering/manuscript.md').read_text(encoding='utf-8').replace('\n', '\r\n')
     monkeypatch.setenv('JJOKGYEOL_TEST_DIAGNOSTICS', '1')
     assert worker.fixture_diagnostics({'source': source, 'style': STYLE})
+
+
+def test_worker_imports_only_worker_dependencies():
+    # 네이티브 워커(PyInstaller)는 웹 프레임워크(starlette 등) 없이 독립 임포트되어야 합니다.
+    # The packaged native worker must import cleanly without web-only packages like starlette.
+    code = """
+import sys
+ALLOWED_3P = {'markdown_it', 'mdurl'}
+class WorkerOnlyFinder:
+    def find_spec(self, fullname, path, target=None):
+        top = fullname.split('.')[0]
+        if top in sys.stdlib_module_names or top in ('app', 'desktop') or top in ALLOWED_3P or top.startswith('_'):
+            return None
+        raise ModuleNotFoundError(f'Forbidden non-worker third-party import: {fullname}')
+sys.meta_path.insert(0, WorkerOnlyFinder())
+import desktop.worker.worker
+"""
+    result = subprocess.run(
+        [sys.executable, '-c', code],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+

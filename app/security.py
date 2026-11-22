@@ -3,14 +3,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from io import BytesIO
+import json
 import os
 import re
 import sys
 from typing import Any
 from urllib.parse import SplitResult, urlsplit
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
-
-from starlette.responses import JSONResponse
 
 # 기본 허용 루프백 호스트 / Default allowed loopback hostnames.
 LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -53,6 +52,7 @@ _BASE_ENV_KEYS: tuple[str, ...] = (
     "LC_CTYPE",
     "HOME",
     "TZ",
+    "SYSTEMDRIVE",
     "SYSTEMROOT",
     "WINDIR",
     "COMSPEC",
@@ -218,22 +218,20 @@ class SecurityMiddleware:
 
         # 중복 Host 헤더 거부 / Reject duplicate Host headers.
         if len(host_values) != 1:
-            response = JSONResponse(
+            await self._send_json_error(
+                403,
                 {"code": "forbidden", "field": None, "message": "허용되지 않은 호스트 요청입니다."},
-                status_code=403,
-                headers={"Cache-Control": "no-store"},
+                send,
             )
-            await self._send_with_headers(response, scope, receive, send)
             return
 
         host_parts = validate_host_header(host_values[0])
         if host_parts is None:
-            response = JSONResponse(
+            await self._send_json_error(
+                403,
                 {"code": "forbidden", "field": None, "message": "허용되지 않은 호스트 요청입니다."},
-                status_code=403,
-                headers={"Cache-Control": "no-store"},
+                send,
             )
-            await self._send_with_headers(response, scope, receive, send)
             return
 
         method = scope.get("method", "GET").upper()
@@ -243,12 +241,11 @@ class SecurityMiddleware:
             if csrf_error is not None:
                 status_code, message = csrf_error
                 code = "unsupported_media_type" if status_code == 415 else "forbidden"
-                response = JSONResponse(
+                await self._send_json_error(
+                    status_code,
                     {"code": code, "field": None, "message": message},
-                    status_code=status_code,
-                    headers={"Cache-Control": "no-store"},
+                    send,
                 )
-                await self._send_with_headers(response, scope, receive, send)
                 return
 
         async def send_wrapped(event: dict[str, Any]) -> None:
@@ -258,13 +255,23 @@ class SecurityMiddleware:
 
         await self.app(scope, receive, send_wrapped)
 
-    async def _send_with_headers(self, response: JSONResponse, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        async def send_wrapped(event: dict[str, Any]) -> None:
-            if event["type"] == "http.response.start":
-                event = self._augment_headers(event)
-            await send(event)
+    async def _send_json_error(self, status_code: int, payload: dict[str, Any], send: Any) -> None:
+        """외부 프레임워크 의존성 없이 순수 ASGI JSON 오류 응답을 전송합니다.
 
-        await response(scope, receive, send_wrapped)
+        Send a pure ASGI JSON error response without third-party web framework imports.
+        """
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        start_event = self._augment_headers({
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+                (b"cache-control", b"no-store"),
+            ],
+        })
+        await send(start_event)
+        await send({"type": "http.response.body", "body": body, "more_body": False})
 
     @staticmethod
     def _augment_headers(event: dict[str, Any]) -> dict[str, Any]:
@@ -334,6 +341,9 @@ def worker_env(
             env[key] = value
     if tmpdir is not None:
         env["TMPDIR"] = tmpdir
+        if os.name == "nt":
+            env["TEMP"] = tmpdir
+            env["TMP"] = tmpdir
     if extra:
         env.update(extra)
     return env
