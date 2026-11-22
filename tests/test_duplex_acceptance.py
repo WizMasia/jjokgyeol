@@ -160,6 +160,7 @@ def test_browser_authors_duplex_spreads_and_reopens_saved_style(editor, url, tmp
             del values["offset_mm"]
             values["offset_sp"] = 1118808  # six millimetres, rounded to integer TeX sp
         assert actual["values"] == values
+    close_settings(editor)
     with editor.expect_file_chooser() as chooser:
         editor.locator("#open").click()
     chooser.value.set_files(LEGACY / "after.md")

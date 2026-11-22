@@ -4,7 +4,8 @@ set -euo pipefail
 resources=$(cd "${1:?expected extracted resources}" && pwd)
 out=$(cd "${2:?expected output directory}" && pwd)
 cd "$(dirname "$0")/../.."
-work=$(mktemp -d)
+# macOS resource lookup rejects launch paths containing symlinks such as /var.
+work=$(cd "$(mktemp -d)" && pwd -P)
 mount="$work/mounted"
 pid=
 app='쪽결.app'

@@ -132,14 +132,15 @@ class Manuscript:
     def warn(self, message):
         self.warnings[message] = None
 
-    def block(self, text, kind="body", depth=1, *, empty_item=False, location=""):
+    def block(self, text, kind="body", depth=1, *, location=""):
         self.count()
         text = text.strip()
-        if not text and not empty_item:
+        list_item = kind in ("ordered", "bullet")
+        if not text and not list_item:
             return
         text = protect_block(text)
         sep = "\n\n" if self.parts else ""
-        if kind in ("ordered", "bullet"):
+        if list_item:
             if self.list_path:
                 sep = "\n"
             while self.list_path and self.list_path[-1][0] >= depth:

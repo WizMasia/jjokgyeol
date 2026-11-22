@@ -85,6 +85,16 @@ fn hides_internal_malformed_and_large_stderr() {
 }
 
 #[test]
+fn renders_with_utf8_bom_in_style_file() {
+    let (runtime, root) = setup();
+    let style = root.path().join("양식.json");
+    fs::write(&style, "\u{feff}{\"size\":65536}").unwrap();
+    let output = root.path().join("결과.pdf");
+    jjokgyeol_proof::render(&runtime, &root.path().join("원고.md"), &style, &output).unwrap();
+    assert_eq!(fs::read(output).unwrap(), b"%PDF-1.4\n%%EOF\n");
+}
+
+#[test]
 fn writes_pdf_for_unicode_paths() {
     let (runtime, root) = setup();
     let output = root.path().join("결과.pdf");

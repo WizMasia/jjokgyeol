@@ -46,8 +46,7 @@ pub fn worker_env_pairs() -> Vec<(OsString, OsString)> {
     if let Some(val) = std::env::var_os("TEXMFCACHE") {
         pairs.push((OsString::from("TEXMFCACHE"), val));
     }
-    if std::env::var_os("JJOKGYEOL_TEST_DIAGNOSTICS").as_deref()
-        == Some(std::ffi::OsStr::new("1"))
+    if std::env::var_os("JJOKGYEOL_TEST_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1"))
     {
         pairs.push((
             OsString::from("JJOKGYEOL_TEST_DIAGNOSTICS"),
@@ -87,7 +86,9 @@ pub fn render_with_timeout(
         .as_u64()
         .ok_or("invalid request limit")?;
     let source = String::from_utf8(read_limited(source, request_limit)?)?;
-    let style: serde_json::Value = serde_json::from_slice(&read_limited(style, request_limit)?)?;
+    let bytes = read_limited(style, request_limit)?;
+    let style: serde_json::Value =
+        serde_json::from_slice(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes))?;
     let qa_diagnostics = std::env::var_os("JJOKGYEOL_TEST_DIAGNOSTICS").as_deref()
         == Some(std::ffi::OsStr::new("1"))
         && source.replace("\r\n", "\n").replace('\r', "\n")

@@ -49,8 +49,7 @@ class _HTML(HTMLParser):
         item = self.lists[-1] if self.lists else None
         if item is not None and item.first is not None:
             if text or (close_item and item.first):
-                self.out.block(text, item.kind if item.first else "continuation", len(self.lists),
-                               empty_item=not text)
+                self.out.block(text, item.kind if item.first else "continuation", len(self.lists))
                 item.first = False
         elif text:
             self.out.block(text, "heading" if self.heading else "body", self.heading or 1)

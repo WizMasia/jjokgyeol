@@ -3,6 +3,8 @@ mod safety;
 
 #[cfg(not(windows))]
 use std::process::{Command, Stdio};
+#[cfg(any(not(unix), test))]
+use std::time::Instant;
 use std::{
     fs,
     io::{Read, Write},
@@ -13,8 +15,6 @@ use std::{
     },
     time::Duration,
 };
-#[cfg(any(not(unix), test))]
-use std::time::Instant;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::Semaphore;
 #[cfg(windows)]
@@ -238,10 +238,11 @@ fn runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("JJOKGYEOL_NATIVE_RUNTIME") {
         return Ok(path.into());
     }
-    app.path()
-        .resource_dir()
-        .map(|p| p.join("runtime"))
-        .map_err(|e| e.to_string())
+    tauri::utils::platform::resource_dir(app.package_info(), &app.env())
+        .map(|dir| dir.join("runtime"))
+        .map_err(|error| {
+            format!("앱의 조판 리소스 폴더를 찾을 수 없습니다. 설치 패키지에서 쪽결을 다시 열어 주세요. ({error})")
+        })
 }
 
 async fn run_blocking<T: Send + 'static>(

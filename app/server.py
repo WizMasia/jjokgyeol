@@ -3,13 +3,13 @@ import json
 import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from subprocess import DEVNULL
+from subprocess import DEVNULL, PIPE
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 from time import monotonic
 from uuid import uuid4
 
-from anyio import CapacityLimiter, fail_after, run_process
+from anyio import CapacityLimiter
 from fastapi import FastAPI
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -240,22 +240,31 @@ async def reference_settings():
 @app.post("/api/article/pin")
 async def article_pin(request: Request):
     try:
-        with fail_after(jobs.TIMEOUT):
+        async with asyncio.timeout(jobs.TIMEOUT):
             # 슬롯을 먼저 확보한 뒤 본문을 읽고 격리된 임시 디렉터리에서 실행 / Acquire slot before reading body and run in isolated tempdir.
             async with PIN_WORKERS:
                 body = await read_body(request)
                 with TemporaryDirectory(prefix="jjokgyeol-pin-") as tmp:
                     # Own the process from launch so even a deadline during startup reaps it.
-                    worker = await run_process(
-                        [sys.executable, "-IB", str(ROOT / "app/article_edit.py")], cwd=tmp,
+                    worker = await asyncio.create_subprocess_exec(
+                        sys.executable, "-IB", str(ROOT / "app/article_edit.py"), cwd=tmp,
                         env=worker_env("pin", tmpdir=tmp),
-                        input=bytes(body), stdin=None if body else DEVNULL, stderr=DEVNULL, check=False,
+                        stdin=PIPE, stdout=PIPE, stderr=DEVNULL,
                     )
+                    try:
+                        output, _ = await worker.communicate(bytes(body))
+                    except BaseException:
+                        try:
+                            worker.kill()
+                        except ProcessLookupError:
+                            pass
+                        await worker.communicate()
+                        raise
         if worker.returncode == jobs.INVALID_INPUT:
-            return failure(422, "source", worker.stdout.decode())
+            return failure(422, "source", output.decode())
         if worker.returncode:
             return failure(500)
-        return Response(worker.stdout, media_type="application/json", headers=NO_STORE)
+        return Response(output, media_type="application/json", headers=NO_STORE)
     except jobs.JobError as error:
         return failure(error.status)
     except TimeoutError:
