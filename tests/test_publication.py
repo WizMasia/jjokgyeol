@@ -342,6 +342,7 @@ for patch, field in [({"text_styles": {"body": {"space_after_pt": 49}}}, "text_s
     (CONFIG, lambda c: c["paragraph_spacing"].update(candidate_body_ratios=[False]), "paragraph_spacing"),
     (CONFIG, lambda c: c.update(space_pct_range=[100, 99]), "space_pct_range"),
     (CONFIG, lambda c: c.update(new_paragraph_layout="unknown"), "new_paragraph_layout"),
+    (CONFIG, lambda c: c.update(new_list_preset="unknown"), "new_list_preset"),
     (CONFIG, lambda c: c.update(space_pct_range=[70.001, 130]), "space_pct_range"),
     (CONFIG, lambda c: c.update(heading_per_10000=[True] * 6), "heading_per_10000"),
     (CONFIG, lambda c: c["text_defaults"].update(gloss_per_10000=10000), "gloss_per_10000"),

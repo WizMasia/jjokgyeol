@@ -72,10 +72,10 @@ def proof_geometry(pdf, markers):
     print(f"{markers[:2]} body origins {first_x[:6]}, pages {lines[-1][0]}")
 
 
-def test_default_five_levels_and_article_resets(stock):
+def test_default_report_levels_and_article_resets(stock):
     _, url = stock
     assert "list_levels" not in style_request(url, "export", {})
-    proof_geometry(render(url, PROOF.read_text(encoding="utf-8"), {}), LEGAL)
+    proof_geometry(render(url, PROOF.read_text(encoding="utf-8"), {}), REPORT)
 
 
 def test_marker_width_wrapping_and_page_continuity(stock, tmp_path):
@@ -122,7 +122,7 @@ def test_numbering_boundaries_and_stage_errors(stock):
     _, url = stock
     level = {"expr": "{한글}", "indent_mm": 0, "gap_mm": 2}
     for source, style, expected in (
-        ("20. 큰바위\n21. 작은바위", {}, [("큰바위", "⑳"), ("작은바위", "(21)")]),
+        ("20. 큰바위\n21. 작은바위", {"list_levels": [{**level, "expr": "{원숫자}"}]}, [("큰바위", "⑳"), ("작은바위", "(21)")]),
         ("14. 여름길\n15. 가을길", {"list_levels": [level]}, [("여름길", "하"), ("가을길", "가가")]),
     ):
         lines = rows(render(url, source, style))

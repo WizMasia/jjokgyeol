@@ -38,6 +38,7 @@
     "font": "nanum-myeongjo", "color": "#000000", "font_pt": 9, "offset_mm": 8
   },
   "default_article_expr": "제{숫자}조",
+  "new_list_preset": "report",
   "default_list_preset": "legal",
   "list_presets": {
     "legal": [

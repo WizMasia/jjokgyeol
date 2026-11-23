@@ -281,11 +281,17 @@ def test_list_style_file_recovery(browser, server_url):
         expect(preset).to_be_visible(timeout=1500)
         save = page.get_by_role("button", name="양식 저장")
         upload = page.locator("#style-file")
+        expect(preset).to_have_value("report")
+        expect(preset.locator("option:checked")).to_contain_text("새 문서 기본값")
+        with page.expect_download() as new:
+            save.click()
+        assert [r["expr"] for r in json.loads(new.value.path().read_bytes())["list_levels"]] == ["ㅁ", "ㅇ", "-"]
+        preset.select_option("")
         with page.expect_download() as legacy:
             save.click()
         old_file = legacy.value.path()
         assert "list_levels" not in json.loads(old_file.read_bytes())
-        preset.select_option(label="보고서형")
+        preset.select_option("report")
         second = page.get_by_role("group", name="2단계", exact=True)
         marker = second.get_by_label("표지 표현식")
         literal = " {{붙임}} ({한글}) "

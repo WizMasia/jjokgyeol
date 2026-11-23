@@ -838,6 +838,8 @@ def _new_document_style() -> Style:
             sp = _rounded(_DEFAULT_FIELDS["body_sp"] * ratio, publication.RATIO_UNIT)
             headings[role] = {"font_pt": _pt(sp)}
     patch = {**publication.NEW_SPACING, "text_styles": headings}
+    if publication.NEW_LIST_PRESET is not None:
+        patch["list_levels"] = publication.LIST_PRESETS[publication.NEW_LIST_PRESET]
     if mode is not None:
         patch["paragraph_layout"] = mode
     return apply_style(Style(), patch)
@@ -879,6 +881,7 @@ def editor_bootstrap() -> dict:
         "fonts": [{"id": key, "label": label} for key, label in publication.FONT_LABELS.items()],
         "list_presets": {name: [row.to_editor() for row in levels] for name, levels in _LIST_PRESETS.items()},
         "default_list_preset": publication.DEFAULT_LIST_PRESET,
+        "new_list_preset": publication.NEW_LIST_PRESET,
         "default_article_expr": publication.DEFAULT_ARTICLE_EXPR,
         "running_defaults": running,
     }

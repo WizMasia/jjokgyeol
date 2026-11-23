@@ -89,8 +89,8 @@ def _paragraph_spacing(fields):
 _policy = read_config(CONFIG_DIR / "publication.json", parse_float=Decimal)
 _keys = {"defaults", "page_presets_mm", "fonts", "space_pct_range", "heading_per_10000", "heading_leading_per_10000",
          "paragraph_spacing", "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
-if not isinstance(_policy, dict) or _policy.keys() != _keys:
-    difference = sorted(_policy.keys() ^ _keys) if isinstance(_policy, dict) else sorted(_keys)
+if not isinstance(_policy, dict) or (_policy.keys() - {"new_list_preset"}) != _keys:
+    difference = sorted((_policy.keys() - {"new_list_preset"}) ^ _keys) if isinstance(_policy, dict) else sorted(_keys)
     raise ValueError(f"publication.json fields: {difference}")
 BALANCED_PARAGRAPH_LAYOUT = "balanced"
 PARAGRAPH_LAYOUTS = (BALANCED_PARAGRAPH_LAYOUT, "justified")
@@ -125,6 +125,9 @@ LIST_PRESETS = {**LIST_PRESETS, "outline": _numbering["outline_levels"]}
 DEFAULT_LIST_PRESET = _policy["default_list_preset"]
 if not isinstance(DEFAULT_LIST_PRESET, str) or DEFAULT_LIST_PRESET not in LIST_PRESETS:
     raise ValueError("publication.json default_list_preset must name a list preset")
+NEW_LIST_PRESET = _policy.get("new_list_preset")
+if "new_list_preset" in _policy and (not isinstance(NEW_LIST_PRESET, str) or NEW_LIST_PRESET not in LIST_PRESETS):
+    raise ValueError("publication.json new_list_preset must name a list preset")
 _lock = read_config(APP_DIR.parent / "runtime.lock")
 FONT_LABELS, _FACES, FONT_DIR = _load_fonts(_policy["fonts"], _lock.get("fonts") if isinstance(_lock, dict) else None)
 SPACE_LIMITS = _space_limits(_policy["space_pct_range"])

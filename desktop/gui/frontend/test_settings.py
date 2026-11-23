@@ -39,6 +39,7 @@ class SettingsTest(unittest.TestCase):
                 snapshot = page.evaluate("window.calls.find(c => c.command === 'open_settings_window').args.snapshot")
                 self.assertEqual(page.evaluate('typeof window.handler'), 'function')
                 self.assertEqual(snapshot['style']['body_pt'], '11')
+                self.assertEqual([row['expr'] for row in snapshot['style']['list_levels']], ['ㅁ', 'ㅇ', '-'])
                 page.evaluate("snapshot => window.handler({payload: {...snapshot, style: {...snapshot.style, body_pt: '15'}, dirty: true}})", snapshot)
                 self.assertEqual(page.locator('#body_pt').input_value(), '15')
                 self.assertEqual(page.locator('#source').input_value(), 'unsaved manuscript')

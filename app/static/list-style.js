@@ -10,8 +10,15 @@ function listLevelEditor(settings, onEdit) {
   const defaultPreset = settings.default_list_preset;
   const labels = {legal: "법령형", report: "보고서형", outline: "계층 번호형"};
   const defaultLabel = labels[defaultPreset];
-  preset.add(new Option(defaultLabel ? `기본값 (${defaultLabel})` : "기본값", ""));
-  for (const key of Object.keys(presets)) preset.add(new Option(labels[key] || key, key));
+  const newPreset = settings.new_list_preset;
+  const names = Object.keys(presets);
+  const presetOrder = newPreset && presets[newPreset] ? [newPreset, ...names.filter(key => key !== newPreset)] : names;
+  const fallback = newPreset && newPreset !== defaultPreset ? "이전 양식 기본값" : "기본값";
+  preset.add(new Option(defaultLabel ? `${fallback} (${defaultLabel})` : fallback, ""));
+  for (const key of presetOrder) {
+    const label = labels[key] || key;
+    preset.add(new Option(key === newPreset ? `${label} (새 문서 기본값)` : label, key));
+  }
   preset.add(new Option("사용자 지정", "custom"));
 
   function readRow(row) {
@@ -86,7 +93,7 @@ function listLevelEditor(settings, onEdit) {
     set(levels) {
       replaceRows(levels ?? presets[defaultPreset] ?? []);
       // An explicit choice of the default preset must survive saving and reopening.
-      preset.value = levels === undefined ? "" : Object.keys(presets).find(key =>
+      preset.value = levels === undefined ? "" : presetOrder.find(key =>
         levels.length === presets[key].length && levels.every((row, i) =>
           Object.keys(row).length === Object.keys(presets[key][i]).length &&
           Object.entries(row).every(([field, value]) => String(value) === String(presets[key][i][field]))

@@ -20,6 +20,14 @@ LEGAL = ["{원숫자}", "{숫자}.", "{한글}.", "({숫자})", "({한글})"]
 REPORT = ["ㅁ", "ㅇ", "-"]
 
 
+def test_new_documents_save_report_markers_but_legacy_documents_keep_legal_markers():
+    from app.style import NEW_DOCUMENT_STYLE
+
+    stored = NEW_DOCUMENT_STYLE.to_stored()
+    assert [r.expr for r in from_stored_style(stored).resolved_list_levels()] == REPORT
+    assert [r.expr for r in from_stored_style(LEGACY).resolved_list_levels()] == LEGAL
+
+
 def test_legacy_uses_default_without_materializing_list_style():
     old = from_stored_style(LEGACY)
     assert old.to_stored() == Style().to_stored() == LEGACY
@@ -203,13 +211,17 @@ def test_prior_publication_policy_loads_with_numbering(tmp_path):
     shutil.copy(root / "runtime.lock", tmp_path)
     path = tmp_path / "app/config/publication.json"
     policy = json.loads(path.read_bytes())
+    policy.pop("new_list_preset")
     policy.pop("line_number_gap_pt", None)
     policy["list_presets"].pop("outline", None)
     policy["default_list_preset"] = "report"
     path.write_text(json.dumps(policy))
     proc = start(tmp_path, """
-from app.style import editor_bootstrap
+from app.style import NEW_DOCUMENT_STYLE, editor_bootstrap
 settings = editor_bootstrap()
+assert settings['new_list_preset'] is None
+assert NEW_DOCUMENT_STYLE.list_levels is None
+assert [r.expr for r in NEW_DOCUMENT_STYLE.resolved_list_levels()] == ['ㅁ', 'ㅇ', '-']
 assert settings['default_list_preset'] == 'report'
 assert settings['list_presets']['outline'][0]['expr'] == '{계층번호}.'
 """)

@@ -24,7 +24,12 @@ NEW_TEXT = {f"heading{i}": {"font_pt": value} for i, value in enumerate((
     "17.600006103515625", "16.5", "15.399993896484375",
     "14.3000030517578125", "13.1999969482421875", "12.100006103515625",
 ), 1)}
+REPORT_LEVELS = [
+    {"expr": mark, "indent_mm": indent, "gap_mm": "2"}
+    for mark, indent in (("ㅁ", "0"), ("ㅇ", "2"), ("-", "2"))
+]
 DEFAULTS = {
+    "list_levels": REPORT_LEVELS,
     "text_styles": NEW_TEXT, "paragraph_layout": "justified", "ko_tracking_bounds_pct": ["-15", "15"],
     "page_mm": ["148", "210"], "margins_mm": ["20", "18", "20", "18"],
     "first_indent_mm": "0", "rest_indent_mm": "0",
@@ -338,10 +343,18 @@ LIST_PRESETS = {
 }
 
 
-@pytest.mark.parametrize("desk", [{"list_presets": LIST_PRESETS, "default_list_preset": "report"}],
+@pytest.mark.parametrize("desk", [{"list_presets": {"legal": REPORT_LEVELS, "report": REPORT_LEVELS}}],
+                         indirect=True)
+def test_new_preset_name_when_installed_rows_match(desk):
+    desk.ready()
+    expect(desk.page.locator("#list-preset")).to_have_value("report", timeout=1000)
+
+
+@pytest.mark.parametrize("desk", [{"list_presets": LIST_PRESETS, "default_list_preset": "report", "new_list_preset": None}],
                          indirect=True)
 def test_list_presets_and_custom_levels(desk):
-    desk.ready()
+    inherited = {key: value for key, value in DEFAULTS.items() if key != "list_levels"}
+    desk.ready(inherited)
     page = desk.page
     open_settings(page)
     page.locator("#style summary").click()
@@ -385,7 +398,7 @@ def test_list_presets_and_custom_levels(desk):
     preset.select_option(index=0)
     close_settings(page)
     desk.submit(desk.refresh)
-    assert desk.requests[-1]["style"] == DEFAULTS
+    assert desk.requests[-1]["style"] == inherited
     desk.reply(2, desk.pdf)
 
 

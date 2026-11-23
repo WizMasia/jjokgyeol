@@ -437,7 +437,11 @@ const styleForm = {
 for (const select of stylePanel.querySelectorAll("select[name]")) {
   for (const font of settings.fonts) select.add(new Option(font.label, font.id));
 }
-styleForm.set({...settings.defaults, ...settings.new_spacing, text_styles: settings.new_text_styles, paragraph_layout: settings.new_paragraph_layout});
+styleForm.set({
+  list_levels: settings.list_presets?.[settings.new_list_preset],
+  ...settings.defaults, ...settings.new_spacing, text_styles: settings.new_text_styles,
+  paragraph_layout: settings.new_paragraph_layout,
+});
 stylePanel.inert = false;
 
 function showReferenceError() {

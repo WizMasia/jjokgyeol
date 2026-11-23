@@ -62,6 +62,9 @@ def enable_numbering(tab):
 
 
 def test_browser_insert_and_move_articles(tab, tmp_path):
+    open_settings(tab)
+    tab.locator("#list-preset").select_option("legal")
+    close_settings(tab)
     enable_numbering(tab)
     editor = tab.locator("#source")
     for stage, headings in (
@@ -100,6 +103,9 @@ def save(tab, button):
 
 
 def test_browser_unique_base_after_branches_and_pin_roundtrip(tab, tmp_path):
+    open_settings(tab)
+    tab.locator("#list-preset").select_option("legal")
+    close_settings(tab)
     enable_numbering(tab)
     editor = tab.locator("#source")
     original = [("목적", "제1조(목적)"), ("둘", "제1조의2(가지둘)"), ("다섯", "제1조의5가지다섯"),
