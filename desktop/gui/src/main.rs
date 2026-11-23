@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod fonts;
 mod safety;
 
 #[cfg(not(windows))]
@@ -21,6 +22,7 @@ use windows_spawn::{Command, DropPolicy, SpawnOptions, Stdio};
 struct Limits {
     request: u64,
     file: u64,
+    fonts: jjokgyeol_proof::DocumentFontLimits,
     timeout: Duration,
     render_slots: Arc<Semaphore>,
     style_slots: Arc<Semaphore>,
@@ -284,6 +286,19 @@ fn confirm_style_replacement(
     Ok(!state.style.load(Ordering::Relaxed) || confirm_discard())
 }
 
+impl Limits {
+    fn save_limit(&self, name: &str) -> u64 {
+        if Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("jjok"))
+        {
+            self.fonts.archive_bytes
+        } else {
+            self.file
+        }
+    }
+}
+
 fn limits() -> Limits {
     let config: serde_json::Value =
         serde_json::from_str(include_str!("../../../app/config/operations.json"))
@@ -293,6 +308,7 @@ fn limits() -> Limits {
     Limits {
         request: number("request_body_bytes"),
         file: number("worker_file_bytes"),
+        fonts: jjokgyeol_proof::DocumentFontLimits::configured(),
         timeout: Duration::from_secs(number("timeout_seconds")),
         render_slots: Arc::new(Semaphore::new(slot_count)),
         // Saving needs style conversion during renders; previews need it while save dialogs are open.
@@ -439,9 +455,81 @@ async fn render_model_proof(
         &serde_json::json!({"source":source, "style":style, "connection":connection}),
         state.request,
     )?;
-    let runtime = runtime(&app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
+    decision_proof(&app, &state, body, deadline).await
+}
+
+#[tauri::command]
+async fn render_font_proof(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: State<'_, Limits>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, String> {
+    let deadline = Instant::now() + state.timeout;
+    require_window(&window, "main")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("글꼴 조판에는 바이너리 요청이 필요합니다.".into());
+    };
+    if !state.fonts.accepts_frame(bytes, state.request) {
+        return Err("글꼴 요청의 크기와 형식을 확인하세요.".into());
+    }
+    decision_proof(&app, &state, bytes.to_vec(), deadline).await
+}
+
+async fn decision_proof(
+    app: &tauri::AppHandle,
+    state: &Limits,
+    body: Vec<u8>,
+    deadline: Instant,
+) -> Result<tauri::ipc::Response, String> {
+    let runtime = runtime(app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
     run_decision(&state.render_slots, deadline, move |timeout| {
         jjokgyeol_proof::render_model_proof(&runtime, body, timeout).map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn list_fonts(
+    window: WebviewWindow,
+    state: State<'_, Mutex<Arc<fonts::Catalog>>>,
+    limits: State<'_, Limits>,
+) -> Result<Vec<serde_json::Value>, String> {
+    require_any_window(&window, &["main", "settings"])?;
+    let catalog = run_blocking(&limits.style_slots, fonts::installed).await?;
+    let items = catalog.list();
+    *state.lock().map_err(|e| e.to_string())? = Arc::new(catalog);
+    Ok(items)
+}
+
+#[tauri::command]
+async fn read_font(
+    window: WebviewWindow,
+    state: State<'_, Mutex<Arc<fonts::Catalog>>>,
+    limits: State<'_, Limits>,
+    id: String,
+) -> Result<tauri::ipc::Response, String> {
+    require_any_window(&window, &["main", "settings"])?;
+    let catalog = state.lock().map_err(|e| e.to_string())?.clone();
+    let limit = limits.fonts.file_bytes;
+    run_blocking(&limits.style_slots, move || {
+        catalog.read(&id, limit).map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn builtin_font(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    limits: State<'_, Limits>,
+    hash: String,
+) -> Result<tauri::ipc::Response, String> {
+    require_any_window(&window, &["main", "settings"])?;
+    let runtime = runtime(&app)?;
+    let limit = limits.fonts.file_bytes;
+    run_blocking(&limits.style_slots, move || {
+        fonts::builtin(&runtime, &hash, limit).map(tauri::ipc::Response::new)
     })
     .await
 }
@@ -593,15 +681,15 @@ async fn save_bytes(
     let tauri::ipc::InvokeBody::Raw(raw) = request.body() else {
         return Err("invalid file payload".into());
     };
-    if !safety::within_limit(raw, state.file) {
-        return Err("file exceeds limit".into());
-    }
     let header_name = request
         .headers()
         .get("x-file-name")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let name = safety::decode_header_filename(header_name);
+    if !safety::within_limit(raw, state.save_limit(&name)) {
+        return Err("file exceeds limit".into());
+    }
     let bytes = raw.to_vec();
     run_blocking(&state.save_slots, move || {
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else {
@@ -619,6 +707,7 @@ async fn save_bytes(
 fn main() {
     tauri::Builder::default()
         .manage(limits())
+        .manage(Mutex::new(Arc::new(fonts::Catalog::default())))
         .manage(DirtyState::default())
         .manage(Mutex::new(SettingsState::default()))
         .manage(SettingsOpenLock::default())
@@ -633,6 +722,10 @@ fn main() {
             render_proof,
             check_decision_connection,
             render_model_proof,
+            render_font_proof,
+            list_fonts,
+            read_font,
+            builtin_font,
             save_bytes,
             set_dirty,
             set_style_dirty,
@@ -986,4 +1079,85 @@ fn expired_decision_never_starts_after_blocking_pool_frees_up() {
         assert!(!calls.load(Ordering::SeqCst));
         assert!(slots.try_acquire().is_ok());
     });
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+    const FONT: &[u8] =
+        include_bytes!("../../../app/static/standard_fonts/LiberationSans-Regular.ttf");
+
+    #[test]
+    fn only_listed_static_fonts_can_be_read_within_the_file_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("한글.ttf");
+        fs::write(&path, FONT).unwrap();
+        let catalog = fonts::Catalog::new(vec![(path.clone(), "한글".into())]);
+        let items = catalog.list();
+        let id = items[0]["id"].as_str().unwrap();
+        assert_eq!(items[0]["name"], "한글");
+        assert!(!items[0].to_string().contains(dir.path().to_str().unwrap()));
+        assert!(catalog.read(path.to_str().unwrap(), u64::MAX).is_err());
+        assert_eq!(catalog.read(id, FONT.len() as u64).unwrap(), FONT);
+        assert!(catalog.read(id, FONT.len() as u64 - 1).is_err());
+        fs::write(&path, b"not font data").unwrap();
+        assert!(catalog.read(id, u64::MAX).is_err());
+        let mut broken = FONT.to_vec();
+        broken[20..24].copy_from_slice(&u32::MAX.to_be_bytes());
+        fs::write(&path, broken).unwrap();
+        assert!(catalog.read(id, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn os_source_lists_a_readable_font_without_exposing_paths() {
+        let catalog = fonts::installed().unwrap();
+        let items = catalog.list();
+        assert!(items.iter().any(|item| item["reason"].is_null()
+            && catalog
+                .read(item["id"].as_str().unwrap(), limits().fonts.file_bytes)
+                .is_ok()));
+    }
+
+    #[test]
+    fn builtin_only_returns_locked_contents() {
+        let notice = "1c09d5a13702fa8ee5cd5fa160f26ef72ec1168997673230050f9c0801da5017";
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("licenses/debian");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("fonts-nanum.copyright"), b"modified").unwrap();
+        assert!(fonts::builtin(root.path(), notice, 16777216).is_err());
+        assert!(fonts::builtin(
+            root.path(),
+            "../licenses/debian/fonts-nanum.copyright",
+            16777216
+        )
+        .is_err());
+        if let Some(runtime) = std::env::var_os("JJOKGYEOL_NATIVE_RUNTIME") {
+            let lock: serde_json::Value =
+                serde_json::from_str(include_str!("../../../runtime.lock")).unwrap();
+            for family in lock["fonts"].as_object().unwrap().values() {
+                for face in family.as_object().unwrap().values() {
+                    assert!(!fonts::builtin(
+                        Path::new(&runtime),
+                        face["sha256"].as_str().unwrap(),
+                        16777216
+                    )
+                    .unwrap()
+                    .is_empty());
+                }
+            }
+            assert!(String::from_utf8(
+                fonts::builtin(Path::new(&runtime), notice, 16777216).unwrap()
+            )
+            .unwrap()
+            .contains("OPEN FONT LICENSE"));
+        }
+    }
+
+    #[test]
+    fn only_document_saves_receive_the_larger_archive_cap() {
+        let limits = limits();
+        assert_eq!(limits.save_limit("원고.JJOK"), 134217728);
+        assert_eq!(limits.save_limit("원고.jjok.pdf"), 67108864);
+    }
 }

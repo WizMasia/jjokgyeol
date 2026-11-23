@@ -1,4 +1,5 @@
 """Save and reopen the displayed proof through the shared document controls."""
+import base64
 import io
 import json
 import re
@@ -281,6 +282,11 @@ def test_rule_only_desktop_restores_foreign_model_and_keeps_edits_on_native_fail
         native.add_init_script("""
           window.__TAURI__ = {};
           window.saves = [];
+          window.savedData = index => new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(",")[1]);
+            reader.readAsDataURL(window.saves[index].blob);
+          });
           window.desktop = {
             proof: async () => { throw Error("모델 미연결"); },
             pages: async () => {
@@ -295,7 +301,7 @@ def test_rule_only_desktop_restores_foreign_model_and_keeps_edits_on_native_fail
               return response.json();
             },
             save: async (blob, name) => {
-              window.saves.push({name, data: Array.from(new Uint8Array(await blob.arrayBuffer()))});
+              window.saves.push({name, blob});
               return new Promise(resolve => window.finishSave = resolve);
             },
             setDirty: async dirty => { window.nativeDirty = dirty; },
@@ -312,7 +318,7 @@ def test_rule_only_desktop_restores_foreign_model_and_keeps_edits_on_native_fail
         expect(native.locator("#proof-decision")).to_contain_text("모델 조판")
         native.locator("#export").click()
         native.wait_for_function("window.saves.length === 1")
-        assert bytes(native.evaluate("window.saves[0].data")) == pair["model"]
+        assert base64.b64decode(native.evaluate("savedData(0)")) == pair["model"]
         native.evaluate("finishSave(true)")
         native.locator("#source").fill("수정")
         native.locator("#save-document").click()
@@ -326,7 +332,7 @@ def test_rule_only_desktop_restores_foreign_model_and_keeps_edits_on_native_fail
         native.evaluate("finishSave(true)")
         expect(native.locator("#save-document")).to_be_enabled()
         assert native.evaluate("window.nativeDirty")
-        stored = entries(bytes(native.evaluate("window.saves[2].data")))
+        stored = entries(base64.b64decode(native.evaluate("savedData(2)")))
         assert stored["proof.pdf"] == pair["model"]
         assert json.loads(stored["manifest.json"])["proof"] == {"mode": "model", "state": "stale"}
         native.evaluate("window.failPages = true")

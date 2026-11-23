@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from app.articles import number_articles
 from app.document import InputError
+from app.document_fonts import prepare_fonts
 from app.list_marks import format_mark, uses_hierarchy
 from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
@@ -179,6 +179,9 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     data = {"blocks": blocks,
             "footnotes": dict(doc.footnotes), "style": book_style,
             "policy": engine_policy(), "candidate": candidate}
+    installed_dir = font_dir if font_dir is not None else Path(os.environ.get("JJOKGYEOL_FONT_DIR", FONT_DIR))
+    has_document_files = prepare_fonts(style, data["policy"], workdir / "fonts", installed_dir,
+                                       copy_installed=font_dir is not None)
     if style.line_numbers:
         data["policy"]["line_number_gap_pt"] = LINE_NUMBER_GAP_PT
     data["text_defaults"] = TEXT_DEFAULTS
@@ -193,21 +196,13 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     (workdir / "input.json").write_text(
         json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8"
     )
-    if font_dir is None:
-        font_dir = Path(os.environ.get("JJOKGYEOL_FONT_DIR", FONT_DIR))
-        (workdir / "fonts").symlink_to(font_dir.resolve(strict=True), target_is_directory=True)
-    else:
-        (workdir / "fonts").mkdir()
-        for faces in data["policy"]["fonts"].values():
-            for name in faces.values():
-                shutil.copyfile(font_dir / name, workdir / "fonts" / name)
     (workdir / "texcache").mkdir()
     env = worker_env(
         "engine",
         tmpdir=str(workdir),
         extra={
             "LUAINPUTS": f"{_tex_path(TEMPLATES)}{os.pathsep}",
-            "TEXMFCACHE": os.environ.get("TEXMFCACHE", "texcache"),
+            "TEXMFCACHE": "texcache" if has_document_files else os.environ.get("TEXMFCACHE", "texcache"),
         },
     )
     process = subprocess.run(

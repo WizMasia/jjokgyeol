@@ -103,9 +103,11 @@ async def check_live_limits():
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
             "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
             "new_paragraph_layout", "new_spacing", "justified_spacing", "page_presets_mm", "indent_units",
-            "document_limits",
+            "document_limits", "font_assets",
         }
-        assert bootstrap["document_limits"] == {"request": 128, "file": 4096}
+        assert bootstrap["document_limits"]["request"] == 128
+        assert bootstrap["document_limits"]["pdf"] == 4096
+        assert bootstrap["document_limits"]["file"] >= bootstrap["document_limits"]["font_total"]
         assert bootstrap["default_list_preset"] == "legal"
         assert "list_levels" not in bootstrap["defaults"]
         assert bootstrap["defaults"]["body_pt"] == "12.5"

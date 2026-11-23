@@ -65,6 +65,36 @@ fn operations() -> Result<serde_json::Value, serde_json::Error> {
     serde_json::from_str(include_str!("../../app/config/operations.json"))
 }
 
+pub struct DocumentFontLimits {
+    pub file_bytes: u64,
+    pub total_bytes: u64,
+    pub archive_bytes: u64,
+}
+
+impl DocumentFontLimits {
+    pub fn configured() -> Self {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../../app/config/document-fonts.json")).unwrap();
+        Self {
+            file_bytes: config["file_bytes"].as_u64().unwrap(),
+            total_bytes: config["total_bytes"].as_u64().unwrap(),
+            archive_bytes: config["archive_bytes"].as_u64().unwrap(),
+        }
+    }
+
+    // Validate the envelope before queuing. The worker validates the header, faces and rights.
+    pub fn accepts_frame(&self, bytes: &[u8], request_limit: u64) -> bool {
+        let Some(prefix) = bytes.get(..4) else {
+            return false;
+        };
+        let header = u32::from_be_bytes(prefix.try_into().unwrap()) as u64;
+        let size = bytes.len() as u64;
+        header > 0
+            && header <= request_limit
+            && (4 + header..=4 + header + self.total_bytes).contains(&size)
+    }
+}
+
 pub fn render(
     runtime: &Path,
     source: &Path,

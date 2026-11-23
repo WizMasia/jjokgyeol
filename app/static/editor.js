@@ -360,6 +360,7 @@ async function validatedMarginRestore(draft, current, gutterSp) {
   return marginGeometry(await requestStyle("open", JSON.stringify(stored)));
 }
 
+const documentFonts = documentFontEditor(settings);
 const typography = typographyEditor(settings);
 let sectionRules;
 const styleFields = Object.keys(settings.defaults).filter(name => ![...indentKeys, "list_levels", "article_expr", "section_rules", "gutter_mm", "text_styles", "ko_tracking_bounds_pct", "paragraph_layout"].includes(name)).map(name => [
@@ -383,6 +384,7 @@ const styleForm = {
     return Object.assign(values, indents.get(), typography.get());
   },
   set(values, {preserveDraft = false, inactiveArticleExpr = settings.default_article_expr ?? ""} = {}) {
+    documentFonts.refreshChoices(values);
     for (const [name, controls] of styleFields) {
       const value = values[name];
       controls.forEach((control, index) => {
@@ -407,6 +409,7 @@ const styleForm = {
     articleExpr.value = values.article_expr ?? inactiveArticleExpr;
     showLegalOptions(preserveDraft ? !articleStyle.hidden : articleNumbering.checked);
     articleError("");
+    documentFonts.updateFallback(values);
   },
 };
 
@@ -457,6 +460,7 @@ function changed() {
 
 function invalidatePreview() {
   version++;
+  documentFonts.updateFallback(styleForm.get());
   referenceStateChanged();
   statusText.textContent = proofStatus();
   byId("placeholder").textContent = "미리보기를 갱신하면 조판된 지면이 열립니다.";
@@ -522,14 +526,23 @@ const httpMessages = {
 
 async function fetchProof(style, signal) {
   const connection = decisionConnection;
+  const source = sourceText();
+  if (!nativeDesktop && connection?.api_key && !connectionForm.keyAllowed) throw new Error(byId("decision-key-help").textContent);
+  const files = documentFonts.renderFiles(style);
   if (nativeDesktop) {
-    if (!connection || connection.provider === "rule") return {rule: await desktop.proof(sourceText(), style)};
-    return desktop.modelProof(sourceText(), style, connection);
+    if (files.size) {
+      const stored = await desktop.style("export", JSON.stringify(style));
+      const frame = documentFonts.frame({source, style: stored, connection: connection ?? {provider: "rule"}}, files);
+      return desktop.fontProof(new Uint8Array(await frame.arrayBuffer()));
+    }
+    if (!connection || connection.provider === "rule") return {rule: await desktop.proof(source, style)};
+    return desktop.modelProof(source, style, connection);
   }
-  if (connection?.api_key && !connectionForm.keyAllowed) throw new Error(byId("decision-key-help").textContent);
+  const request = {source, style, connection};
+  const body = files.size ? documentFonts.frame(request, files) : JSON.stringify(request);
   const response = await fetch("/api/render", {
-    method: "POST", headers: {"Content-Type": "application/json", Accept: "multipart/form-data"}, signal,
-    body: JSON.stringify({source: sourceText(), style, connection}), redirect: "error",
+    method: "POST", headers: {"Content-Type": files.size ? body.type : "application/json", Accept: "multipart/form-data"},
+    signal, body, redirect: "error",
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
@@ -756,6 +769,7 @@ function cancelFileOpen(kind) {
 }
 
 function beginFileOpen(kind) {
+  documentFonts.cancel();
   cancelFileOpen(kind);
   if (kind !== "source") document.dispatchEvent(new Event("style-suggestion-invalidate"));
   const token = Symbol();
@@ -1011,6 +1025,7 @@ if (settingsView) {
   let initialSnapshot;
   desktop.invoke("settings_snapshot").then(snapshot => {
     initialSnapshot = snapshot;
+    documentFonts.receiveChoices(snapshot.fontChoices);
     connectionForm.open(snapshot.connection);
     byId("decision-settings").disabled = false;
     styleForm.set(snapshot.style, {inactiveArticleExpr: snapshot.inactiveArticleExpr});
@@ -1088,7 +1103,7 @@ if (settingsView) {
   openSettings.addEventListener("click", async () => {
     try {
       await listener;
-      await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), connection: decisionConnection}});
+      await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), fontChoices: documentFonts.choices(), connection: decisionConnection}});
     } catch (error) { errorText.textContent = error.message; }
   });
 } else {

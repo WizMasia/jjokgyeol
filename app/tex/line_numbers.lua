@@ -34,7 +34,7 @@ local function label(line, offset, margin, side)
   local tail, digits, digit_width = move, tostring(count), 0
   for i = 1, #digits do
     local digit = node.new(glyph)
-    digit.font, digit.char = numbers.font, digits:byte(i)
+    book.set_glyph(digit, numbers.font, digits:byte(i))
     tail.next, digit.prev = digit, tail
     tail = digit
     digit_width = digit_width + digit.width

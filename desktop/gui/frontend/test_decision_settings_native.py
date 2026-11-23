@@ -1,5 +1,6 @@
 """Drive both native windows against the Tauri command and binary proof contracts."""
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,7 @@ class DecisionSettingsTest(unittest.TestCase):
                   core: {invoke: async (command, args) => {
                     calls.push({command, args});
                     if (command === "settings_snapshot") return snapshot;
+                    if (command === "builtin_font") return bytes(await fixtureFont(args.hash));
                     if (command === "take_settings_connection") {
                       if (args.revision === 2 && !window.finishOldTake) {
                         return new Promise(resolve => { window.finishOldTake = resolve; });
@@ -65,10 +67,22 @@ class DecisionSettingsTest(unittest.TestCase):
                .replace("MODEL_FRAME", json.dumps(base64.b64encode(frame(rule, model, "mixed", "rate_limit")).decode()))
                .replace("TIMEOUT_FRAME", json.dumps(base64.b64encode(frame(rule, b"", "rule", "timeout")).decode())))
             main = context.new_page()
+            # This mocked installation has one licensed face. The interop suite exercises the full Nanum catalog.
+            fixture = ROOT / "tests/fixtures/fonts/abel"
+            assets = [path.read_bytes() for path in (fixture / "Abel-Regular.ttf", fixture / "OFL.txt")]
+            face_hash, notice_hash = (hashlib.sha256(data).hexdigest() for data in assets)
+            encoded = dict(zip((face_hash, notice_hash), (base64.b64encode(data).decode() for data in assets)))
+            main.expose_function("fixtureFont", lambda digest: encoded[digest])
             pending_connections = {}
             main.expose_function("takeConnection", lambda handle: pending_connections.pop(handle))
             main.goto(url)
             expect(main.locator("#status")).to_have_text("최신 버전", timeout=30000)
+            main.evaluate("""([face,notice]) => {
+                const known = settings.font_assets;
+                for (const hash of Object.keys(known.faces)) delete known.faces[hash];
+                known.faces[face] = {family:"abel", name:"Abel", weight:"regular", version:"1.000"};
+                known.notice = notice;
+            }""", [face_hash, notice_hash])
 
             main.locator("#save-document").click()
             main.wait_for_function("window.saved && !document.querySelector('#save-document').disabled")

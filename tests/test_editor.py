@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 from app import server, style
+from app.font_assets import LOCKED_ASSET_PATHS
 from playwright.sync_api import expect, sync_playwright
 
 from settings_ui import close_settings, open_settings
@@ -55,6 +56,12 @@ class Desk:
                 route.fulfill(content_type="application/pdf", body=self.pdf)
             else:
                 self.pending.append(route)
+        elif url.startswith(ORIGIN + "/api/document-fonts/"):
+            asset = LOCKED_ASSET_PATHS.get(url.rsplit("/", 1)[-1])
+            if asset and asset.is_file():
+                route.fulfill(path=asset, content_type="application/octet-stream")
+            else:
+                route.fulfill(status=404, body="")
         elif url == ORIGIN + "/sample.md":
             route.fulfill(content_type="text/plain; charset=utf-8", body=SAMPLE)
         elif url == ORIGIN + "/":

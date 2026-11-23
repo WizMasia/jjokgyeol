@@ -54,6 +54,19 @@ const desktop = {
     });
     return modelProofFiles(result);
   },
+  listFonts() {
+    return this.invoke("list_fonts");
+  },
+  async readFont(id) {
+    return new Blob([new Uint8Array(await this.invoke("read_font", {id}))]);
+  },
+  async builtinFont(hash) {
+    return new Blob([new Uint8Array(await this.invoke("builtin_font", {hash}))]);
+  },
+  async fontProof(frame) {
+    const bytes = frame instanceof Blob ? new Uint8Array(await frame.arrayBuffer()) : frame;
+    return modelProofFiles(await this.invoke("render_font_proof", bytes));
+  },
   async save(blob, name) {
     // JSON 배열 직렬화 증폭을 피하고 원시 바이트로 IPC 전송 / Send raw binary payload with encoded filename header.
     const bytes = new Uint8Array(await blob.arrayBuffer());

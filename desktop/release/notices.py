@@ -17,7 +17,8 @@ def copy_notices(source, target):
 
 def main(destination):
     assets = Path('app/static')
-    for name, filename in (('zip.js', 'zip.LICENSE.txt'), ('pdfjs', 'pdfjs.LICENSE.txt')):
+    for name, filename in (('zip.js', 'zip.LICENSE.txt'), ('pdfjs', 'pdfjs.LICENSE.txt'),
+                           ('js-sha256', 'sha256.LICENSE.txt')):
         notice = destination / name / 'LICENSE.txt'
         notice.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(assets / filename, notice)

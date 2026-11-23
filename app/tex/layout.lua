@@ -30,7 +30,7 @@ local function literal(text, preserve_spaces)
 end
 
 local function font_basename(name)
-  assert(type(name) == "string" and name:match("^[A-Za-z0-9][A-Za-z0-9_-]*%.ttf$"), "invalid font basename")
+  assert(type(name) == "string" and name:match("^[A-Za-z0-9][A-Za-z0-9_-]*%.[ot]tf$"), "invalid font basename")
   return name
 end
 
@@ -59,7 +59,7 @@ function book.setup()
   local m, p = style.margins_sp, style.page_sp
   emit(string.format("\\geometry{%spaperwidth=%s,paperheight=%s,top=%s,right=%s,bottom=%s,left=%s,noheadfoot}",
     mirrored and "twoside," or "", sp(p[1]), sp(p[2]), sp(m[1]), sp(outer), sp(m[3]), sp(inner)))
-  require("font_fallback")(policy, font_basename)
+  book.set_glyph = require("font_fallback")(policy, font_basename)
   luatexbase.add_to_callback("pre_shipout_filter", require("font_text"), "jjokgyeol.font_text")
   local function font_pair(latin, hangul, name)
     local face = assert(policy.fonts[name])

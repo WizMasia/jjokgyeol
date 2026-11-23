@@ -14,7 +14,8 @@ byId("save-document").addEventListener("click", async () => {
   const savedVersion = version;
   const name = documentFilename || byId("filename").textContent.replace(/\.(md|markdown)$/i, "") + ".jjok";
   const source = manuscriptFileText();
-  const style = JSON.stringify(styleForm.get());
+  const values = styleForm.get();
+  const style = JSON.stringify(values);
   const include = includeProof.checked;
   const selected = include && displayedDocument === identity && displayedProof?.selected;
   const proof = selected ? {
@@ -29,8 +30,9 @@ byId("save-document").addEventListener("click", async () => {
   updateFileActions();
   errorText.textContent = "";
   try {
-    const stored = await requestStyle("export", style);
-    const archive = await JjokArchive.pack({source, style: stored, includeProof: include, proof}, settings.document_limits);
+    const [stored, fonts] = await Promise.all([requestStyle("export", style), documentFonts.archiveFonts(values)]);
+    const archive = await JjokArchive.pack({source, style: stored, includeProof: include, proof, fonts},
+      settings.document_limits, settings.font_assets);
     const written = await saveBlob(archive, name, reportError);
     if (written === false || identity !== documentIdentity) return;
     documentFilename = name;
@@ -72,9 +74,9 @@ bindFilePicker("open-document", "document-file", async file => {
   const current = () => fileLoads.document === turn;
   initialPreviewNeeded = false;
   try {
-    const {source, style, includeProof: include, proof} = await JjokArchive.unpack(file, settings.document_limits);
+    const {source, style, includeProof: include, proof, fonts} = await JjokArchive.unpack(file, settings.document_limits, settings.font_assets);
     if (!current()) return;
-    const values = await requestStyle("open", JSON.stringify(style));
+    const [values, records] = await Promise.all([requestStyle("open", JSON.stringify(style)), documentFonts.readArchive(fonts)]);
     if (!current()) return;
     const pages = nativeDesktop && proof ? await desktop.pages(proof.blob) : null;
     if (!current() || !await confirmDocumentOpen(current) || !current()) return;
@@ -82,6 +84,7 @@ bindFilePicker("open-document", "document-file", async file => {
     clearDocumentProof();
     applyManuscript(source, file.name.replace(/\.jjok$/i, "") + ".md");
     includeProof.checked = include;
+    documentFonts.restore(records);
     styleForm.set(values);
     styleRevision++;
     markDirty("style", false);
@@ -89,7 +92,8 @@ bindFilePicker("open-document", "document-file", async file => {
     documentFilename = file.name;
     if (restored) {
       if (pages) preview.parentNode.append(pages);
-      showProof(restored, proof.state === "current" ? values : null, proof.state);
+      const state = documentFonts.updateFallback(values) ? "stale" : proof.state;
+      showProof(restored, state === "current" ? values : null, state);
     }
   } catch (error) {
     if (current()) errorText.textContent = documentError(error, "쪽결 문서를 열지 못했습니다.");

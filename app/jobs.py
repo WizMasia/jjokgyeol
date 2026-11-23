@@ -62,32 +62,50 @@ def read_rule_pdf(workdir):
 
 
 def read_payload(workdir, checking):
+    font_frame = "--local-font-frame" in sys.argv or "--remote-font-frame" in sys.argv
     if "--stdin" in sys.argv:
-        raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
-        if len(raw) > LIMITS.request_body_bytes:
+        limit = LIMITS.request_body_bytes
+        if font_frame:
+            from app.font_assets import FRAME_LIMIT
+            limit = FRAME_LIMIT
+        raw = sys.stdin.buffer.read(limit + 1)
+        if len(raw) > limit:
             raise JobError(413)
     else:
         request = workdir / "request.json"
         raw = request.read_bytes()
         request.unlink()
     try:
+        if font_frame:
+            from app.font_frame import unpack_frame
+            return unpack_frame(raw, remote="--remote-font-frame" in sys.argv)
         return json.loads(raw.decode("utf-8"), parse_float=Decimal, parse_int=Decimal,
-                          object_pairs_hook=unique_fields)
+                          object_pairs_hook=unique_fields), {}
     except (ValueError, InvalidOperation, RecursionError):
         if checking:
             raise connection_error("invalid_connection") from None
+        if font_frame:
+            raise JobError(422, "fonts", "글꼴 파일과 내장 권한을 확인하세요.") from None
         raise JobError(422) from None
 
 
 def worker():
+    harden_worker(max_file_bytes=MAX_FILE)
+    workdir = Path.cwd()
+    checking = "--check" in sys.argv
+    payload, assets = read_payload(workdir, checking)
+    if assets:
+        from app.document_fonts import use_document_fonts
+        with use_document_fonts(assets):
+            return process_payload(workdir, payload, checking)
+    return process_payload(workdir, payload, checking)
+
+
+def process_payload(workdir, payload, checking):
     from app.document import InputError, parse_md
     from app.style import NEW_DOCUMENT_STYLE, from_editor_style
     from app.typeset import typeset
 
-    harden_worker(max_file_bytes=MAX_FILE)
-    workdir = Path.cwd()
-    checking = "--check" in sys.argv
-    payload = read_payload(workdir, checking)
     if not checking and (not isinstance(payload, dict)
                          or payload.keys() - {"source", "style", "decision", "connection"}):
         raise JobError(422)
@@ -165,11 +183,13 @@ def decision_command(*args, allow_key):
     return command if allow_key else (*command, "--keyless")
 
 
-async def render(body, deadline=None, *, compare=False, allow_key=True):
+async def render(body, deadline=None, *, compare=False, allow_key=True, font_frame=None):
     with_decision = compare or deadline is not None
     if deadline is None:
         deadline = monotonic() + TIMEOUT
     command = decision_command(str(deadline), allow_key=allow_key)
+    if font_frame is not None:
+        command += ("--remote-font-frame" if font_frame == "remote" else "--local-font-frame",)
     if compare:
         command += ("--compare",)
     result = await isolated_job(body, command, None, "response.pdf", with_decision=True, compare=compare)

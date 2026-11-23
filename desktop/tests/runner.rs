@@ -415,3 +415,16 @@ fn expired_decision_reports_timeout_before_opening_runtime() {
         assert_eq!(error, r#"{"code":"timeout"}"#);
     }
 }
+
+#[test]
+fn binary_proof_exceeds_legacy_request_limit_in_isolated_worker() {
+    let (runtime, _root) = setup();
+    let header = br#"{"request":{"source":"test-only-secret","style":{},"connection":{"provider":"rule"}},"faces":[{"hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":2000000}]}"#;
+    let mut body = (header.len() as u32).to_be_bytes().to_vec();
+    body.extend_from_slice(header);
+    body.resize(body.len() + 2_000_000, 0xff);
+    let proof =
+        jjokgyeol_proof::render_model_proof(&runtime, body, std::time::Duration::from_secs(5))
+            .unwrap();
+    assert!(proof.ends_with(b"%PDF-1.4\nrule\n%%EOF\n"));
+}

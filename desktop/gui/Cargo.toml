@@ -9,11 +9,20 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde_json = "1"
+sha2 = "0.10"
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 tempfile = "3"
 tokio = { version = "1", features = ["sync", "time"] }
 rfd = "0.15"
 libc = "0.2"
 jjokgyeol-proof = { path = ".." }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-text = "22"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fontconfig = "0.11"
+
 [target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
 windows-spawn = "0.1.0"

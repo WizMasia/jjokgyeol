@@ -439,3 +439,15 @@ def test_model_setting_fallback_validates_rule_proof(tmp_path, monkeypatch, caps
             assert diagnostic['field'] == 'body_sp'
         assert not (job / 'baseline-ready').exists()
         assert not (job / 'decision.json').exists()
+
+
+def test_framed_manuscript_uses_native_stored_style_validation(tmp_path):
+    header = json.dumps({'request': {'source': '글', 'style': {**STYLE, 'body_sp': -1},
+                                     'connection': {'provider': 'rule'}}, 'faces': []}).encode()
+    result = subprocess.run([sys.executable, str(WORKER), '--model-proof', str(tmp_path)],
+                            input=len(header).to_bytes(4, 'big') + header, cwd=tmp_path,
+                            env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True)
+    assert result.returncode == 1
+    assert json.loads(result.stderr)['code'] == 'invalid_input'
+    assert json.loads(result.stderr)['field'] == 'body_sp'
+    assert not list(tmp_path.iterdir())

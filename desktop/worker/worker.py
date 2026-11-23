@@ -1,5 +1,6 @@
 """One native worker request; the caller supervises the process and owns its directory."""
 import argparse
+from contextlib import nullcontext
 from functools import partial
 import hashlib
 from decimal import Decimal
@@ -113,14 +114,28 @@ def decision_request(runtime):
         if not ssl.get_default_verify_paths().cafile:
             # Some packaged OpenSSL builds point at a CA file on the build machine.
             os.environ['SSL_CERT_FILE'] = str(Path(sys._MEIPASS) / 'certifi' / 'cacert.pem')
-    try:
-        raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
-        if len(raw) > LIMITS.request_body_bytes:
-            raise ValueError
-        request = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_fields)
-    except (ValueError, RecursionError):
-        print(json.dumps({'code': 'invalid_connection'}), file=sys.stderr)
-        return 1
+    stream = sys.stdin.buffer
+    first = stream.read(1)
+    context = nullcontext()
+    if runtime is not None and first == b'\0':
+        from app.document_fonts import use_document_fonts
+        from app.font_assets import FRAME_LIMIT
+        from app.font_frame import unpack_frame
+
+        try:
+            request, assets = unpack_frame(first + stream.read(FRAME_LIMIT), remote=False)
+        except (ValueError, RecursionError) as error:
+            raise InputError({'fonts': '글꼴 파일의 형식, 크기와 내장 권한을 확인하세요.'}) from error
+        context = use_document_fonts(assets)
+    else:
+        try:
+            raw = first + stream.read(LIMITS.request_body_bytes)
+            if len(raw) > LIMITS.request_body_bytes:
+                raise ValueError
+            request = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_fields)
+        except (ValueError, RecursionError):
+            print(json.dumps({'code': 'invalid_connection'}), file=sys.stderr)
+            return 1
     try:
         if runtime is None:
             check_connection(request, desktop=True)
@@ -132,34 +147,39 @@ def decision_request(runtime):
             raw_connection = request.pop('connection')
             if raw_connection != {'provider': 'rule'}:
                 connection, reason = parse_render_connection(raw_connection, desktop=True)
-        doc, style = manuscript(request)
-        bundled = bundled_typesetter(runtime)
-        workdir = Path.cwd()
-        measure = workdir / 'measure'
-
-        def render(doc, style, folder, **options):
-            pdf = bundled(doc, style, folder, **options)
-            if folder == measure and complete_pdf(pdf):
-                # TeX may have an incomplete book.pdf on disk until it exits.
-                (workdir / 'baseline-ready').touch()
-            return pdf
-
-        if connection is None:
-            measure.mkdir()
-            pdf = render(doc, style, measure, collect_candidates=True)
-            status = 'rule'
-        else:
-            from app.ai.decision import render_provider_choice
-            pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection, typesetter=render)
-        if not complete_pdf(pdf):
-            raise ValueError('incomplete PDF')
-        if status != 'rule':
-            (workdir / 'response.pdf').write_bytes(pdf)
-        (workdir / 'decision.json').write_text(json.dumps({'decision': status, 'reason': reason}), encoding='utf-8')
-        return 0
+        with context:
+            return render_decision(runtime, request, deadline, connection, reason)
     except ProviderError as error:
         print(json.dumps({'code': error.code}), file=sys.stderr)
         return 1
+
+
+def render_decision(runtime, request, deadline, connection, reason):
+    doc, style = manuscript(request)
+    bundled = bundled_typesetter(runtime)
+    workdir = Path.cwd()
+    measure = workdir / 'measure'
+
+    def render(doc, style, folder, **options):
+        pdf = bundled(doc, style, folder, **options)
+        if folder == measure and complete_pdf(pdf):
+            # TeX may have an incomplete book.pdf on disk until it exits.
+            (workdir / 'baseline-ready').touch()
+        return pdf
+
+    if connection is None:
+        measure.mkdir()
+        pdf = render(doc, style, measure, collect_candidates=True)
+        status = 'rule'
+    else:
+        from app.ai.decision import render_provider_choice
+        pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection, typesetter=render)
+    if not complete_pdf(pdf):
+        raise ValueError('incomplete PDF')
+    if status != 'rule':
+        (workdir / 'response.pdf').write_bytes(pdf)
+    (workdir / 'decision.json').write_text(json.dumps({'decision': status, 'reason': reason}), encoding='utf-8')
+    return 0
 
 
 def main():

@@ -74,7 +74,12 @@ fn run(
     mut budget: Option<ModelBudget>,
 ) -> Result<(), String> {
     let config = operations().map_err(|_| error("unavailable"))?;
-    if request.len() as u64 > config_number(&config, "request_body_bytes") {
+    let request_limit = config_number(&config, "request_body_bytes");
+    if flag == "--model-proof" && request.first() == Some(&0) {
+        if !super::DocumentFontLimits::configured().accepts_frame(&request, request_limit) {
+            return Err(json!({"code":"invalid_input","field":"fonts","message":"글꼴 요청 크기를 확인하세요."}).to_string());
+        }
+    } else if request.len() as u64 > request_limit {
         return Err(error("invalid_connection"));
     }
     let runtime = fs::canonicalize(runtime).map_err(|_| error("unavailable"))?;

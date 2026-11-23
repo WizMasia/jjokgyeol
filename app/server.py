@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import sys
 from decimal import Decimal, InvalidOperation
@@ -21,9 +22,10 @@ from app.ai.decision import PIN as DECISION
 from app.ai.style import SETTINGS as SUGGESTION
 from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
+from app.font_assets import FONT_LIMITS, FRAME_LIMIT, LOCKED_ASSET_PATHS
 from app.operations import LIMITS
 from app.reference import load_settings
-from app.security import SecurityMiddleware, allows_decision_key, worker_env
+from app.security import SecurityMiddleware, allows_decision_key, is_loopback_host, worker_env
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app/static"
@@ -37,6 +39,7 @@ REFERENCE = load_settings()
 REFERENCE_SLOTS = BoundedSemaphore(REFERENCE["slots"])
 SUGGESTION_SLOTS = BoundedSemaphore(SUGGESTION["slots"])
 NO_STORE = {"Cache-Control": "no-store"}
+FONT_MEDIA_TYPE = "application/x-jjok-font-render"
 ERRORS = {
     413: ("too_large", "요청은 {limit:,}바이트 이하여야 합니다."),
     422: ("invalid_input", "원고와 양식의 입력값을 확인하세요."),
@@ -169,7 +172,7 @@ class DocumentJob:
             return SUGGESTION["max_request_bytes"], SUGGESTION_SLOTS, SUGGESTION["timeout_seconds"]
         raise KeyError(self.action)
 
-    async def result(self, request, worker_deadline, byte_limit):
+    async def result(self, request, worker_deadline, byte_limit, font_destination=None):
         if self.action in ("render", "check"):
             body = await read_body(request, byte_limit)
             allow_key = allows_decision_key(request.scope.get("scheme", "http"), request.url.hostname)
@@ -180,7 +183,8 @@ class DocumentJob:
                 return Response(result, media_type="application/json", headers=NO_STORE)
             compare = request.headers.get("accept", "").strip().lower() == "multipart/form-data"
             result, status, reason = await while_connected(
-                jobs.render(body, worker_deadline, compare=compare, allow_key=allow_key), request.receive)
+                jobs.render(body, worker_deadline, compare=compare, allow_key=allow_key, font_frame=font_destination),
+                request.receive)
             headers = {**NO_STORE, "X-Jjokgyeol-Decision": status}
             if reason is not None:
                 headers["X-Jjokgyeol-Decision-Reason"] = reason
@@ -207,6 +211,12 @@ class DocumentJob:
 
     async def __call__(self, scope, receive, send):
         byte_limit, slots, timeout = self.limits()
+        request = Request(scope, receive)
+        font_destination = None
+        if (self.action == "render" and
+                request.headers.get("content-type", "").partition(";")[0].strip().lower() == FONT_MEDIA_TYPE):
+            byte_limit = FRAME_LIMIT
+            font_destination = "local" if is_loopback_host(request.url.hostname) else "remote"
         if not slots.acquire(blocking=False):
             await self.error(429, byte_limit)(scope, receive, send)
             return
@@ -215,7 +225,7 @@ class DocumentJob:
             deadline = asyncio.get_running_loop().time() + timeout
             try:
                 async with asyncio.timeout_at(deadline):
-                    response = await self.result(Request(scope, receive), worker_deadline, byte_limit)
+                    response = await self.result(request, worker_deadline, byte_limit, font_destination)
             except ClientDisconnect:
                 return
             except TimeoutError:
@@ -341,6 +351,21 @@ def editor():
 @app.get("/sample.md")
 def sample():
     return FileResponse(ROOT / "proofs/engine-comparison/manuscript.md", media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/api/document-fonts/{digest}")
+def builtin_font_asset(digest: str):
+    path = LOCKED_ASSET_PATHS.get(digest)
+    if path is None:
+        return Response(status_code=404)
+    try:
+        with path.open("rb") as stream:
+            data = stream.read(FONT_LIMITS["file_bytes"] + 1)
+    except OSError:
+        return Response(status_code=503)
+    if len(data) > FONT_LIMITS["file_bytes"] or hashlib.sha256(data).hexdigest() != digest:
+        return Response(status_code=503)
+    return Response(data, media_type="application/octet-stream", headers={"Cache-Control": "private, max-age=86400"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC, check_dir=False))

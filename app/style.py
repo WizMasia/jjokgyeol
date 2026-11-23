@@ -9,6 +9,7 @@ from fractions import Fraction
 from app import publication
 from app.configuration import CONFIG_DIR, read_config
 from app.document import InputError
+from app.document_fonts import is_font_family
 from app.list_marks import format_mark
 from app.running_heads import RUNNING_FACES, RUNNING_ROLES, SLOTS, parse_running_text
 
@@ -271,7 +272,7 @@ def _text_attribute(key, value):
         raise ValueError("글자 굵기는 normal 또는 bold여야 합니다.")
     if key == "slant" and value not in ("normal", "italic"):
         raise ValueError("글자 기울기는 normal 또는 italic이어야 합니다.")
-    if key == "font" and (not isinstance(value, str) or value not in publication.FONT_LABELS):
+    if key == "font" and not is_font_family(value):
         raise ValueError("지원하는 글꼴 ID를 선택하세요.")
     if key == "color" and (not isinstance(value, str) or not _COLOR.fullmatch(value)):
         raise ValueError("색상은 #RRGGBB로 입력하세요.")
@@ -585,7 +586,7 @@ def _load(current, patch, *, stored):
             if stored and key not in patch:
                 errors[key] = "저장된 양식에 필수 필드가 없습니다."
             elif key in patch:
-                if isinstance(patch[key], str) and patch[key] in publication.FONT_LABELS:
+                if is_font_family(patch[key]):
                     values[key] = patch[key]
                 else:
                     errors[key] = "지원하는 글꼴 ID를 선택하세요."
@@ -658,6 +659,9 @@ if _field_difference:
     raise ValueError(f"publication.json defaults fields: {sorted(_field_difference)}")
 try:
     _DEFAULT_FIELDS = _load({}, publication.DEFAULTS, stored=False)
+    for key in FONTS:
+        if _DEFAULT_FIELDS[key] not in publication.FONT_LABELS:
+            raise InputError({key: "기본 글꼴은 설치된 글꼴에서 선택하세요."})
 except InputError as error:
     raise ValueError(f"publication.json defaults.{error.field}: {error.message}") from error
 
@@ -819,7 +823,7 @@ except InputError as error:
 
 
 def editor_bootstrap() -> dict:
-    from app.operations import LIMITS
+    from app.font_assets import FONT_ASSETS, document_limits
 
     new = NEW_DOCUMENT_STYLE.to_editor()
     with localcontext() as context:
@@ -831,7 +835,8 @@ def editor_bootstrap() -> dict:
         "builtin_decision": True,
         "decision_providers": read_config(CONFIG_DIR / "decision-providers.json")["providers"],
         "operator_decision": bool(os.getenv("JJOKGYEOL_DECISION_HOST")),
-        "document_limits": {"request": LIMITS.request_body_bytes, "file": LIMITS.worker_file_bytes},
+        "document_limits": document_limits(),
+        "font_assets": FONT_ASSETS,
         "defaults": Style().to_editor(),
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,

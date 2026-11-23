@@ -12,6 +12,7 @@
 !app/config/publication.json
 !app/config/numbering.json
 !app/config/operations.json
+!app/config/document-fonts.json
 !app/config/decision.json
 !app/config/decision-providers.json
 !app/config/reference.json
@@ -23,6 +24,8 @@
 !app/static/*.css
 !app/static/*.js
 !app/static/zip.LICENSE.txt
+!app/static/ofl-1.1.txt
+!app/static/sha256.LICENSE.txt
 !app/static/pdf.min.mjs
 !app/static/pdf.worker.min.mjs
 !app/static/pdfjs.LICENSE.txt
@@ -56,6 +59,8 @@
 !app/importers/
 !tests/fixtures/imports/
 !tests/fixtures/imports/**
+!tests/fixtures/fonts/
+!tests/fixtures/fonts/**
 !proofs/duplex-running-heads/
 !proofs/reference-style/
 !proofs/*/*.docx

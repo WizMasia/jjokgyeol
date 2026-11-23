@@ -25,6 +25,8 @@ def codec(browser, request):
     scripts = ("zip.min.js", "jjok-archive.js")
     unexpected = []
     profile = getattr(request, "param", None)
+    if profile == "fonts":
+        scripts += ("font-rights.js",)
     old_webkit = profile == "old-webkit"
     disable_compression = "globalThis.CompressionStream = globalThis.DecompressionStream = undefined;"
     old_globals = "delete Promise.withResolvers; " + disable_compression
@@ -34,14 +36,17 @@ def codec(browser, request):
         if name == "":
             html = "".join(f'<script src="/{script}"></script>' for script in scripts)
             workers = "'self'" if old_webkit else "'none'"
+            policy = f"default-src 'none'; script-src 'self'; worker-src {workers}"
+            if profile == "fonts":
+                policy += "; connect-src 'self'"
             route.fulfill(content_type="text/html; charset=utf-8", body=html, headers={
-                "Content-Security-Policy": f"default-src 'none'; script-src 'self'; worker-src {workers}",
+                "Content-Security-Policy": policy,
             })
         elif name == "pdf.worker.min.mjs" and old_webkit:
             # A main-thread fallback must not hide a failure to start the legacy worker.
             worker_only = "if (typeof document !== 'undefined') throw Error('expected a dedicated worker');"
             route.fulfill(content_type="text/javascript", body=worker_only + old_globals + (STATIC / name).read_text())
-        elif name in (*scripts, "pdf.min.mjs", "pdf.worker.min.mjs") and (STATIC / name).exists():
+        elif name in (*scripts, "pdf.min.mjs", "pdf.worker.min.mjs", "ofl-1.1.txt") and (STATIC / name).exists():
             route.fulfill(path=STATIC / name)
         else:
             unexpected.append(name)
@@ -94,28 +99,40 @@ def archive(files, compression=ZIP_DEFLATED):
     return out.getvalue()
 
 
-def unpack(page, data, limits=LIMITS):
-    return page.evaluate("""async ([bytes, limits]) => {
-        const doc = await JjokArchive.unpack(new File([new Uint8Array(bytes)], "문서.jjok"), limits);
+def unpack(page, data, limits=LIMITS, known=None):
+    return page.evaluate("""async ([bytes, limits, known]) => {
+        const doc = await JjokArchive.unpack(new File([new Uint8Array(bytes)], "문서.jjok"), limits, known);
+        for (const font of doc.fonts || []) {
+            for (const key of ["file", "notice"]) {
+                if (key in font) font[key] = Array.from(new Uint8Array(await font[key].arrayBuffer()));
+            }
+        }
         if (doc.proof) {
             const {blob, ...info} = doc.proof;
             if (!(blob instanceof Blob) || blob.type !== "application/pdf") throw Error("expected PDF Blob");
             doc.proof = {...info, blob: Array.from(new Uint8Array(await blob.arrayBuffer()))};
         }
         return doc;
-    }""", [list(data), limits])
+    }""", [list(data), limits, known])
 
 
-def pack(page, *, include=True, pdf=None, meta=None, source=SOURCE, style=STYLE, limits=LIMITS):
+def pack(page, *, include=True, pdf=None, meta=None, source=SOURCE, style=STYLE, limits=LIMITS, fonts=None, known=None):
     doc = {"source": source, "style": style, "includeProof": include, "proof": None}
+    if fonts is not None:
+        doc["fonts"] = fonts
     if pdf is not None:
         doc["proof"] = {**(meta or {"state": "stale", "mode": "model"}), "blob": list(pdf)}
-    return bytes(page.evaluate("""async ([doc, limits]) => {
+    return bytes(page.evaluate("""async ([doc, limits, known]) => {
+        for (const font of new Set(doc.fonts || [])) {
+            for (const key of ["file", "notice"]) {
+                if (key in font) font[key] = new Blob([new Uint8Array(font[key])]);
+            }
+        }
         if (doc.proof) doc.proof.blob = new Blob([new Uint8Array(doc.proof.blob)]);
-        const file = await JjokArchive.pack(doc, limits);
+        const file = await JjokArchive.pack(doc, limits, known);
         if (!(file instanceof Blob)) throw Error("expected ZIP Blob");
         return Array.from(new Uint8Array(await file.arrayBuffer()));
-    }""", [doc, limits]))
+    }""", [doc, limits, known]))
 
 
 @pytest.mark.parametrize("include,has_pdf,state,mode", [
@@ -132,7 +149,9 @@ def test_pack_is_a_standard_zip(codec, pdf, include, has_pdf, state, mode):
         assert all(e.compress_type in (ZIP_STORED, ZIP_DEFLATED) for e in zipped.infolist())
         assert zipped.read("manuscript.md") == SOURCE.encode()
         assert json.loads(zipped.read("style.json")) == STYLE
-        assert json.loads(zipped.read("manifest.json")) == manifest(include, info if has_proof else None)
+        assert json.loads(zipped.read("manifest.json")) == {
+            **manifest(include, info if has_proof else None), "version": 2, "fonts": [],
+        }
         if has_proof:
             exported = zipped.read("proof.pdf")
             assert exported == pdf
@@ -148,7 +167,7 @@ def test_open_python_zip(codec, pdf, compression, include, mode):
     info = {"state": "stale" if mode == "model" else "current", "mode": mode} if mode else None
     data = archive(entries(manifest(include, info), pdf if mode else None), compression)
     assert unpack(codec, data) == {"source": SOURCE, "style": STYLE, "includeProof": include,
-                                   "proof": {**info, "blob": list(pdf)} if mode else None}
+                                   "proof": {**info, "blob": list(pdf)} if mode else None, "fonts": []}
 
 
 @pytest.mark.parametrize("codec", ["fallback"], indirect=True)
@@ -190,6 +209,7 @@ def test_duplicate_and_nonregular_entry(codec):
 
 @pytest.mark.parametrize("metadata,with_pdf", [
     ({**manifest(), "version": 2}, False),
+    ({**manifest(), "version": 3, "fonts": []}, False),
     ({**manifest(), "format": "other"}, False),
     ({"format": "jjokgyeol", "version": 1}, False),
     (manifest(include="false"), False),

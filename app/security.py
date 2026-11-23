@@ -148,6 +148,10 @@ def allows_decision_key(scheme: str, hostname: str | None) -> bool:
     """Use the ASGI scheme and the Host already checked by SecurityMiddleware."""
     if scheme != "http":
         return scheme == "https"
+    return is_loopback_host(hostname)
+
+
+def is_loopback_host(hostname: str | None) -> bool:
     if hostname in LOOPBACK_HOSTS:
         return True
     try:

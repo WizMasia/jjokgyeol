@@ -19,8 +19,15 @@ fn main() {
         {
             thread::sleep(Duration::from_secs(6));
         }
-        let mut request = String::new();
-        std::io::stdin().read_to_string(&mut request).unwrap();
+        let mut raw = Vec::new();
+        std::io::stdin().read_to_end(&mut raw).unwrap();
+        let request = if raw.first() == Some(&0) {
+            let end = 4 + u32::from_be_bytes(raw[..4].try_into().unwrap()) as usize;
+            assert_eq!(&raw[end..], vec![0xff; 2_000_000]);
+            std::str::from_utf8(&raw[4..end]).unwrap()
+        } else {
+            std::str::from_utf8(&raw).unwrap()
+        };
         assert!(request.contains("test-only-secret"));
         assert!(args
             .iter()

@@ -1,13 +1,21 @@
 local glyph = node.id("glyph")
 local source_unicode = luatexbase.attributes.luatexkounicodeattr
 
+-- Generated glyphs can be inserted after luaotfload has already selected fallback fonts.
+local function set_glyph(n, id, char)
+  local face = font.getfont(id)
+  n.char = char
+  n.font = face.characters[char] and id or assert(face.fallback_lookup[char], "missing label character")
+end
+
 local function label_missing(head, g)
   local label = string.format("[U+%04X]", g.char)
-  g.char = label:byte(1)
+  local original_font = g.font
+  set_glyph(g, original_font, label:byte(1))
   local previous = g
   for i = 2, #label do
     local part = node.copy(g)
-    part.char = label:byte(i)
+    set_glyph(part, original_font, label:byte(i))
     head, previous = node.insert_after(head, previous, part)
   end
   return head
@@ -71,4 +79,5 @@ return function(policy, font_basename)
     return check_private_slots(head, #policy.font_order)
   end, "jjokgyeol.private_glyph")
   luatexbase.add_to_callback("post_shaping_filter", mark_missing, "jjokgyeol.missing_glyph")
+  return set_glyph
 end
