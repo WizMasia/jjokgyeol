@@ -354,12 +354,17 @@ async fn render_proof(
     state: State<'_, Limits>,
     source: String,
     style: serde_json::Value,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<tauri::ipc::Response, String> {
+    let deadline = Instant::now() + state.timeout;
     require_window(&window, "main")?;
-    let request = serde_json::to_vec(&serde_json::json!({"source": &source, "style": &style}))
+    let body = serde_json::to_vec(&serde_json::json!({"source": &source, "style": &style}))
         .map_err(|e| e.to_string())?;
-    if !safety::within_limit(&request, state.request) {
+    if !safety::within_limit(&body, state.request) {
         return Err("request exceeds limit".into());
+    }
+    if wants_spacing(&request) {
+        return decision_proof(&app, &state, body, deadline, true, true).await;
     }
     let runtime = runtime(&app)?;
     let limit = state.file;
@@ -448,6 +453,7 @@ async fn render_model_proof(
     source: String,
     style: serde_json::Value,
     connection: serde_json::Value,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<tauri::ipc::Response, String> {
     let deadline = Instant::now() + state.timeout;
     require_window(&window, "main")?;
@@ -455,7 +461,7 @@ async fn render_model_proof(
         &serde_json::json!({"source":source, "style":style, "connection":connection}),
         state.request,
     )?;
-    decision_proof(&app, &state, body, deadline).await
+    decision_proof(&app, &state, body, deadline, false, wants_spacing(&request)).await
 }
 
 #[tauri::command]
@@ -473,7 +479,22 @@ async fn render_font_proof(
     if !state.fonts.accepts_frame(bytes, state.request) {
         return Err("글꼴 요청의 크기와 형식을 확인하세요.".into());
     }
-    decision_proof(&app, &state, bytes.to_vec(), deadline).await
+    decision_proof(
+        &app,
+        &state,
+        bytes.to_vec(),
+        deadline,
+        false,
+        wants_spacing(&request),
+    )
+    .await
+}
+
+fn wants_spacing(request: &tauri::ipc::Request<'_>) -> bool {
+    request
+        .headers()
+        .get("x-jjokgyeol-spacing")
+        .is_some_and(|value| value == "1")
 }
 
 async fn decision_proof(
@@ -481,10 +502,13 @@ async fn decision_proof(
     state: &Limits,
     body: Vec<u8>,
     deadline: Instant,
+    plain: bool,
+    with_spacing: bool,
 ) -> Result<tauri::ipc::Response, String> {
     let runtime = runtime(app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
     run_with_deadline(&state.render_slots, deadline, move |timeout| {
-        jjokgyeol_proof::render_model_proof(&runtime, body, timeout).map(tauri::ipc::Response::new)
+        jjokgyeol_proof::render_preview(&runtime, body, timeout, plain, with_spacing)
+            .map(tauri::ipc::Response::new)
     })
     .await
 }

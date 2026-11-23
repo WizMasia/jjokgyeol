@@ -105,7 +105,7 @@ def bundled_typesetter(runtime):
     return partial(typeset, engine=Path(engine_path(engine)), font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
 
 
-def decision_request(runtime):
+def decision_request(runtime, *, plain=False, with_spacing=False):
     from app.ai.providers import ProviderError, check_connection, parse_render_connection
 
     deadline = monotonic() + LIMITS.timeout_seconds
@@ -143,20 +143,22 @@ def decision_request(runtime):
             return 0
         connection = None
         reason = None
-        if isinstance(request, dict) and 'connection' in request:
+        if not plain and isinstance(request, dict) and 'connection' in request:
             raw_connection = request.pop('connection')
             if raw_connection != {'provider': 'rule'}:
                 connection, reason = parse_render_connection(raw_connection, desktop=True)
         with context:
-            return render_decision(runtime, request, deadline, connection, reason)
+            return render_decision(runtime, request, deadline, connection, reason, plain=plain, with_spacing=with_spacing)
     except ProviderError as error:
         print(json.dumps({'code': error.code}), file=sys.stderr)
         return 1
 
 
-def render_decision(runtime, request, deadline, connection, reason):
+def render_decision(runtime, request, deadline, connection, reason, *, plain=False, with_spacing=False):
     doc, style = manuscript(request)
     bundled = bundled_typesetter(runtime)
+    if with_spacing:
+        bundled = partial(bundled, collect_spacing=True)
     workdir = Path.cwd()
     measure = workdir / 'measure'
 
@@ -169,7 +171,7 @@ def render_decision(runtime, request, deadline, connection, reason):
 
     if connection is None:
         measure.mkdir()
-        pdf = render(doc, style, measure, collect_candidates=True)
+        pdf = render(doc, style, measure, collect_candidates=not plain)
         status = 'rule'
     else:
         from app.ai.decision import render_provider_choice
@@ -184,9 +186,11 @@ def render_decision(runtime, request, deadline, connection, reason):
 
 def main():
     parser = ArgumentParser()
+    parser.add_argument('--spacing-receipt', action='store_true')
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--runtime', type=Path)
     modes.add_argument('--model-proof', type=Path)
+    modes.add_argument('--plain-proof', type=Path)
     modes.add_argument('--check-decision', action='store_true')
     modes.add_argument('--paragraph-align', action='store_true')
     modes.add_argument('--style-open', action='store_true')
@@ -195,8 +199,9 @@ def main():
     try:
         args = parser.parse_args()
         limit_worker_files(LIMITS.worker_file_bytes)
-        if args.model_proof or args.check_decision:
-            return decision_request(args.model_proof)
+        if args.plain_proof or args.model_proof or args.check_decision:
+            return decision_request(args.plain_proof or args.model_proof, plain=args.plain_proof is not None,
+                                    with_spacing=args.spacing_receipt)
         if args.paragraph_align:
             from app.paragraph_worker import alignment_response
             sys.stdout.buffer.write(alignment_response(sys.stdin.buffer))

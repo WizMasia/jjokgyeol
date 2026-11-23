@@ -2,6 +2,7 @@
 import asyncio
 import ctypes
 from decimal import Decimal, InvalidOperation
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ if __name__ == "__main__":
 
 from app.configuration import unique_fields
 from app.operations import LIMITS
+from app.publication import MAX_SAFE_INTEGER
 from app.security import complete_pdf, harden_worker, worker_env
 
 TIMEOUT = LIMITS.timeout_seconds
@@ -59,6 +61,25 @@ def read_rule_pdf(workdir):
     if not complete_pdf(rule):
         raise JobError(500)
     return rule
+
+
+def read_spacing(folder):
+    """Expose only measured coordinates and a known decision source from this PDF."""
+    try:
+        with (folder / "spacing.json").open("rb") as stream:
+            raw = stream.read(LIMITS.request_body_bytes + 1)
+        if len(raw) > LIMITS.request_body_bytes:
+            return None
+        rows = json.loads(raw, object_pairs_hook=unique_fields)
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    fields = ("before_line", "after_line", "gap_sp")
+    return [{key: row[key] for key in (*fields, "source")} for row in rows
+            if isinstance(row, dict) and row.get("valid") is True
+            and row.get("source") in ("manual", "style", "ai", "rule", "default")
+            and all(type(row.get(key)) is int and 0 <= row[key] <= MAX_SAFE_INTEGER for key in fields)]
 
 
 def read_payload(workdir, checking):
@@ -141,18 +162,19 @@ def process_payload(workdir, payload, checking):
         doc = parse_md(payload.get("source"))
         fields = payload.get("style", {})
         style = NEW_DOCUMENT_STYLE if fields == {} else from_editor_style(fields)
+        render_pdf = partial(typeset, collect_spacing=True) if "--spacing-receipt" in sys.argv else typeset
         if reason:
             from app.ai.decision import measure_rule
-            pdf = measure_rule(doc, style, workdir / "measure")
+            pdf = measure_rule(doc, style, workdir / "measure", typesetter=render_pdf)
         elif mode == "model" and (connection is not None or os.getenv("JJOKGYEOL_DECISION_HOST")):
             from app.ai.decision import render_provider_choice
             deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT
             pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection,
-                                                        baseline_ready=publish_baseline)
+                                                        typesetter=render_pdf, baseline_ready=publish_baseline)
         elif "decision" in payload:
-            pdf = typeset(doc, style, workdir, collect_candidates=True)
+            pdf = render_pdf(doc, style, workdir, collect_candidates=True)
         else:
-            pdf = typeset(doc, style, workdir)
+            pdf = render_pdf(doc, style, workdir)
     except InputError as error:
         raise JobError(422, error.field, error.message) from None
 
@@ -183,8 +205,8 @@ def decision_command(*args, allow_key):
     return command if allow_key else (*command, "--keyless")
 
 
-async def render(body, deadline=None, *, compare=False, allow_key=True, font_frame=None):
-    with_decision = compare or deadline is not None
+async def render(body, deadline=None, *, compare=False, allow_key=True, font_frame=None, with_spacing=False):
+    with_decision = compare or deadline is not None or with_spacing
     if deadline is None:
         deadline = monotonic() + TIMEOUT
     command = decision_command(str(deadline), allow_key=allow_key)
@@ -192,7 +214,10 @@ async def render(body, deadline=None, *, compare=False, allow_key=True, font_fra
         command += ("--remote-font-frame" if font_frame == "remote" else "--local-font-frame",)
     if compare:
         command += ("--compare",)
-    result = await isolated_job(body, command, None, "response.pdf", with_decision=True, compare=compare)
+    if with_spacing:
+        command += ("--spacing-receipt",)
+    result = await isolated_job(body, command, None, "response.pdf", with_decision=True, compare=compare,
+                                with_spacing=with_spacing)
     return result if with_decision else result[0]
 
 
@@ -205,6 +230,7 @@ async def isolated_job(
     *,
     with_decision=False,
     compare=False,
+    with_spacing=False,
 ):
     """A missing request filename keeps the entire body in a pipe, including invalid JSON."""
     if sys.platform == "linux":
@@ -251,21 +277,39 @@ async def isolated_job(
         if status == INVALID_INPUT and (workdir / "invalid.json").is_file():
             field, message = json.loads((workdir / "invalid.json").read_text("utf-8"))
             raise JobError(422, field, message)
+        selected_folder = workdir
         if status != 0 or model_timed_out:
             # A worker can publish its baseline and exit between consecutive polls.
-            if with_decision and marker.is_file():
-                reason = "timeout" if model_timed_out else "invalid_response"
-                return read_rule_pdf(workdir), "rule", reason
-            raise JobError(500)
-        if response_name is None:
-            return output
-        data = (workdir / response_name).read_bytes()
-        if with_decision:
+            if not with_decision or not marker.is_file():
+                raise JobError(500)
+            reason = "timeout" if model_timed_out else "invalid_response"
+            applied = "rule"
+            data = read_rule_pdf(workdir)
+            if (workdir / "line-replay-ready").is_file():
+                selected_folder = workdir / "replay"
+                try:
+                    replay = (selected_folder / "book.pdf").read_bytes()
+                except OSError:
+                    replay = b""
+                if complete_pdf(replay):
+                    data, applied = replay, "mixed"
+        else:
+            if response_name is None:
+                return output
+            data = (workdir / response_name).read_bytes()
+            if not with_decision:
+                return data
             applied, reason = json.loads((workdir / "decision-status").read_text("ascii"))
-            if compare and applied in ("model", "mixed"):
-                return (read_rule_pdf(workdir), data), applied, reason
-            return data, applied, reason
-        return data
+        paired = compare and applied in ("model", "mixed")
+        result = ((read_rule_pdf(workdir), data) if paired else data, applied, reason)
+        if not with_spacing:
+            return result
+        measure = workdir / "measure"
+        folders = {"rule": measure if measure.is_dir() else workdir}
+        if applied in ("model", "mixed"):
+            folders = {**(folders if paired else {}), "model": selected_folder}
+        return (*result, {key: rows for key, folder in folders.items()
+                          if (rows := read_spacing(folder)) is not None})
 
 
 if __name__ == "__main__":

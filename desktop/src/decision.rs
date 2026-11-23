@@ -72,6 +72,7 @@ fn run(
     request: Vec<u8>,
     deadline: Instant,
     mut budget: Option<ModelBudget>,
+    with_spacing: bool,
 ) -> Result<(), String> {
     let config = operations().map_err(|_| error("unavailable"))?;
     let request_limit = config_number(&config, "request_body_bytes");
@@ -86,8 +87,15 @@ fn run(
     if Instant::now() >= deadline {
         return Err(error("timeout"));
     }
-    let mut child = spawn_worker(&runtime, work, flag, Stdio::piped(), Stdio::piped())
-        .map_err(|_| error("unavailable"))?;
+    let mut child = spawn_worker(
+        &runtime,
+        work,
+        flag,
+        with_spacing,
+        Stdio::piped(),
+        Stdio::piped(),
+    )
+    .map_err(|_| error("unavailable"))?;
     let mut stdin = child.stdin.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let marker = work.join("baseline-ready");
@@ -132,7 +140,7 @@ fn run(
     })?;
     if !status.success() {
         let bytes = diagnostic.unwrap_or_default();
-        if flag == "--model-proof" {
+        if flag != "--check-decision" {
             if let Some(message) = validation_error(&bytes) {
                 return Err(message);
             }
@@ -170,6 +178,7 @@ pub fn check_decision_connection(
         connection,
         deadline,
         None,
+        false,
     )
 }
 
@@ -178,16 +187,55 @@ pub fn render_model_proof(
     request: Vec<u8>,
     timeout: Duration,
 ) -> Result<Vec<u8>, String> {
+    render_preview(runtime, request, timeout, false, false)
+}
+
+fn read_spacing(folder: &Path, limit: u64) -> Option<Value> {
+    let data = read_limited(&folder.join("spacing.json"), limit).ok()?;
+    let rows: Vec<Value> = serde_json::from_slice(&data).ok()?;
+    let coordinate = |v: &Value| v.as_u64().filter(|n| *n <= (1 << 53) - 1);
+    let measured = rows
+        .iter()
+        .filter_map(|row| {
+            let source = row["source"].as_str()?;
+            if row["valid"] != true
+                || !matches!(source, "manual" | "style" | "ai" | "rule" | "default")
+            {
+                return None;
+            }
+            Some(json!({
+                "before_line": coordinate(&row["before_line"])?,
+                "after_line": coordinate(&row["after_line"])?,
+                "gap_sp": coordinate(&row["gap_sp"])?,
+                "source": source,
+            }))
+        })
+        .collect();
+    Some(Value::Array(measured))
+}
+
+pub fn render_preview(
+    runtime: &Path,
+    request: Vec<u8>,
+    timeout: Duration,
+    plain: bool,
+    with_spacing: bool,
+) -> Result<Vec<u8>, String> {
     let deadline = deadline_after(timeout)?;
     let work = tempfile::tempdir().map_err(|_| error("unavailable"))?;
     let path = work.path();
     let result = run(
         runtime,
         path,
-        "--model-proof",
+        if plain {
+            "--plain-proof"
+        } else {
+            "--model-proof"
+        },
         request,
         deadline,
         Some(ModelBudget::configured()),
+        with_spacing,
     );
     if !path.join("baseline-ready").is_file() {
         return Err(result.err().unwrap_or_else(|| error("invalid_response")));
@@ -211,18 +259,48 @@ pub fn render_model_proof(
         };
         Some((decision.to_owned(), reason.clone(), selected))
     };
-    let (decision, reason, selected) = match result {
-        Ok(()) => selection().unwrap_or_else(|| ("rule".into(), json!("invalid_response"), vec![])),
-        Err(cause) => {
-            let cause: Value = serde_json::from_str(&cause).unwrap_or(Value::Null);
-            (
-                "rule".into(),
-                json!(public_code(&cause["code"]).unwrap_or("unavailable")),
-                vec![],
-            )
+    let mut selected_folder = path.to_path_buf();
+    let (decision, reason, selected) =
+        match result.and_then(|()| selection().ok_or_else(|| error("invalid_response"))) {
+            Ok(proof) => proof,
+            Err(cause) => {
+                let cause: Value = serde_json::from_str(&cause).unwrap_or(Value::Null);
+                let code = public_code(&cause["code"]).unwrap_or("unavailable");
+                let replay = path.join("replay");
+                let recovered = path
+                    .join("line-replay-ready")
+                    .is_file()
+                    .then(|| read_pdf(&replay.join("book.pdf"), limit).ok())
+                    .flatten();
+                if let Some(pdf) = recovered {
+                    selected_folder = replay;
+                    (
+                        "mixed".into(),
+                        json!(if code == "timeout" {
+                            code
+                        } else {
+                            "invalid_response"
+                        }),
+                        pdf,
+                    )
+                } else {
+                    ("rule".into(), json!(code), vec![])
+                }
+            }
+        };
+    let mut header = json!({"decision":decision, "reason":reason, "rule_bytes":rule.len()});
+    if with_spacing {
+        let cap = config_number(&config, "request_body_bytes");
+        if let Some(rows) = read_spacing(&path.join("measure"), cap) {
+            header["spacing"]["rule"] = rows;
         }
-    };
-    let header = json!({"decision":decision, "reason":reason, "rule_bytes":rule.len()}).to_string();
+        if !selected.is_empty() {
+            if let Some(rows) = read_spacing(&selected_folder, cap) {
+                header["spacing"]["model"] = rows;
+            }
+        }
+    }
+    let header = header.to_string();
     let mut frame = Vec::with_capacity(4 + header.len() + rule.len() + selected.len());
     frame.extend_from_slice(&(header.len() as u32).to_be_bytes());
     frame.extend_from_slice(header.as_bytes());

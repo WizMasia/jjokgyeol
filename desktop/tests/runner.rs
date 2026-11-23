@@ -428,3 +428,53 @@ fn binary_proof_exceeds_legacy_request_limit_in_isolated_worker() {
             .unwrap();
     assert!(proof.ends_with(b"%PDF-1.4\nrule\n%%EOF\n"));
 }
+
+#[test]
+fn optional_spacing_matches_rule_and_selected_pdfs_and_excludes_private_fields() {
+    let (runtime, _root) = setup();
+    for (source, plain) in [("plain-rule", true), ("mixed", false), ("rule", false)] {
+        let request = serde_json::json!({"source":source,"style":{},"secret":"test-only-secret"});
+        let frame = jjokgyeol_proof::render_preview(
+            &runtime,
+            request.to_string().into_bytes(),
+            std::time::Duration::from_secs(5),
+            plain,
+            true,
+        )
+        .unwrap();
+        let end = 4 + u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+        let header: serde_json::Value = serde_json::from_slice(&frame[4..end]).unwrap();
+        let rule = serde_json::json!([{"before_line":0,"after_line":2,"gap_sp":0,"source":"rule"}]);
+        let selected =
+            serde_json::json!([{"before_line":0,"after_line":2,"gap_sp":360448,"source":"ai"}]);
+        assert_eq!(
+            header["spacing"],
+            if source == "mixed" {
+                serde_json::json!({"rule":rule,"model":selected})
+            } else {
+                serde_json::json!({"rule":rule})
+            }
+        );
+        assert!(frame[end..].starts_with(b"%PDF-1.4\nrule\n%%EOF\n"));
+    }
+}
+
+#[test]
+fn failed_spacing_worker_returns_committed_line_replay_with_its_receipt() {
+    let (runtime, _root) = setup();
+    let request = br#"{"source":"replay-crash","key":"test-only-secret"}"#.to_vec();
+    let frame = jjokgyeol_proof::render_preview(
+        &runtime,
+        request,
+        std::time::Duration::from_secs(5),
+        false,
+        true,
+    )
+    .unwrap();
+    let end = 4 + u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+    let header: serde_json::Value = serde_json::from_slice(&frame[4..end]).unwrap();
+    assert_eq!(header["decision"], "mixed");
+    assert_eq!(header["reason"], "invalid_response");
+    assert_eq!(header["spacing"]["model"][0]["gap_sp"], 0);
+    assert!(frame[end..].ends_with(b"%PDF-line\n%%EOF"));
+}

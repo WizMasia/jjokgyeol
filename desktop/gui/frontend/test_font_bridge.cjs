@@ -56,3 +56,39 @@ test('paragraph alignment forwards the payload and reply unchanged over local IP
     assert.equal(await desktop.paragraphAlign(payload), result);
   }
 });
+
+test('plain, paired and font previews opt in without changing PDF bytes or default types', async () => {
+  const row = {before_line: 0, after_line: 2, gap_sp: 0, source: 'rule'};
+  for (const kind of ['plain', 'paired', 'font']) {
+    const both = kind !== 'plain';
+    const spacing = both ? {rule: [row], model: [{...row, gap_sp: 99, source: 'ai'}]} : {rule: [row]};
+    const desktop = bridge((cmd, args, options) => {
+      if (cmd === 'style_convert') return {};
+      assert.equal(cmd, {plain: 'render_proof', paired: 'render_model_proof', font: 'render_font_proof'}[kind]);
+      const optIn = options?.headers?.['x-jjokgyeol-spacing'] === '1';
+      if (kind === 'font') assert.deepEqual(args, Uint8Array.of(1, 2));
+      if (!both && !optIn) return Buffer.from('%PDF-rule');
+      const header = Buffer.from(JSON.stringify({decision: both ? 'model' : 'rule', reason: null,
+        rule_bytes: 9, ...(optIn && {spacing})}));
+      const prefix = Buffer.alloc(4);
+      prefix.writeUInt32BE(header.length);
+      return Buffer.concat([prefix, header, Buffer.from('%PDF-rule' + (both ? '%PDF-model' : ''))]);
+    });
+    const call = flag => kind === 'font' ? desktop.fontProof(Uint8Array.of(1, 2), flag) :
+      both ? desktop.modelProof('source', {}, {}, flag) : desktop.proof('source', {}, flag);
+    const proof = await call(true);
+    assert.deepEqual(JSON.parse(JSON.stringify(proof.spacing ?? null)), spacing);
+    assert.equal(await proof.rule.text(), '%PDF-rule');
+    if (both) assert.equal(await proof.model.text(), '%PDF-model');
+    const legacy = await call();
+    assert.equal(await (both ? legacy.rule : legacy).text(), '%PDF-rule');
+    assert.equal(legacy.spacing, undefined);
+  }
+});
+
+test('a previous native runner returning raw PDF still supplies an opted-in rule proof', async () => {
+  const desktop = bridge(cmd => cmd === 'style_convert' ? {} : Buffer.from('%PDF-old'));
+  const proof = await desktop.proof('source', {}, true);
+  assert.equal(await proof.rule.text(), '%PDF-old');
+  assert.equal(proof.spacing, undefined);
+});

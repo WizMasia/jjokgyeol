@@ -6,7 +6,9 @@ use std::process::{Child, Command, Stdio};
 use windows_spawn::{Child, Command, DropPolicy, SpawnOptions, Stdio};
 
 mod decision;
-pub use decision::{check_decision_connection, decision_check_timeout, render_model_proof};
+pub use decision::{
+    check_decision_connection, decision_check_timeout, render_model_proof, render_preview,
+};
 use std::{
     error::Error,
     ffi::OsString,
@@ -317,6 +319,7 @@ fn spawn_worker(
     runtime: &Path,
     work: &Path,
     flag: &str,
+    spacing_receipt: bool,
     stdin: Stdio,
     stderr: Stdio,
 ) -> std::io::Result<Child> {
@@ -327,6 +330,9 @@ fn spawn_worker(
     command.env_clear().envs(worker_env_pairs()).arg(flag);
     if flag != "--check-decision" {
         command.arg(runtime);
+    }
+    if spacing_receipt {
+        command.arg("--spacing-receipt");
     }
     command
         .current_dir(work)
@@ -382,7 +388,14 @@ fn run_worker(
     stderr: fs::File,
 ) -> Result<std::process::ExitStatus, Box<dyn Error>> {
     let monitor = stderr.try_clone()?;
-    let mut child = spawn_worker(runtime, work, "--runtime", Stdio::null(), stderr.into())?;
+    let mut child = spawn_worker(
+        runtime,
+        work,
+        "--runtime",
+        false,
+        Stdio::null(),
+        stderr.into(),
+    )?;
     Ok(wait_worker(&mut child, timeout, || {
         if monitor
             .metadata()

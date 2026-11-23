@@ -496,3 +496,29 @@ def test_paragraph_alignment_rejects_invalid_input(tmp_path, raw):
     assert result.returncode == 1 and result.stdout == b''
     error = json.loads(result.stderr)
     assert error['code'] == 'invalid_input' and error['field'] and error['message']
+
+
+def test_native_plain_receipt_renders_with_plain_typesetting_options(tmp_path, monkeypatch):
+    import io
+    from app.style import Style
+    from desktop.worker import worker
+
+    pdf = b"%PDF-rule\n%%EOF"
+    row = {"before_line": 0, "after_line": 2, "gap_sp": 0, "source": "rule", "valid": True}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(worker, "limit_worker_files", lambda size: None)
+    monkeypatch.setattr(sys, "argv", ["worker", "--plain-proof", str(tmp_path), "--spacing-receipt"])
+    payload = json.dumps({"source": "test", "style": Style().to_stored()}).encode()
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(payload)))
+
+    def typesetter(doc, style, folder, *, collect_candidates=False, collect_spacing=False):
+        assert collect_spacing and not collect_candidates
+        (folder / "book.pdf").write_bytes(pdf)
+        (folder / "spacing.json").write_text(json.dumps([row]))
+        return pdf
+
+    monkeypatch.setattr(worker, "bundled_typesetter", lambda runtime: typesetter)
+    assert worker.main() == 0
+    assert (tmp_path / "baseline-ready").is_file()
+    assert (tmp_path / "measure/book.pdf").read_bytes() == pdf
+    assert json.loads((tmp_path / "measure/spacing.json").read_bytes()) == [row]

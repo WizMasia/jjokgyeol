@@ -58,14 +58,21 @@ def failure(status, field=None, message=None, *, byte_limit=None, code=None):
                         status_code=status, headers=NO_STORE)
 
 
-def proof_pair_response(rule, model, headers):
+def proof_pair_response(rule, model=None, *, headers, spacing=None):
     boundary = uuid4().hex
 
     async def parts():
         for name, pdf in (("rule", rule), ("model", model)):
+            if pdf is None:
+                continue
             yield (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; '
                    f'filename="{name}.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode("ascii")
             yield pdf
+            yield b"\r\n"
+        if spacing:
+            yield (f'--{boundary}\r\nContent-Disposition: form-data; name="spacing"\r\n'
+                   'Content-Type: application/json\r\n\r\n').encode("ascii")
+            yield json.dumps(spacing, separators=(",", ":")).encode("ascii")
             yield b"\r\n"
         yield f"--{boundary}--\r\n".encode("ascii")
 
@@ -182,14 +189,17 @@ class DocumentJob:
                     jobs.isolated_job(body, command, request_name=None, response_name=None), request.receive)
                 return Response(result, media_type="application/json", headers=NO_STORE)
             compare = request.headers.get("accept", "").strip().lower() == "multipart/form-data"
-            result, status, reason = await while_connected(
-                jobs.render(body, worker_deadline, compare=compare, allow_key=allow_key, font_frame=font_destination),
+            with_spacing = compare and request.headers.get("x-jjokgyeol-spacing") == "1"
+            result, status, reason, *extra = await while_connected(
+                jobs.render(body, worker_deadline, compare=compare, allow_key=allow_key,
+                            font_frame=font_destination, with_spacing=with_spacing),
                 request.receive)
             headers = {**NO_STORE, "X-Jjokgyeol-Decision": status}
             if reason is not None:
                 headers["X-Jjokgyeol-Decision-Reason"] = reason
-            if isinstance(result, tuple):
-                return proof_pair_response(*result, headers=headers)
+            if isinstance(result, tuple) or with_spacing:
+                files = result if isinstance(result, tuple) else (result,)
+                return proof_pair_response(*files, headers=headers, spacing=extra[0] if with_spacing else None)
             return Response(result, media_type="application/pdf", headers=headers)
         if self.action == "import":
             name = request.query_params.get("name", "")

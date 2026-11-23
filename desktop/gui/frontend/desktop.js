@@ -6,19 +6,21 @@ function modelProofFiles(result) {
     const start = 4 + new DataView(bytes.buffer).getUint32(0, false);
     if (start > bytes.length) throw new RangeError();
     const header = new TextDecoder("utf-8", {fatal: true}).decode(bytes.subarray(4, start));
-    const {decision, reason, rule_bytes} = JSON.parse(header);
+    const {decision, reason, rule_bytes, spacing} = JSON.parse(header);
     const split = start + rule_bytes;
     if (!Number.isSafeInteger(rule_bytes) || rule_bytes <= 0 || split > bytes.length ||
         !["rule", "model", "mixed"].includes(decision) || (decision === "rule") !== (split === bytes.length)) {
       throw new Error();
     }
     const pdf = data => new Blob([data], {type: "application/pdf"});
-    return {decision, reason, rule: pdf(bytes.subarray(start, split)),
+    return {decision, reason, ...(spacing && {spacing}), rule: pdf(bytes.subarray(start, split)),
       model: decision === "rule" ? null : pdf(bytes.subarray(split))};
   } catch {
     throw new Error("올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
   }
 }
+
+const spacingOptions = {headers: {"x-jjokgyeol-spacing": "1"}};
 
 const desktop = {
   async invoke(command, args, options) {
@@ -44,14 +46,18 @@ const desktop = {
   async style(action, body) {
     return this.invoke("style_convert", {action, body: typeof body === "string" ? body : await body.text()});
   },
-  async proof(source, style) {
+  async proof(source, style, withSpacing = false) {
     const stored = await this.style("export", JSON.stringify(style));
-    const result = await this.invoke("render_proof", {source, style: stored});
-    return new Blob([new Uint8Array(result)], {type: "application/pdf"});
+    const result = await this.invoke("render_proof", {source, style: stored}, withSpacing ? spacingOptions : undefined);
+    const bytes = new Uint8Array(result);
+    if (withSpacing && new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") return modelProofFiles(bytes);
+    const rule = new Blob([bytes], {type: "application/pdf"});
+    return withSpacing ? {rule} : rule;
   },
-  async modelProof(source, style, connection) {
+  async modelProof(source, style, connection, withSpacing = false) {
     const stored = await this.style("export", JSON.stringify(style));
-    const result = await this.invoke("render_model_proof", {source, style: stored, connection}).catch(error => {
+    const result = await this.invoke("render_model_proof", {source, style: stored, connection},
+      withSpacing ? spacingOptions : undefined).catch(error => {
       if (error.code === "invalid_input") throw error;
       throw new Error(decisionMessage(error.code) || decisionMessages.unavailable);
     });
@@ -66,9 +72,9 @@ const desktop = {
   async builtinFont(hash) {
     return new Blob([new Uint8Array(await this.invoke("builtin_font", {hash}))]);
   },
-  async fontProof(frame) {
+  async fontProof(frame, withSpacing = false) {
     const bytes = frame instanceof Blob ? new Uint8Array(await frame.arrayBuffer()) : frame;
-    return modelProofFiles(await this.invoke("render_font_proof", bytes));
+    return modelProofFiles(await this.invoke("render_font_proof", bytes, withSpacing ? spacingOptions : undefined));
   },
   async save(blob, name) {
     // JSON 배열 직렬화 증폭을 피하고 원시 바이트로 IPC 전송 / Send raw binary payload with encoded filename header.

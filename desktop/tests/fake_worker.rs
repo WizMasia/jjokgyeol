@@ -6,7 +6,7 @@ fn main() {
         fs::write(&args[2], "survived").unwrap();
         return;
     }
-    if args[1] == "--model-proof" || args[1] == "--check-decision" {
+    if args[1] == "--model-proof" || args[1] == "--plain-proof" || args[1] == "--check-decision" {
         use std::io::Read;
         if env::current_exe()
             .unwrap()
@@ -47,11 +47,33 @@ fn main() {
             return;
         }
         fs::create_dir("measure").unwrap();
+        assert_eq!(args[1] == "--plain-proof", request.contains("plain-rule"));
+        for (file, source, gap) in [
+            ("measure/spacing.json", "rule", 0),
+            ("spacing.json", "ai", 360448),
+        ] {
+            let rows = r#"[{"before_line":0,"after_line":2,"gap_sp":GAP,"source":"SOURCE","valid":true,"private":"private-text"},
+                {"before_line":2,"after_line":4,"gap_sp":0,"source":"private-text","valid":true},
+                {"before_line":2,"after_line":4,"gap_sp":0,"source":"rule","valid":false}]"#;
+            fs::write(
+                file,
+                rows.replace("SOURCE", source)
+                    .replace("GAP", &gap.to_string()),
+            )
+            .unwrap();
+        }
         fs::write("measure/book.pdf", b"%PDF-1.4\nrule\n%%EOF\n").unwrap();
         if request.contains("incomplete") {
             thread::sleep(Duration::from_secs(4));
         }
         fs::write("baseline-ready", "").unwrap();
+        if request.contains("replay-crash") {
+            fs::create_dir("replay").unwrap();
+            fs::write("replay/book.pdf", b"%PDF-line\n%%EOF").unwrap();
+            fs::copy("measure/spacing.json", "replay/spacing.json").unwrap();
+            fs::write("line-replay-ready", "").unwrap();
+            std::process::exit(1);
+        }
         if request.contains("hang") {
             let marker = std::path::Path::new(&args[2])
                 .parent()
