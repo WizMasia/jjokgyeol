@@ -930,9 +930,12 @@ function selectedLines(start, end) {
 }
 
 async function requestPin() {
+  const payload = {source: sourceText(), ...selectedLines(source.selectionStart, source.selectionEnd)};
+  const roles = Object.entries(typography.get().text_styles ?? {}).filter(([, fields]) => fields.align);
+  if (roles.length) payload.aligned_roles = roles.map(([role]) => role);
   const response = await fetch("/api/article/pin", {
     method: "POST", redirect: "error", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({source: sourceText(), ...selectedLines(source.selectionStart, source.selectionEnd)}),
+    body: JSON.stringify(payload),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || typeof data?.source !== "string") {

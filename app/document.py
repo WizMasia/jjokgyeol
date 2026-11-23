@@ -470,9 +470,11 @@ def _layout_source(source):
     return layout.scope_paragraphs(aligned), notes
 
 
-def heading_tokens(source: str):
+def heading_tokens(source: str, aligned_roles=()):
     """Yield top-level Markdown (opening, inline) tokens with original source line maps."""
     layout, notes = _layout_source(source)
+    if aligned_roles:
+        layout = _document(layout, notes).alignment_layout(aligned_roles)._layout
     tokens = _tokens(layout, notes)
     for index, token in enumerate(tokens):
         if token.type == "heading_open" and token.level == 0 and token.map[0] not in layout.fenced_lines:

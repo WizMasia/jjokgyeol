@@ -56,7 +56,8 @@ OPTIONAL_UNITS = {
 }
 ARRAY_LENGTHS = {"page_sp": 2, "margins_sp": 4, "space_per_10000": 2, "ko_tracking_bounds_per_10000": 2}
 HEADING_ROLES = tuple(f"heading{level}" for level in range(1, len(publication.HEADINGS) + 1))
-TEXT_ROLES = ("body", *HEADING_ROLES, "note", "gloss")
+ALIGNMENT_ROLES = ("body", *HEADING_ROLES)
+TEXT_ROLES = (*ALIGNMENT_ROLES, "note", "gloss")
 
 FONTS = ("body_font", "heading_font")
 PAGE_ERROR = f"판형의 폭과 높이는 0보다 크고 {MAX_PAGE_MM}mm 이하여야 합니다."
@@ -401,7 +402,7 @@ def _text_styles(current, patch, stored, context, scale, errors):
                 if role != "body" and key == size_key:
                     value = _point_size(key, value, stored, context)
                     key = "font_sp"
-                elif key == "align" and role in ("body", *HEADING_ROLES):
+                elif key == "align" and role in ALIGNMENT_ROLES:
                     if value not in ("left", "center", "right"):
                         raise ValueError("정렬은 left, center, right 중 하나여야 합니다.")
                 elif role == "heading1" and key == "frame":

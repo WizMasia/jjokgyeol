@@ -10,6 +10,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.document import InputError, heading_title, heading_tokens
+from app.style import ALIGNMENT_ROLES
 
 
 def _unpin(inline, text, pin):
@@ -107,13 +108,16 @@ def _edit_heading(source, heading, inline, text, pin):
     return "".join(parts)
 
 
-def toggle_pin(source: str, first_line: int, last_line: int) -> str:
+def toggle_pin(source: str, first_line: int, last_line: int, aligned_roles=()) -> str:
     invalid = "원고에서 번호를 고정하거나 해제할 조 제목을 선택하세요."
     if type(first_line) is not int or type(last_line) is not int or not 0 <= first_line <= last_line:
         raise InputError({"source": invalid})
     if not isinstance(source, str):
         raise InputError({"source": "마크다운 원고는 문자열이어야 합니다."})
-    for heading, inline in heading_tokens(source.removeprefix("\ufeff")):
+    if (not isinstance(aligned_roles, (tuple, list)) or len(aligned_roles) > len(ALIGNMENT_ROLES)
+            or any(role not in ALIGNMENT_ROLES for role in aligned_roles)):
+        raise InputError({"source": "정렬을 지정한 본문·제목 단계를 확인하세요."})
+    for heading, inline in heading_tokens(source.removeprefix("\ufeff"), aligned_roles):
         start, end = heading.map
         if start <= first_line <= last_line < end:
             title = heading_title(inline)
@@ -132,7 +136,8 @@ if __name__ == "__main__":
     harden_worker(max_file_bytes=LIMITS.worker_file_bytes)
     try:
         values = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
-        if not isinstance(values, dict) or values.keys() != {"source", "first_line", "last_line"}:
+        required = {"source", "first_line", "last_line"}
+        if not isinstance(values, dict) or not required <= values.keys() <= required | {"aligned_roles"}:
             raise ValueError
         result = toggle_pin(**values)
     except InputError as error:

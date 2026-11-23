@@ -798,3 +798,20 @@ def test_manual_mode_choice_uses_installed_justified_preset(desk):
     expect(page.locator("#tracking-lower")).to_have_value("-2")
     expect(page.locator("#tracking-upper")).to_have_value("4.5")
     assert page.evaluate("styleForm.get().space_pct") == ["91", "112"]
+
+
+def test_pin_uses_the_inherited_alignment_heading_boundary(desk, toggle_heading):
+    page = desk.page
+    source = "    example\n제8조 목적\n---"
+    desk.source.fill(source)
+    toggle_heading("제8조")
+    expect(desk.source).to_have_value(source)
+    open_settings(page)
+    page.locator("#style summary").click()
+    page.locator("#text-role").select_option("heading2")
+    page.locator('[data-text="align"]').select_option("center")
+    close_settings(page)
+    toggle_heading("제8조")
+    expect(desk.source).to_have_value(source.replace("목적", "목적 {번호고정}"))
+    toggle_heading("제8조")
+    expect(desk.source).to_have_value(source)

@@ -149,3 +149,10 @@ async def test_pin_workers_share_the_configured_concurrency_bound(client, monkey
         for borrower in borrowers:
             limiter.release_on_behalf_of(borrower)
     assert (await edit(client, "# 제8조 목적", 0, 0)).status_code == 200
+
+
+@pytest.mark.parametrize("roles", [None, "heading2", ["note"], ["heading2"] * 8, [{}]])
+async def test_pin_rejects_invalid_alignment_roles(client, roles):
+    response = await client.post(URL, json={"source": "# 제8조", "first_line": 0, "last_line": 0,
+                                            "aligned_roles": roles})
+    assert response.status_code == 422
