@@ -26,7 +26,13 @@ Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호
 
 ## 내 컴퓨터에서 실행하기
 
-Docker와 Linux ARM64 컨테이너를 실행할 수 있는 환경이 필요합니다. 저장소를 받은 뒤 `Dockerfile`이 있는 폴더에서 실행합니다. 첫 빌드는 TeX와 나눔 글꼴 등의 의존성을 내려받습니다. 이후 기본 규칙 조판은 로컬에서 작동합니다.
+Docker와 Linux ARM64 컨테이너를 실행할 수 있는 환경이 필요합니다. 저장소를 받은 뒤 `Dockerfile`과 [compose.yaml](compose.yaml)이 있는 폴더에서 실행합니다. 첫 빌드는 TeX와 나눔 글꼴 등의 의존성을 내려받습니다. 이후 기본 규칙 조판은 로컬에서 작동합니다.
+
+```sh
+docker compose up -d --build
+```
+
+또는 `docker build`와 `docker run`으로 직접 실행할 수 있습니다.
 
 ```sh
 docker build --platform linux/arm64 --target local -t jjokgyeol:local-editor .
@@ -37,7 +43,7 @@ docker run -d --name jjokgyeol-local -p 127.0.0.1:8780:8000 \
   jjokgyeol:local-editor
 ```
 
-[로컬 편집기 열기](http://127.0.0.1:8780/). 예제 원고와 첫 PDF가 표시되면 준비된 상태입니다. 작업을 마칠 때는 `docker stop jjokgyeol-local`, 다음에 다시 열 때는 `docker start jjokgyeol-local`을 사용합니다.
+[로컬 편집기 열기](http://127.0.0.1:8780/). 예제 원고와 첫 PDF가 표시되면 준비된 상태입니다. 작업을 마칠 때는 `docker compose down`(직접 실행 시 `docker stop jjokgyeol-local`), 다음에 다시 열 때는 `docker compose up -d`(직접 실행 시 `docker start jjokgyeol-local`)를 사용합니다.
 
 > **보안 실행 안내**: 외부 모델·AI 서버를 쓰지 않는 순수 오프라인 규칙 조판이라면 `--network none` 대신 로컬 브리지 격리 또는 방화벽으로 외부 아웃바운드를 차단해 실행할 수 있습니다. 서버는 기본적으로 루프백 `Host` 헤더(`127.0.0.1`, `localhost`, `[::1]`)와 동일 출처(Same-Origin) 요청만 허용합니다. 별도 호스트명으로 접속해야 하면 `JJOKGYEOL_ALLOWED_HOSTS`에 쉼표로 구분해 명시하세요. 원격 AI 서버에 인증 토큰을 전송할 때는 루프백 주소를 제외하고 반드시 `https://`를 사용해야 합니다.
 
