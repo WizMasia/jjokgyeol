@@ -17,7 +17,7 @@ from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
 from app.security import worker_env
-from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS
+from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS, paragraph_spacing_sp
 
 if TYPE_CHECKING:
     from app.document import Document
@@ -37,10 +37,12 @@ def _tex_path(path):
 
 def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
             paragraph_choices: dict[int, str] | None = None,
+            spacing_choices: dict[str, int] | None = None, collect_spacing: bool = False,
             engine: Path | None = None, font_dir: Path | None = None,
             max_pdf_bytes: int | None = None) -> bytes:
     """Optionally collect paragraph-candidates.jsonl or replay its per-block IDs."""
-    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir, max_pdf_bytes)
+    return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir,
+                   max_pdf_bytes, spacing_choices, collect_spacing)
 
 
 def _running_fields(values):
@@ -98,28 +100,65 @@ def _omit_memos(spans):
     return visible
 
 
-def _hierarchy_items(doc, style, levels):
+def _styled_list_items(doc, style, levels, spaced_levels):
     overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
     for i, (block, values) in enumerate(zip(doc.blocks, overrides, strict=True)):
         if block.kind == "list_item" and block.first and i not in doc.fenced_blocks:
             row = levels[min(block.level, len(levels)) - 1]
-            if uses_hierarchy(values.get(f"levels.{block.level}.expr", row.expr)):
+            if (min(block.level, len(levels)) in spaced_levels
+                    or uses_hierarchy(values.get(f"levels.{block.level}.expr", row.expr))):
                 yield i
 
 
-def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None, font_dir=None, max_pdf_bytes=None):
+_SPACE_FIELDS = ("space_before_sp", "space_after_sp")
+
+
+def _spacing_boundaries(blocks, rows, style):
+    boundaries = {}
+    previous = None
+    for index, block in enumerate(blocks):
+        before, after = block.pop("spacing", (None, None))
+        if block["kind"] in ("paragraph", "heading") and block.get("overrides", {}).get("frame") != "box" and not any(
+            span["kind"] != "text" or span["text"].strip(" ") for span in block["inlines"]
+        ):
+            continue  # A paragraph containing only hidden memos has no printed boundary.
+        if previous is not None:
+            left, left_after = previous
+            sides = [side for side in (left_after, before) if side is not None]
+            fixed = [side for side in sides if type(side[0]) is int]
+            key = str(index + 1)
+            auto = bool(sides and not fixed)
+            gap, source = max(fixed, key=lambda side: (side[0], side[1] == "manual")) if fixed else (
+                None, "rule" if auto else "default")
+            boundaries[key] = dict(id=key, before_line=rows[left], after_line=rows[index],
+                                   source=source, auto=auto, left_kind=blocks[left]["kind"],
+                                   right_kind=block["kind"], left_level=blocks[left]["level"] or 0,
+                                   right_level=block["level"] or 0, body_sp=style.body_sp)
+            if gap is not None:
+                boundaries[key]["gap_sp"] = gap
+        previous = index, after
+    return boundaries
+
+
+def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None,
+            font_dir=None, max_pdf_bytes=None, spacing_choices=None, collect_spacing=False):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     role_styles = _role_styles(style)
     aligned_roles = {role for role, fields in role_styles.items() if "align" in fields}
-    doc = doc.alignment_layout(aligned_roles)
+    role_spacing = {role: {k: fields.pop(k) for k in _SPACE_FIELDS if k in fields}
+                    for role, fields in role_styles.items()}
+    prose_roles = aligned_roles | {role for role, sides in role_spacing.items() if sides}
+    doc = doc.alignment_layout(prose_roles)
     levels = style.resolved_list_levels()
+    spaced_levels = {i for i, row in enumerate(levels, 1)
+                     if row.space_before_sp is not None or row.space_after_sp is not None}
     expressions = [row.expr for row in levels]
     expressions.extend(value for rule in style.section_rules or () if rule.role == "list"
                        for key, value in rule.values if key.endswith(".expr"))
-    if any(map(uses_hierarchy, expressions)):
-        doc = doc.hierarchy_layout(lambda view: _hierarchy_items(view, style, levels))
-    eligible = doc.alignment_blocks() if aligned_roles else ()
+    if spaced_levels or any(map(uses_hierarchy, expressions)):
+        doc = doc.hierarchy_layout(lambda view: _styled_list_items(view, style, levels, spaced_levels))
+    eligible = doc.alignment_blocks() if prose_roles else ()
     overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
     for index, block in enumerate(doc.blocks):
         role = f"heading{block.level}" if block.kind == "heading" else "body"
@@ -129,6 +168,16 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             base = base | {k: v for k, v in (("font", level.font), ("font_sp", level.font_sp),
                                               ("weight", level.weight)) if v is not None}
         values = overrides[index] = base | overrides[index]
+        if index in eligible and role_spacing[role] or (
+            index not in doc.fenced_blocks and block.kind == "list_item" and min(block.level, len(levels)) in spaced_levels
+        ) or block.space_before_sp is not None or block.space_after_sp is not None:
+            inherited = vars(level) if block.kind == "list_item" else role_spacing[role]
+            sides = []
+            for field in _SPACE_FIELDS:
+                value = getattr(block, field)
+                sides.append((value, "manual") if value is not None else
+                             (inherited[field], "style") if inherited.get(field) is not None else None)
+            values["spacing"] = sides
         if direct := getattr(block, "align", None):
             values["align"] = direct
         elif index not in eligible:
@@ -139,8 +188,14 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
     box_ids = {}
     ordinals = []
+    has_spacing = False
     for block, values in zip(blocks, overrides, strict=True):
         block.pop("align", None)  # The resolved value travels in overrides, including through fence layout.
+        for field in _SPACE_FIELDS:
+            block.pop(field, None)
+        if "spacing" in values:
+            block["spacing"] = values.pop("spacing")
+            has_spacing = True
         if "running_id" in values:
             block["running_id"] = values.pop("running_id")
         if values:
@@ -205,6 +260,17 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
         snapshot = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
         data["paragraphs"] = {"snapshot": hashlib.sha256(snapshot).hexdigest(),
                               "collect": collect_candidates, "choices": paragraph_choices or {}}
+    if has_spacing or collect_spacing:
+        rows = doc._layout.block_rows if doc._layout else range(len(blocks))
+        boundaries = _spacing_boundaries(blocks, rows, style)
+        for key, gap in (spacing_choices or {}).items():
+            boundary = boundaries.get(key)
+            if boundary and boundary["auto"] and type(gap) is int:
+                boundary.update(gap_sp=paragraph_spacing_sp(gap, stored=True), source="ai")
+        if boundaries:
+            data["spacing"] = boundaries
+    if "spacing" not in data:
+        (workdir / "spacing.json").write_text("[]", encoding="utf-8")
     (workdir / "input.json").write_text(
         json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8"
     )

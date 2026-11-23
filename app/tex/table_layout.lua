@@ -160,7 +160,11 @@ function tables.headers(page)
       if n.id == hlist or n.id == vlist then
         local id = node.has_attribute(n, header_slot)
         if id then
-          if not seen[id] then n.head = node.copy_list(headers[id].head) end
+          if not seen[id] then
+            local header = headers[id]
+            n.head = node.copy_list(header.head)
+            if book.spacing then book.spacing.printed_header(header) end
+          end
           seen[id] = true
         else
           visit(n.head)
@@ -201,7 +205,9 @@ end
 function tables.write(r, first, last)
   local header = headers[#headers]
   if r == 1 then
-    node.write(node.copy(header))
+    local box = node.copy(header)
+    if book.spacing then book.spacing.table_unit(box, last - first + 1) end
+    node.write(box)
     row_notes(r, first, last)
     return
   end
@@ -216,6 +222,7 @@ function tables.write(r, first, last)
   local box = node.vpack(slot)
   -- Charge the entire row to the page goal, including its final descenders.
   box.height, box.depth = box.height + box.depth, 0
+  if book.spacing then book.spacing.table_unit(box, last - first + 1) end
   node.write(box)
   row_notes(r, first, last)
 end
@@ -239,6 +246,7 @@ function tables.paginate(note_gap)
   rule.width, rule.height, rule.depth = tex.hsize, tex.dimen.arrayrulewidth, 0
   head, tail = append(head, tail, rule)
   local header = node.vpack(head)
+  if book.spacing then book.spacing.table_unit(header, #rows[1].lines) end
   headers[#headers + 1] = header
   emit("\\par\\ifdim\\pagetotal>0pt\\vskip\\parskip\\fi\\nointerlineskip")
   local function entry(r, first, last)

@@ -9,6 +9,7 @@ local function left_at_page(page)
   return mirrored and page % 2 == 0 and outer or inner
 end
 local book = {}
+local default_gap = tex.sp(tostring(policy.paragraph_spacing.default_pt) .. "pt")
 local defaults = data.text_defaults
 local roles = style.text_styles or {}
 local note = {font_sp = defaults.note_sp, weight = defaults.weight, slant = defaults.slant}
@@ -60,6 +61,7 @@ function book.setup()
   emit(string.format("\\geometry{%spaperwidth=%s,paperheight=%s,top=%s,right=%s,bottom=%s,left=%s,noheadfoot}",
     mirrored and "twoside," or "", sp(p[1]), sp(p[2]), sp(m[1]), sp(outer), sp(m[3]), sp(inner)))
   book.set_glyph = require("font_fallback")(policy, font_basename)
+  if data.spacing then book.spacing = require("paragraph_spacing")(data.spacing, default_gap) end
   luatexbase.add_to_callback("pre_shipout_filter", require("font_text"), "jjokgyeol.font_text")
   local function font_pair(latin, hangul, name)
     local face = assert(policy.fonts[name])
@@ -91,7 +93,7 @@ function book.setup()
   for _, fields in pairs(roles) do
     register(fields)
     for key in pairs(fields) do
-      if key ~= "align" then styled_marks = true end
+      if key ~= "align" and key ~= "space_before_sp" and key ~= "space_after_sp" then styled_marks = true end
     end
   end
   for _, block in ipairs(data.blocks) do
@@ -285,6 +287,7 @@ local function scaled_size(size, per_10000)
 end
 
 function book.document()
+  emit("\\parskip=" .. sp(default_gap) .. "\\relax")
   if data.paragraphs and data.paragraphs.collect then
     assert(io.open("paragraph-candidates.jsonl", "w")):close()
   end
@@ -317,6 +320,7 @@ function book.blocks()
   lists.columns(data.blocks, width)
   if #data.blocks == 0 then emit("\\null") end
   for index, block in ipairs(data.blocks) do
+    if book.spacing then book.spacing.begin_block(index) end
     if book.running then emit("\\directlua{book.running.section(" .. block.running_id .. ")}") end
     local values = block.overrides or {}
     local grouped = block.kind ~= "heading" and next(values) ~= nil
@@ -367,6 +371,7 @@ function book.blocks()
     end
     if grouped then emit("\\endgroup") end
   end
+  if book.spacing then book.spacing.begin_block(0) end
   if #end_order > 0 then
     emit("\\begingroup\\bfseries ")
     literal("미주")

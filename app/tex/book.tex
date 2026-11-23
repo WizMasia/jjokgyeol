@@ -23,6 +23,7 @@
   \savenotes
   \sbox\BookTitleFrame{\fbox{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{%
     \centering\bookheading{#1}{#2}{#3}}}}%
+  \directlua{if book.spacing then book.spacing.measure_frame(tex.box.BookTitleFrame) end}%
   \ifdim\dimexpr\ht\BookTitleFrame+\dp\BookTitleFrame\relax>\textheight
     \directlua{book.layout_error("frame_height")}%
   \fi
@@ -33,7 +34,6 @@
 \begin{document}
 \frenchspacing
 \parindent=0pt
-\parskip=4pt
 \rightskip=0pt plus 1fil
 \hyphenpenalty=10000
 \exhyphenpenalty=10000
