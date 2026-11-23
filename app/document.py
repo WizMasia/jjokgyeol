@@ -40,6 +40,8 @@ class Block:
     inlines: list[Inline]
     level: int | None = None
     align: str | None = field(default=None, kw_only=True)
+    space_before_sp: int | str | None = field(default=None, kw_only=True)
+    space_after_sp: int | str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -75,6 +77,26 @@ ALIGNMENT_MARKERS = {
     "right": "<!-- 쪽결 정렬=오른쪽 -->",
 }
 _MARKER_VALUES = {marker: value for value, marker in ALIGNMENT_MARKERS.items()}
+_SPACING_MARKER = re.compile(r"<!-- 쪽결 (space_before_sp|space_after_sp)=(auto|[0-9]+) -->")
+
+
+def paragraph_marker(line: str) -> tuple[str, int | str] | None:
+    if line in _MARKER_VALUES:
+        return "align", _MARKER_VALUES[line]
+    match = _SPACING_MARKER.fullmatch(line)
+    if not match:
+        return None
+    key, raw = match.groups()
+    if raw == "auto":
+        return key, raw
+    from app.style import MAX_NUMBER_CHARS, paragraph_spacing_sp
+
+    if len(raw) > MAX_NUMBER_CHARS:
+        return None
+    try:
+        return key, paragraph_spacing_sp(int(raw), stored=True)
+    except ValueError:
+        return None  # An unrecognized manuscript comment is printed literally.
 
 
 @dataclass(frozen=True)
@@ -82,7 +104,9 @@ class ParagraphRange:
     marker_start: int
     start: int
     end: int
-    align: str | None
+    align: str | None = None
+    space_before_sp: int | str | None = None
+    space_after_sp: int | str | None = None
 
 
 @dataclass
@@ -103,7 +127,7 @@ class _SourceLayout:
         lines = self.lines
         if lines[0].startswith("\ufeff"):
             lines, _ = _manuscript("\n".join(lines), strip_bom=True)
-        return {span: role for span, role in _prose_ranges(lines).items() if lines[span[0]] not in _MARKER_VALUES}
+        return {span: role for span, role in _prose_ranges(lines).items() if not paragraph_marker(lines[span[0]])}
 
     def scope_paragraphs(self, targets):
         if not targets:
@@ -152,7 +176,7 @@ class Document:
         if not roles or layout is None:
             return self
         printed = {layout.printed_ranges[i] for i in self.alignment_blocks() - self.fenced_blocks}
-        targets = {start: ParagraphRange(start, start, end, None)
+        targets = {start: ParagraphRange(start, start, end)
                    for (start, end), role in layout.prose_roles.items()
                    if role in roles and (start, end) not in printed and start not in layout.aligned}
         if not targets:
@@ -415,14 +439,14 @@ def _paragraph_ranges(lines):
     for start, end in ranges:
         # A marker before a real heading can be the lazy tail of the preceding list or quote.
         row = start
-        while row and lines[row - 1] in _MARKER_VALUES:
+        while row and paragraph_marker(lines[row - 1]):
             row -= 1
         while row < end:
-            if lines[row] not in _MARKER_VALUES:
+            if not paragraph_marker(lines[row]):
                 row += 1
                 continue
             first = row
-            while row < len(lines) and lines[row] in _MARKER_VALUES:
+            while row < len(lines) and paragraph_marker(lines[row]):
                 row += 1
             # At a fresh boundary only tables need a second line to identify their block kind.
             following = _prose_ranges(lines[row:row + 2])
@@ -441,11 +465,10 @@ def _paragraph_ranges(lines):
             ranges = _prose_ranges(lines)
     result = []
     for start, end in ranges:
-        if lines[start] in _MARKER_VALUES:
+        if paragraph_marker(lines[start]):
             continue  # A literal, unattached marker cannot itself acquire a marker.
         marker_start, originals = markers.get(start, (start, []))
-        align = _MARKER_VALUES[originals[-1]] if originals else None
-        result.append(ParagraphRange(marker_start, start, end, align))
+        result.append(ParagraphRange(marker_start, start, end, **dict(map(paragraph_marker, originals))))
     return result
 
 
@@ -459,10 +482,10 @@ def paragraph_range(source, first, last):
 def _layout_source(source):
     lines, notes = _manuscript(source)
     aligned = {}
-    if any(marker in source for marker in ALIGNMENT_MARKERS.values()):
+    if "<!-- 쪽결 " in source:
         marked_lines, marked_notes = (_manuscript(source, strip_bom=True) if source.startswith("\ufeff")
                                       else (lines, notes))
-        aligned = {p.start: p for p in _paragraph_ranges(marked_lines) if p.align}
+        aligned = {p.start: p for p in _paragraph_ranges(marked_lines) if p.marker_start < p.start}
         if aligned:
             lines, notes = marked_lines, marked_notes
     fenced, starts, groups = _fence_context("\n".join(lines), notes)
@@ -534,7 +557,10 @@ def _document(layout, notes, switches=None):
             if not groups:
                 printed_ranges[len(blocks) - 1] = tuple(token.map)
                 if token.map[0] in aligned:
-                    blocks[-1].align = aligned[token.map[0]].align
+                    target = aligned[token.map[0]]
+                    blocks[-1].align = target.align
+                    blocks[-1].space_before_sp = target.space_before_sp
+                    blocks[-1].space_after_sp = target.space_after_sp
         elif token.type == "table_open":
             blocks.append(Table("table", []))
         elif token.type == "tr_open":
