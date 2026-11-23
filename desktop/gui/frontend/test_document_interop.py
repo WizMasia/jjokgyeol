@@ -35,7 +35,11 @@ class DocumentInteropTest(unittest.TestCase):
     def test_portable_face_retypesets_in_native_worker(self):
         self.exchange(external=True)
 
-    def exchange(self, external=False):
+    @unittest.skipUnless(os.getenv("JJOKGYEOL_NATIVE_RUNTIME"), "requires the packaged native typesetter")
+    def test_declined_web_face_makes_saved_proof_stale_on_native_reopen(self):
+        self.exchange(external=True, consent=False)
+
+    def exchange(self, external=False, consent=True):
         server = EditorServer()
         self.addCleanup(server.server_close)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -57,7 +61,7 @@ class DocumentInteropTest(unittest.TestCase):
                 expect(option).to_have_count(1)
                 web.locator("#font-family").select_option(option.get_attribute("value"))
                 web.locator("#apply-font").click()
-                web.once("dialog", lambda dialog: dialog.accept())
+                web.once("dialog", lambda dialog: dialog.accept() if consent else dialog.dismiss())
             web.locator("#refresh").click()
             expect(web.locator("#status")).to_have_text("최신 버전", timeout=45000)
             with web.expect_download() as download:
@@ -66,12 +70,19 @@ class DocumentInteropTest(unittest.TestCase):
             with ZipFile(archived) as document:
                 self.assertEqual(document.read("manuscript.md"), source)
                 stored = json.loads(document.read("style.json"))
+                manifest = json.loads(document.read("manifest.json"))
+                lock = json.loads((ROOT / "runtime.lock").read_text())
+                default_hashes = {row["sha256"] for family in lock["fonts"].values() for row in family.values()}
+                embedded_hashes = {row["hash"] for row in manifest["fonts"] if "file" in row}
+                self.assertTrue(default_hashes <= embedded_hashes)
+                self.assertEqual(len(embedded_hashes), len(default_hashes) + int(external))
                 confirmed_pdf = document.read("proof.pdf")
                 if external:
                     from desktop.qa.compare_pdfs import compare, read_pages
                     latin_fonts = {char.font for page in read_pages(confirmed_pdf) for row in page.lines
                                    for char in row.chars if char.text == "A"}
-                    self.assertTrue(any("Abel" in name for name in latin_fonts), latin_fonts)
+                    self.assertTrue(latin_fonts)
+                    self.assertEqual(any("Abel" in name for name in latin_fonts), consent, latin_fonts)
                     font = (ROOT / "tests/fixtures/fonts/abel/Abel-Regular.ttf").read_bytes()
                     self.assertTrue(any(document.read(i) == font for i in document.infolist() if i.file_size == len(font)))
 
@@ -117,6 +128,7 @@ class DocumentInteropTest(unittest.TestCase):
             expect(native.locator("#source")).to_have_value(expected, timeout=45000)
             expect(pages).to_have_count(1)
             expect(pages.first).to_be_visible()
+            expect(native.locator("#status")).to_have_text("최신 버전" if consent else "수정 전 교정본 · 갱신 필요")
             native.locator("#save-document").click()
             native.wait_for_function("window.savedBytes instanceof Uint8Array")
             with ZipFile(BytesIO(base64.b64decode(native.evaluate("encodeBytes(window.savedBytes)")))) as document:
@@ -125,7 +137,11 @@ class DocumentInteropTest(unittest.TestCase):
                 native.locator("#refresh").click()
                 expect(native.locator("#status")).to_have_text("최신 버전", timeout=45000)
                 self.assertTrue(regenerated)
-                self.assertIsNone(compare(confirmed_pdf, regenerated[-1]))
+                if consent:
+                    self.assertIsNone(compare(confirmed_pdf, regenerated[-1]))
+                else:
+                    self.assertTrue(any("Abel" in char.font for page in read_pages(regenerated[-1])
+                                        for row in page.lines for char in row.chars if char.text == "A"))
             native.evaluate("delete window.savedBytes")
             native.locator("#include-proof").uncheck()
             native.locator("#save-document").click()

@@ -160,3 +160,43 @@ def test_shared_binary_counts_as_one_face_and_is_inspected_once(codec):
         return count;
     }""", [list(REGULAR), ref(REGULAR), {**FONT_LIMITS, "font_count": 1}])
     assert count == 1
+
+
+PAIR = f"font-{digest(REGULAR)}-{digest(BOLD)}"
+
+
+@pytest.mark.parametrize("applied", [None, {"bad family": []}, {PAIR: [digest(REGULAR), "../font"]}])
+def test_invalid_applied_faces_rejected_on_save_and_open(codec, pdf, applied):
+    proof = {"state": "current", "mode": "rule", "appliedFonts": applied}
+    with pytest.raises(BrowserError, match="글꼴"):
+        pack(codec, pdf=pdf, meta=proof, limits=FONT_LIMITS)
+    doc = entries({**manifest(proof=proof), "version": 2, "fonts": []}, pdf)
+    with pytest.raises(BrowserError, match="글꼴"):
+        unpack(codec, archive(doc), FONT_LIMITS)
+
+
+@pytest.mark.parametrize("style", [
+    {"body_font": PAIR},
+    {"heading_font": PAIR},
+    {"text_styles": {"note": {}, "heading2": {"font": PAIR}}},
+    {"list_levels": [{}, {"font": PAIR}]},
+    {"section_rules": [{"path": [], "role": "footer", "values": {"font": PAIR}}]},
+])
+@pytest.mark.parametrize("operation", ["pack", "unpack"])
+def test_style_requires_manifest_record_for_both_weights(codec, style, operation):
+    for incomplete in ([ref(REGULAR)], [ref(BOLD, "bold")]):
+        with pytest.raises(BrowserError, match="글꼴"):
+            if operation == "pack":
+                pack(codec, fonts=incomplete, style=style, limits=FONT_LIMITS)
+            else:
+                unpack(codec, archive({**members(incomplete), "style.json": json.dumps(style)}), FONT_LIMITS)
+
+
+def test_pack_checks_the_style_snapshot_written_before_font_inspection(codec):
+    with pytest.raises(BrowserError, match="글꼴"):
+        codec.evaluate("""async ([family, limits]) => {
+            const style = {body_font: family};
+            const pending = JjokArchive.pack({source: "", style, includeProof: false, fonts: []}, limits);
+            style.body_font = "nanum-myeongjo";
+            await pending;
+        }""", [PAIR, FONT_LIMITS])

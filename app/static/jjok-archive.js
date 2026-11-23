@@ -56,10 +56,21 @@ globalThis.JjokArchive = (() => {
     requireValue(count <= (limits.font_count ?? 0), "글꼴 개수가 허용 범위를 초과합니다.");
   }
 
+  function checkStyleFonts(style, hashes) {
+    for (const id of documentFontIds(style)) {
+      const pair = documentFontReference.exec(id).slice(1);
+      requireValue(pair.every(hash => hash === "none" || hashes.has(hash)), fontError);
+    }
+  }
+
+  function isHash(value) {
+    return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  }
+
   function fontReference(font) {
     requireValue(isObject(font), fontError);
     const {hash, name, version, weight} = font;
-    requireValue(typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash) &&
+    requireValue(isHash(hash) &&
       typeof name === "string" && typeof version === "string" && ["regular", "bold"].includes(weight), fontError);
     return {hash, name, version, weight};
   }
@@ -88,10 +99,17 @@ globalThis.JjokArchive = (() => {
     return value;
   }
 
-  function proofInfo(proof) {
+  function proofInfo(proof, version) {
     requireValue(isObject(proof) && ["current", "stale"].includes(proof.state) &&
       ["rule", "model", "mixed"].includes(proof.mode), "교정 PDF의 상태와 조판 방식을 확인하세요.");
-    return {state: proof.state, mode: proof.mode};
+    const info = {state: proof.state, mode: proof.mode};
+    if (version === 2 && proof.appliedFonts !== undefined) {
+      requireValue(isObject(proof.appliedFonts) && Object.entries(proof.appliedFonts).every(([id, pair]) =>
+        documentFontReference.test(id) && Array.isArray(pair) && pair.length === 2 &&
+        pair.every(hash => hash === null || isHash(hash))), fontError);
+      info.appliedFonts = proof.appliedFonts;
+    }
+    return info;
   }
 
   async function checkDrawing(page, port) {
@@ -166,7 +184,7 @@ globalThis.JjokArchive = (() => {
     }
   }
 
-  async function packFonts(fonts, files, limits, known) {
+  async function packFonts(style, fonts, files, limits, known) {
     requireValue(Array.isArray(fonts), fontError);
     const records = new Map(), fileSizes = new Map();
     const charge = entryBudget(limits);
@@ -198,6 +216,7 @@ globalThis.JjokArchive = (() => {
       }
       inputs.push({ref: previous ?? ref, file, notice});
     }
+    checkStyleFonts(style, records);
     const faces = new Map(), notices = new Map();
     for (const {ref, file, notice} of inputs) {
       if (!faces.has(file)) faces.set(file, await FontRights.inspect(file, known ?? {}));
@@ -224,11 +243,11 @@ globalThis.JjokArchive = (() => {
         ["style.json", new Blob([JSON.stringify(style, storedNumber, 2), "\n"])],
       ]);
       if (includeProof && proof !== null) {
-        manifest.proof = proofInfo(proof);
+        manifest.proof = proofInfo(proof, manifest.version);
         requireValue(proof.blob instanceof Blob, "교정 PDF를 읽을 수 없습니다.");
         files.set(pdfName, proof.blob);
       }
-      manifest.fonts = await packFonts(fonts, files, limits, known);
+      manifest.fonts = await packFonts(style, fonts, files, limits, known);
       files.set("manifest.json", new Blob([JSON.stringify(manifest)]));
       const charge = entryBudget(limits);
       for (const [name, blob] of files) charge(name, blob.size);
@@ -252,7 +271,7 @@ globalThis.JjokArchive = (() => {
     return new TextDecoder("utf-8", {fatal: true, ignoreBOM: keepBom}).decode(bytes);
   }
 
-  function declaredFonts(manifest, entries, limits) {
+  function declaredFonts(manifest, style, entries, limits) {
     const fonts = manifest.version === 1 ? [] : manifest.fonts;
     requireValue(Array.isArray(fonts), fontError);
     checkFontCount(fonts.length, limits);
@@ -272,6 +291,7 @@ globalThis.JjokArchive = (() => {
       }
       return ref;
     });
+    if (manifest.version === 2) checkStyleFonts(style, hashes);
     requireValue(entries.size === expected.size && [...expected].every(name => entries.has(name)),
       "문서의 글꼴 목록과 ZIP 항목이 일치하지 않습니다.");
     return records;
@@ -327,10 +347,10 @@ globalThis.JjokArchive = (() => {
       const hasPdf = entries.has(pdfName);
       requireValue(typeof includeProof === "boolean" && hasPdf === (manifest.proof != null) &&
         (!hasPdf || includeProof), "교정 PDF와 문서의 포함 정보가 일치하지 않습니다.");
-      const info = hasPdf ? proofInfo(manifest.proof) : null;
-      const records = declaredFonts(manifest, entries, limits);
+      const info = hasPdf ? proofInfo(manifest.proof, manifest.version) : null;
       const style = JSON.parse(await readText(entries.get("style.json")), storedNumber);
       requireValue(isObject(style), "문서의 양식은 JSON 객체여야 합니다.");
+      const records = declaredFonts(manifest, style, entries, limits);
       const source = await readText(entries.get("manuscript.md"), true);
       const fonts = await unpackFonts(records, entries, known, limits);
       let proof = null;

@@ -22,7 +22,7 @@ LIMITS = {"request": 8192, "file": 131072}
 
 @pytest.fixture
 def codec(browser, request):
-    scripts = ("zip.min.js", "jjok-archive.js")
+    scripts = ("zip.min.js", "document-fonts.js", "jjok-archive.js")
     unexpected = []
     profile = getattr(request, "param", None)
     if profile == "fonts":

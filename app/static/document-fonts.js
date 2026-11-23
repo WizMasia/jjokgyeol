@@ -1,5 +1,16 @@
 "use strict";
 
+const documentFontReference = /^font-([a-f0-9]{64}|none)-([a-f0-9]{64}|none)$/;
+
+function documentFontIds(style) {
+  const ids = new Set([style.body_font, style.heading_font]);
+  for (const row of [...Object.values(style.text_styles ?? {}), ...(style.list_levels ?? []),
+    ...(style.section_rules ?? []).map(rule => rule.values)]) {
+    if (row?.font) ids.add(row.font);
+  }
+  return [...ids].filter(id => typeof id === "string" && documentFontReference.test(id));
+}
+
 function documentFontEditor(settings) {
   const known = settings.font_assets;
   const builtins = known?.faces ?? {};
@@ -7,7 +18,6 @@ function documentFontEditor(settings) {
   byId("open-fonts").hidden = !known || !limits?.font_count;
   const weights = ["regular", "bold"];
   const weightLabel = {regular: "보통", bold: "굵게"};
-  const reference = /^font-([a-f0-9]{64}|none)-([a-f0-9]{64}|none)$/;
   const builtinChoices = [...settings.fonts];
   const builtinBytes = new Map();
   const local = new Map(); // Only files the user chose on this device survive document replacement.
@@ -32,17 +42,8 @@ function documentFontEditor(settings) {
     return entry?.file ? entry : local.get(hash) ?? entry ?? builtins[hash];
   }
 
-  function fontIds(style) {
-    const ids = new Set([style.body_font, style.heading_font]);
-    for (const row of [...Object.values(style.text_styles ?? {}), ...(style.list_levels ?? []),
-      ...(style.section_rules ?? []).map(rule => rule.values)]) {
-      if (row?.font) ids.add(row.font);
-    }
-    return [...ids].filter(id => reference.test(id));
-  }
-
   function slots(id) {
-    const match = reference.exec(id);
+    const match = documentFontReference.exec(id);
     return match ? match.slice(1) : weights.map(weight =>
       Object.keys(builtins).find(hash => builtins[hash].family === id && builtins[hash].weight === weight));
   }
@@ -55,14 +56,14 @@ function documentFontEditor(settings) {
   }
 
   function refreshChoices(style) {
-    const ids = new Set([...registered, ...incomingChoices.map(choice => choice.id), ...fontIds(style)]);
+    const ids = new Set([...registered, ...incomingChoices.map(choice => choice.id), ...documentFontIds(style)]);
     const choices = [...ids].map(id => ({id, label: familyLabel(id)}));
     settings.fonts = [...builtinChoices, ...choices];
     for (const select of document.querySelectorAll("select")) {
       if (select !== families && ![...select.options].some(opt => builtinChoices.some(font => font.id === opt.value))) continue;
       const previous = select.value;
       for (const option of [...select.options]) {
-        if (reference.test(option.value)) option.remove();
+        if (documentFontReference.test(option.value)) option.remove();
       }
       if (select === families && !select.options.length) {
         for (const font of builtinChoices) select.add(new Option(font.label, font.id));
@@ -180,7 +181,7 @@ function documentFontEditor(settings) {
       }
       if (!current()) return;
       const style = styleForm.get();
-      const used = new Set(fontIds(style).flatMap(slots));
+      const used = new Set(documentFontIds(style).flatMap(slots));
       let reconnected = false;
       const groups = new Map();
       for (const face of inspected.values()) {
@@ -254,9 +255,13 @@ function documentFontEditor(settings) {
     const files = new Map();
     const warnings = [];
     let missing = false;
+    const appliedFonts = {};
+    const defaultSlots = slots(settings.defaults.body_font);
     const applied = builtinChoices.find(font => font.id === settings.defaults.body_font)?.label ?? settings.defaults.body_font;
-    for (const id of fontIds(style)) {
-      for (const [i, hash] of slots(id).entries()) {
+    for (const id of documentFontIds(style)) {
+      const pair = slots(id);
+      appliedFonts[id] = pair;
+      for (const [i, hash] of pair.entries()) {
         if (builtins[hash]) continue;
         const face = record(hash);
         let reason = "";
@@ -266,21 +271,22 @@ function documentFontEditor(settings) {
         else if (!nativeDesktop && !loopback && !face.remote) reason = "원격 서버 전송 권한 부족";
         else if (!nativeDesktop && consent === false) reason = "조판기 전송 거절";
         if (reason) {
+          pair[i] = defaultSlots[i] ?? null;
           warnings.push(familyLabel(id) + " " + weightLabel[weights[i]] + " → " + applied + " (" + reason + ")");
           if (hash !== "none") missing = true;
         } else files.set(hash, face.file);
       }
     }
-    return {files, warnings, missing};
+    return {files, warnings, missing, appliedFonts: Object.keys(appliedFonts).length ? appliedFonts : undefined};
   }
 
   function updateFallback(style) {
     const state = resolution(style);
     fallback.textContent = state.warnings.join(" · ");
-    return state.missing;
+    return state;
   }
 
-  function renderFiles(style) {
+  function resolveForRender(style) {
     let state = resolution(style);
     if (state.files.size && !nativeDesktop && consent === undefined) {
       consent = window.confirm(renderer.href + " 조판기로 선택한 글꼴 파일을 보내 PDF를 만듭니다. 이번 세션 동안 전송을 허용할까요?");
@@ -288,7 +294,7 @@ function documentFontEditor(settings) {
     }
     fallback.textContent = state.warnings.join(" · ");
     if (state.files.size) validateSizes([...state.files.values()]);
-    return state.files;
+    return state;
   }
 
   function frame(request, files) {
@@ -301,8 +307,9 @@ function documentFontEditor(settings) {
 
   async function archiveFonts(style) {
     // Freeze every reference and blob before the first await. Both fallback families take part in glyph fallback.
-    const selected = new Map(Object.entries(builtins).map(([hash, data]) => [hash, {...archived.get(hash), ...data, hash}]));
-    for (const id of fontIds(style)) {
+    const selected = new Map(Object.entries(builtins).filter(([, data]) => data.fallback !== false)
+      .map(([hash, data]) => [hash, {...archived.get(hash), ...data, hash}]));
+    for (const id of documentFontIds(style)) {
       for (const [i, hash] of slots(id).entries()) {
         if (hash !== "none" && !selected.has(hash)) selected.set(hash, record(hash) ?? {
           hash, weight: weights[i], name: familyLabel(id), version: "",
@@ -364,9 +371,9 @@ function documentFontEditor(settings) {
     }
     picker.close();
   });
-  return {refreshChoices, cancel, renderFiles, updateFallback, frame, archiveFonts, readArchive,
+  return {refreshChoices, cancel, resolveForRender, updateFallback, frame, archiveFonts, readArchive,
     restore(records) { archived = records; },
     receiveChoices(choices) { incomingChoices = choices ?? []; },
-    choices: () => settings.fonts.filter(font => reference.test(font.id)),
+    choices: () => settings.fonts.filter(font => documentFontReference.test(font.id)),
   };
 }

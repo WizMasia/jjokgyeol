@@ -10,7 +10,7 @@ from playwright.sync_api import expect
 from pypdf import PdfWriter
 
 from settings_ui import close_settings, open_settings
-from test_editor import browser
+from test_editor import ROOT, browser
 from test_reference_editor import review as editor
 from test_slice import server_url
 
@@ -152,6 +152,60 @@ def test_save_freezes_source_style_preference_and_selected_blob(editor):
     expect(p.locator("#save-document")).to_be_enabled()
     expect(editor.source).to_have_value("저장 중 입력")
     expect(p.locator("#include-proof")).not_to_be_checked()
+
+
+def test_resaving_a_fallback_proof_keeps_its_displayed_faces_across_edits_and_late_work(editor):
+    p = editor.page
+    p.locator("#open-fonts").click()
+    p.locator("#font-files").set_input_files(ROOT / "tests/fixtures/fonts/abel/Abel-Regular.ttf")
+    option = p.locator("#font-family option", has_text="Abel")
+    expect(option).to_have_count(1)
+    family = option.get_attribute("value")
+    p.locator("#font-family").select_option(family)
+    p.locator("#apply-font").click()
+    p.once("dialog", lambda dialog: dialog.dismiss())
+    editor.submit(editor.refresh)
+    pair = reply_pair(editor, 0)
+    p.locator("#proof-choice").select_option("rule")
+    saved = save_document(p)
+    p.once("dialog", lambda dialog: dialog.accept())
+    upload(p, "#document-file", "fallback.jjok", saved)
+    expect(p.locator("#proof-choice")).to_be_disabled()
+    expect(p.locator("#status")).to_have_text("최신 버전")
+
+    open_settings(p)
+    p.locator("#body_font").select_option("nanum-myeongjo")
+    close_settings(p)
+    editor.submit(editor.refresh)
+    editor.source.fill("edited before the new proof arrived")
+    editor.reply(1, editor.pdf)
+    stored = entries(save_document(p))
+    assert json.loads(stored["style.json"])["body_font"] == "nanum-myeongjo"
+    assert stored["proof.pdf"] == pair["rule"]
+    fallback = json.loads((ROOT / "runtime.lock").read_text())["fonts"]["nanum-myeongjo"]
+    expected_faces = [fallback[weight]["sha256"] for weight in ("regular", "bold")]
+    assert json.loads(stored["manifest.json"])["proof"] == {
+        "state": "stale", "mode": "rule", "appliedFonts": {family: expected_faces},
+    }
+
+
+def test_undeclared_style_font_is_rejected_before_replacement(editor):
+    from test_jjok_archive import archive, entries as members, manifest
+
+    p = editor.page
+    editor.source.fill("unsaved manuscript")
+    shown = editor.frame.get_attribute("src")
+    doc = members({**manifest(), "version": 2, "fonts": []})
+    style = json.loads(doc["style.json"])
+    style["text_styles"]["heading1"]["font"] = "font-none-" + "a" * 64
+    doc["style.json"] = json.dumps(style).encode()
+    confirmations = []
+    p.on("dialog", lambda dialog: (confirmations.append(dialog.message), dialog.accept()))
+    upload(p, "#document-file", "incomplete.jjok", archive(doc))
+    expect(p.locator("#error")).to_contain_text("글꼴")
+    expect(editor.source).to_have_value("unsaved manuscript")
+    assert editor.frame.get_attribute("src") == shown
+    assert not confirmations
 
 
 def test_failed_document_and_cancel_keep_every_edit_and_current_proof(editor):

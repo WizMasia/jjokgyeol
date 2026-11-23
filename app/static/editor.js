@@ -528,15 +528,19 @@ async function fetchProof(style, signal) {
   const connection = decisionConnection;
   const source = sourceText();
   if (!nativeDesktop && connection?.api_key && !connectionForm.keyAllowed) throw new Error(byId("decision-key-help").textContent);
-  const files = documentFonts.renderFiles(style);
+  const {files, appliedFonts} = documentFonts.resolveForRender(style);
   if (nativeDesktop) {
+    let proof;
     if (files.size) {
       const stored = await desktop.style("export", JSON.stringify(style));
       const frame = documentFonts.frame({source, style: stored, connection: connection ?? {provider: "rule"}}, files);
-      return desktop.fontProof(new Uint8Array(await frame.arrayBuffer()));
+      proof = await desktop.fontProof(new Uint8Array(await frame.arrayBuffer()));
+    } else if (!connection || connection.provider === "rule") {
+      proof = {rule: await desktop.proof(source, style)};
+    } else {
+      proof = await desktop.modelProof(source, style, connection);
     }
-    if (!connection || connection.provider === "rule") return {rule: await desktop.proof(source, style)};
-    return desktop.modelProof(source, style, connection);
+    return {...proof, appliedFonts};
   }
   const request = {source, style, connection};
   const body = files.size ? documentFonts.frame(request, files) : JSON.stringify(request);
@@ -557,20 +561,21 @@ async function fetchProof(style, signal) {
   const validPdf = file => file instanceof Blob && file.type.split(";")[0] === "application/pdf" && file.size > 0;
   if (type === "application/pdf" && (decision === null || decision === "rule")) {
     const rule = await response.blob();
-    if (validPdf(rule)) return {rule, reason, legacy};
+    if (validPdf(rule)) return {rule, reason, legacy, appliedFonts};
   }
   if (type === "multipart/form-data" && (decision === "model" || decision === "mixed")) {
     const parts = await response.formData().catch(() => null);
     const rule = parts?.get("rule");
     const model = parts?.get("model");
-    if (validPdf(rule) && validPdf(model)) return {rule, model, decision, reason};
+    if (validPdf(rule) && validPdf(model)) return {rule, model, decision, reason, appliedFonts};
   }
   throw new Error("서버에서 올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
 }
 
 // Only current responses acquire URLs. A reference trial transfers these URLs on apply.
 class ProofUrls {
-  constructor({rule, model, decision, saved, reason, legacy}) {
+  constructor({rule, model, decision, saved, reason, legacy, appliedFonts}) {
+    this.appliedFonts = saved ? saved.appliedFonts : appliedFonts;
     this.reason = decisionMessage(reason);
     this.legacy = legacy;
     const file = (blob, mode) => ({blob, mode, url: URL.createObjectURL(blob)});

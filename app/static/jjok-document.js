@@ -20,6 +20,7 @@ byId("save-document").addEventListener("click", async () => {
   const selected = include && displayedDocument === identity && displayedProof?.selected;
   const proof = selected ? {
     blob: selected.blob, mode: selected.mode, state: displayedVersion === version ? "current" : "stale",
+    appliedFonts: displayedProof.appliedFonts,
   } : null;
   const reportError = error => {
     if (identity !== documentIdentity) return;
@@ -92,7 +93,10 @@ bindFilePicker("open-document", "document-file", async file => {
     documentFilename = file.name;
     if (restored) {
       if (pages) preview.parentNode.append(pages);
-      const state = documentFonts.updateFallback(values) ? "stale" : proof.state;
+      const resolution = documentFonts.updateFallback(values);
+      const changedFaces = proof.appliedFonts === undefined ? resolution.missing :
+        settingsJson(proof.appliedFonts) !== settingsJson(resolution.appliedFonts);
+      const state = changedFaces ? "stale" : proof.state;
       showProof(restored, state === "current" ? values : null, state);
     }
   } catch (error) {
