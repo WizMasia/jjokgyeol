@@ -180,8 +180,8 @@ function typographyEditor(settings) {
         role.value = target;
         show();
         invalid = controls.filter(control => control.dataset.text === key);
-        const field = spacingFields.find(field => field.key === key);
-        if (field) invalid.push(field.input);
+        const gap = spacingFields.find(field => field.key === key);
+        if (gap) invalid.push(gap.input);
       }
       if (invalid.length) errorText.textContent = message;
       for (const control of invalid) {

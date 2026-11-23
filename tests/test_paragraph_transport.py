@@ -70,3 +70,12 @@ async def test_http_body_and_time_limits(client, monkeypatch):
         yield b"}"
 
     assert (await client.post(URL, content=stalled())).status_code == 504
+
+
+@pytest.mark.parametrize(("token", "status"), [("72.00000000000000001", 422), ("18.0000076293945312501", 200)])
+async def test_json_spacing_preserves_decimal_boundary(client, token, status):
+    raw = '{"source":"text","first_line":0,"last_line":0,"space_before_pt":' + token + '}'
+    response = await client.post(URL, content=raw, headers={"Content-Type": "application/json"})
+    assert response.status_code == status
+    if status == 200:
+        assert "space_before_sp=1179649" in response.json()["source"]

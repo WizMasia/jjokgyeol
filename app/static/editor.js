@@ -1004,6 +1004,7 @@ let alignmentTarget;
 let lastAlignmentQuery;
 let alignmentQueue = Promise.resolve();
 let pendingAlignmentEdit = null;
+let pendingSpacingEdit = null;
 
 function queueAlignment(target, patch) {
   // One worker per editor. Stale cursor lookups skip their turn before reading the manuscript.
@@ -1096,14 +1097,15 @@ async function updateAlignment(target, patch) {
     if (target !== alignmentTarget || !currentTarget(target)) return;
     const focus = document.activeElement;
     const output = ["save", "save-document", "refresh", "export"].includes(focus?.id);
-    if (!query && !output && ![source, paragraphAlign, document.body].includes(focus) && !paragraphSpacing.contains(focus)) {
+    const outside = ![source, paragraphAlign, document.body].includes(focus) && !paragraphSpacing.contains(focus);
+    if (!query && Object.hasOwn(patch, "align") && outside && !output) {
       alignmentTarget = null;
       scheduleAlignmentQuery();
       return;
     }
     if (!query && data.supported) {
       applyAlignedSource(data.source, target);
-      if (output) focus.focus({preventScroll: true});
+      if (outside) focus.focus({preventScroll: true});
     }
     paragraphAlign.disabled = false;
     paragraphAlign.value = data.align ?? "";
@@ -1158,7 +1160,9 @@ function editParagraph(patch) {
   const target = alignmentTarget = alignmentSelection();
   paragraphAlign.disabled = paragraphSpacing.disabled = true;
   const edit = pendingAlignmentEdit = queueAlignment(target, patch);
+  if (!Object.hasOwn(patch, "align")) pendingSpacingEdit = edit;
   edit.finally(() => {
+    if (pendingSpacingEdit === edit) pendingSpacingEdit = null;
     if (pendingAlignmentEdit === edit) pendingAlignmentEdit = null;
   });
 }
@@ -1396,13 +1400,15 @@ if (settingsView) {
     if (revision !== undefined) applyConnection(connection);
   }) ?? Promise.resolve();
   openSettings.addEventListener("click", async () => {
+    if (pendingSpacingEdit && !await pendingSpacingEdit) return;
     try {
       await listener;
       await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), fontChoices: documentFonts.choices(), connection: decisionConnection}});
     } catch (error) { errorText.textContent = error.message; }
   });
 } else {
-  byId("open-settings").addEventListener("click", () => {
+  byId("open-settings").addEventListener("click", async () => {
+    if (pendingSpacingEdit && !await pendingSpacingEdit) return;
     connectionForm.open(decisionConnection);
     settingsDialog.showModal();
   });

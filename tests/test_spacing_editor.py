@@ -202,3 +202,51 @@ def test_second_side_waits_for_first_edit_and_late_selection_reply_is_ignored(ed
     expect(before).to_have_value("")
     expect(after).to_have_value("")
     expect(editor.source).to_have_value(source)
+
+
+def test_leaving_amount_for_pdf_checkbox_commits_and_keeps_focus(editor):
+    page = editor.page
+    connect_paragraph_service(editor)
+    editor.source.fill("가을\n\n겨울")
+    select_text(editor.source, 0, 0)
+    panel = page.locator("#paragraph-spacing")
+    mode(panel, "after").select_option("manual")
+    amount(panel, "after").fill("6")
+    page.locator("#include-proof").click()
+    expect(editor.source).to_have_value("<!-- 쪽결 space_after_sp=393216 -->\n가을\n\n겨울")
+    expect(page.locator("#include-proof")).to_be_focused()
+
+
+def test_role_spacing_error_marks_the_invalid_amount(editor):
+    page = editor.page
+    open_settings(page)
+    page.locator("#style summary").click()
+    panel = page.locator("#text-roles")
+    panel.locator("#text-role").select_option("heading1")
+    mode(panel, "before").select_option("manual")
+    amount(panel, "before").fill("73")
+    page.locator("#save-style").click()
+    expect(amount(panel, "before")).to_have_attribute("aria-invalid", "true")
+    expect(page.locator("#typography-error")).to_contain_text("72")
+
+
+def test_settings_waits_for_blurred_paragraph_amount(editor):
+    page = editor.page
+    connect_paragraph_service(editor)
+    editor.source.fill("날짜\n\n본문")
+    select_text(editor.source, 0, 0)
+    panel = page.locator("#paragraph-spacing")
+    mode(panel, "after").select_option("manual")
+    amount(panel, "after").fill("6")
+    held = []
+    def hold(route):
+        if "space_after_pt" in route.request.post_data_json:
+            held.append(route)
+        else:
+            route.fallback()
+    page.route("**/api/paragraph/align", hold)
+    with page.expect_request(lambda r: r.url.endswith("/paragraph/align") and "space_after_pt" in r.post_data_json):
+        page.locator("#open-settings").click()
+    held[0].fallback()
+    expect(editor.source).to_have_value("<!-- 쪽결 space_after_sp=393216 -->\n날짜\n\n본문")
+    expect(page.locator("#settings-dialog")).to_be_visible()

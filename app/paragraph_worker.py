@@ -1,4 +1,5 @@
 """Bounded JSON transport for the web and native paragraph editor."""
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 import sys
@@ -17,8 +18,8 @@ def alignment_response(stream):
     if len(raw) > LIMITS.request_body_bytes:
         raise InputError({"request": "요청 크기가 너무 큽니다."})
     try:
-        payload = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=unique_fields)
-    except (ValueError, RecursionError):
+        payload = json.loads(raw.decode("utf-8-sig"), parse_float=Decimal, object_pairs_hook=unique_fields)
+    except (ValueError, InvalidOperation, RecursionError):
         raise InputError({"request": "원고와 선택한 줄을 확인하세요."}) from None
 
     output = json.dumps(edit_alignment(payload), allow_nan=False).encode("ascii")

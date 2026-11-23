@@ -348,7 +348,8 @@ function documentFontEditor(settings) {
     return result;
   }
 
-  byId("open-fonts").addEventListener("click", () => {
+  byId("open-fonts").addEventListener("click", async () => {
+    if (pendingSpacingEdit && !await pendingSpacingEdit) return;
     cancel();
     refreshChoices(styleForm.get());
     families.value = byId("body_font").value;
