@@ -2,12 +2,15 @@
 
 import re
 from bisect import bisect_left
+from copy import copy
 from dataclasses import dataclass, field, replace
 
 from app.manuscript_markup import read_escape
 
 from markdown_it import MarkdownIt
-from markdown_it.rules_block import fence, lheading, paragraph
+from markdown_it.common.utils import mdTrim
+from markdown_it.rules_block import fence, lheading, paragraph, table
+from markdown_it.rules_block.table import escapedSplit, getLine
 from markdown_it.token import Token
 
 from app.annotations import DEFINITION, NoteDefinitions, read_annotation
@@ -35,6 +38,12 @@ class Block:
     kind: str
     inlines: list[Inline]
     level: int | None = None
+
+
+@dataclass
+class Table(Block):
+    rows: list[list[list[Inline]]] = field(default_factory=list)
+    alignments: list[str] = field(default_factory=list)
 
 
 @dataclass(kw_only=True)
@@ -162,7 +171,46 @@ def _date_paragraph(state, start, end, silent):
     return lheading(state, start, end, False) or paragraph(state, start, end, False)
 
 
+def _table_row_width(state, line):
+    cells = escapedSplit(mdTrim(getLine(state, line)))
+    if len(cells) == 1:  # Prose, including a line with only escaped pipes.
+        return None
+    return len(cells) - (cells[0] == "") - (cells[-1] == "")
+
+
+def _report_table(state, start, end, silent):
+    if silent and state.sCount[start] < state.blkIndent:
+        # Probe a table that may interrupt the lazy continuation of a nested item.
+        state = copy(state)
+        state.blkIndent = min(state.listIndent, state.sCount[start])
+    row = start + state.env.get("row_offset", 0)
+    in_table = state.parentType == "table"
+    # The zero preset prints indented code as legacy paragraphs, so its is_code_block is disabled.
+    code_indent = state.blkIndent + 4
+    if row in state.env.get("fenced_lines", ()) or state.sCount[start] >= code_indent:
+        return in_table
+    if in_table:
+        # markdown-it checks its blockquote terminators before padding or truncating a row.
+        columns = state.env["table_width"]
+        width = _table_row_width(state, start)
+        if width is None or width > columns:
+            return True
+        # Bound the rectangular grid to one cell per source character consumed so far.
+        # state.line is still the header. The separator occupies one physical line.
+        return (start - state.line) * columns > state.eMarks[start] - state.bMarks[state.line]
+    if start + 1 >= end or state.sCount[start + 1] >= code_indent or not table(state, start, end, True):
+        return False
+    width = _table_row_width(state, start)
+    if width is None:
+        return False
+    if silent:
+        return True
+    state.env["table_width"] = width
+    return table(state, start, end, False)
+
+
 for parser in (_MD, _FENCES):
+    parser.block.ruler.before("lheading", "report_table", _report_table, {"alt": ["paragraph", "blockquote"]})
     parser.block.ruler.before("list", "report_date", _date_paragraph, {"alt": ["list", "paragraph"]})
 
 
@@ -176,7 +224,7 @@ def _list_fence(state, start, end, silent):
         # Print the example with the legacy parser, confined to the actual fence.
         example = state.getLines(start, state.line, state.blkIndent, False)
         tokens = []
-        _MD.block.parse(example, _MD, {}, tokens)
+        _MD.block.parse(example, _MD, {"fenced_lines": range(state.line - start)}, tokens)
         for token in tokens:
             token.level += state.level
             if token.map:
@@ -212,14 +260,14 @@ def _fence_context(source, notes):
     return fenced, starts, fence_groups
 
 
-def _tokens(lines, starts, notes, list_fences=()):
+def _tokens(lines, starts, notes, fenced_lines, list_fences=()):
     # A closing fence can run into a Setext title in the legacy zero preset.
     # Parse at each requested title boundary and keep maps in original source rows.
     tokens = []
     start = 0
     for end in [*starts, len(lines)]:
         part = _MD.parse("\n".join(lines[start:end]), {"notes": notes, "list_fences": list_fences,
-                                                       "row_offset": start})
+                                                       "row_offset": start, "fenced_lines": fenced_lines})
         if start:
             for token in part:
                 if token.map:
@@ -288,7 +336,7 @@ def _manuscript(source: str):
 def heading_tokens(source: str):
     """Yield top-level Markdown (opening, inline) tokens with original source line maps."""
     lines, notes, fenced_lines, starts, _ = _manuscript(source)
-    tokens = _tokens(lines, starts, notes)
+    tokens = _tokens(lines, starts, notes, fenced_lines)
     for index, token in enumerate(tokens):
         if token.type == "heading_open" and token.level == 0 and token.map[0] not in fenced_lines:
             yield token, tokens[index + 1]
@@ -315,7 +363,7 @@ def parse_md(source: str) -> Document:
 
 
 def _document(lines, notes, fenced_lines, starts, rows=None, switches=None, *, list_fences=()):
-    tokens = _tokens(lines, starts, notes, list_fences)
+    tokens = _tokens(lines, starts, notes, fenced_lines, list_fences)
     blocks = []
     groups: list[_Siblings] = []
     group_id = 0
@@ -345,6 +393,16 @@ def _document(lines, notes, fenced_lines, starts, rows=None, switches=None, *, l
                 blocks.append(Block("heading", [], int(token.tag[1:])))
             else:
                 blocks.append(Block("paragraph", []))
+        elif token.type == "table_open":
+            blocks.append(Table("table", []))
+        elif token.type == "tr_open":
+            blocks[-1].rows.append([])
+        elif token.type == "th_open":
+            style = token.attrs.get("style", "")
+            blocks[-1].alignments.append(style.removeprefix("text-align:") or "left")
+        elif token.type == "inline" and tokens[index - 1].type in ("th_open", "td_open"):
+            blocks[-1].rows[-1].append(_inlines(token.children or []))
+            continue
         elif token.type == "inline":
             block = blocks[-1]
             block.inlines = _inlines(token.children or [], token.map[0], switches)
