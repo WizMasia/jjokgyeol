@@ -127,3 +127,25 @@ def test_single_line_marks_reject_control_characters(control):
     with pytest.raises(ValueError, match="문자"):
         format_mark("앞" + control + "뒤", 1)
     assert format_mark(" 　{숫자}　 ", 2) == " 　2　 "
+
+
+@pytest.mark.parametrize("date", ["2026. 11. 23.", "2026. 1. 3", "2026. 01.03.", "2026.11. 23."])
+def test_report_date_is_plain_text(date):
+    text = f"{date}  보고서 작성자"
+    block, = parse_md(text).blocks
+    assert block.kind == "paragraph"
+    assert block.inlines[0].text == text
+
+
+def test_report_date_next_to_list_items():
+    text = "2026. 11. 23. 작성자"
+    blocks = parse_md(f"1. 첫 항목\n\n{text}\n\n1. {text}\n2. 끝").blocks
+    assert [(block.kind, block.inlines[0].text) for block in blocks] == [
+        ("list_item", "첫 항목"), ("paragraph", text), ("list_item", text), ("list_item", "끝"),
+    ]
+    assert blocks[0].group != blocks[2].group == blocks[3].group
+
+
+def test_four_digit_list_and_non_date_nesting_remain_lists():
+    a, b, c = parse_md("2026. 안건\n\n12. 3. 세부 안건").blocks
+    assert [(item.level, item.ordinal) for item in (a, b, c)] == [(1, 2026), (1, 2027), (2, 3)]

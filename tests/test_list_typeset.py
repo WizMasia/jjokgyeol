@@ -150,3 +150,9 @@ def test_long_marker_leaves_exactly_one_body_glyph(tmp_path, room_sp):
     else:
         (_, chars), = baselines(typeset(doc, style, tmp_path))
         assert text(chars) == mark + "나"
+
+
+def test_report_date_and_author_share_a_pdf_line(tmp_path):
+    source = "# 보고서\n\n2026. 11. 23.  작성자\n\n## 보고 요지\n\n1. 첫 항목\n2. 둘째 항목"
+    lines = [text(chars) for _, chars in baselines(typeset(parse_md(source), Style(), tmp_path))]
+    assert lines == ["보고서", "2026.11.23.작성자", "보고요지", "①첫항목", "②둘째항목"]
