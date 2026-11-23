@@ -184,6 +184,15 @@ def test_table_with_editor_memo_prints_only_public_cells(tmp_path):
     assert_appearance(matching(chars, "항"), 14, "NanumGothicBold", (0, 0, 0))
 
 
+def test_empty_and_memo_only_table_rows_keep_their_space(tmp_path):
+    source = ("| 순서 | 내용 |\n| --- | --- |\n| 갑 | 첫째 |\n| | |\n| [^숨김] | |\n"
+              "| 을 | 둘째 |\n| 병 | 셋째 |\n\n[^숨김]{메모}: 내부검토")
+    chars = glyphs(typeset(parse_md(source), Style(), tmp_path))
+    assert "내부검토" not in "".join(c.get_text() for c in chars)
+    first, second, third = (matching(chars, ch)[0].y0 for ch in "갑을병")
+    assert first - second == pytest.approx(3 * (second - third), abs=.1)
+
+
 @pytest.mark.parametrize(("header", "message"), [
     (["칸"] * 40, "폭"),
     (["제목 " * 400, "구분"], "높이"),
