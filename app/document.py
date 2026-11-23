@@ -191,13 +191,8 @@ def _report_table(state, start, end, silent):
         return in_table
     if in_table:
         # markdown-it checks its blockquote terminators before padding or truncating a row.
-        columns = state.env["table_width"]
         width = _table_row_width(state, start)
-        if width is None or width > columns:
-            return True
-        # Bound the rectangular grid to one cell per source character consumed so far.
-        # state.line is still the header. The separator occupies one physical line.
-        return (start - state.line) * columns > state.eMarks[start] - state.bMarks[state.line]
+        return width is None or width > state.env["table_width"]
     if start + 1 >= end or state.sCount[start + 1] >= code_indent or not table(state, start, end, True):
         return False
     width = _table_row_width(state, start)

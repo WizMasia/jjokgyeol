@@ -107,13 +107,20 @@ def test_only_escaped_pipes_cannot_turn_a_setext_heading_into_a_table():
     assert parse_md(source).blocks == [Block("heading", cell(r"왼쪽\|오른쪽"), 2)]
 
 
-def test_sparse_rows_remain_visible_when_padding_would_outgrow_the_manuscript():
-    columns = 64
-    source = "|A" * columns + "|\n" + "|-" * columns + "|\n" + "|x|\n" * 100
-    table, *tail = parse_md(source).blocks
-    assert table.kind == "table"
-    assert len(table.rows) * columns <= 2 * len(source)
-    assert len(table.rows) - 1 + sum(b.inlines[0].text.count("|x|") for b in tail) == 100
+def test_practical_sparse_table_keeps_all_rows_and_pads_missing_cells():
+    source = "|A|B|C|D|E|F|\n|---|---|---|---|---|---|\n" + "|x|\n" * 24
+    blocks = parse_md(source).blocks
+    assert [b.kind for b in blocks] == ["table"]
+    assert blocks[0].rows[1:] == [[cell("x"), [], [], [], [], []]] * 24
+
+
+def test_row_exceeding_markdown_it_padding_limit_remains_literal():
+    # Each short row needs 256 missing cells. The first 256 use the 65,536-cell budget.
+    source = "|A" * 257 + "|\n" + "|---" * 257 + "|\n" + "|x|\n" * 256 + "|last|"
+    table, tail = parse_md(source).blocks
+    assert len(table.rows) == 257
+    assert table.rows[-1] == [cell("x")] + [[]] * 256
+    assert tail == Block("paragraph", cell("|last|"))
 
 
 @pytest.mark.parametrize("source", [
