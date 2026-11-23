@@ -17,6 +17,8 @@
 !app/config/reference.json
 !app/config/style-suggestion.json
 !app/ai/
+!app/ai/weights/
+!app/ai/weights/**
 !app/static/
 !app/static/*.css
 !app/static/*.js

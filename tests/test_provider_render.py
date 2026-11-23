@@ -1,3 +1,4 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from email import policy
 from email.parser import BytesParser
@@ -7,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from time import monotonic
 
 from fastapi.testclient import TestClient
 import pytest
@@ -14,6 +16,8 @@ import pytest
 from app import jobs, server
 from test_decision import SOURCE, STYLE, candidates, model_server, write_rows
 from test_decision_providers import api as provider_api, reply as provider_reply
+
+BUILTIN_RENDER = {"source": SOURCE, "style": STYLE, "connection": {"provider": "builtin"}}
 
 
 def test_desktop_can_import_decision_without_posix_resource():
@@ -35,6 +39,134 @@ def assert_private(directory):
     for path in directory.rglob("*"):
         if path.is_file():
             assert b"session-marker" not in path.read_bytes(), path.name
+
+
+STALLED_BUILTIN = """
+import signal, time
+from pathlib import Path
+
+def predict(options, *, timeout):
+    # Simulate a native call that cannot run the worker's Python alarm handler.
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+    Path("inference-start").write_text(str(time.monotonic()))
+    time.sleep(60)
+"""
+
+
+def install_test_builtin(workdirs, monkeypatch, module, model_seconds=60):
+    (workdirs / "trained_decision.py").write_text(module)
+    launcher = (
+        f"import runpy, sys; sys.path.insert(0, {str(Path(jobs.__file__).parents[1])!r}); "
+        f"import app.ai; app.ai.__path__ = [{str(workdirs)!r}, *app.ai.__path__]; "
+        f"from app.ai import decision; decision.PIN['decision_seconds'] = {model_seconds}; "
+        f"runpy.run_path({jobs.__file__!r}, run_name='__main__')"
+    )
+    monkeypatch.setattr(jobs, "WORKER_CMD", (sys.executable, "-IB", "-c", launcher))
+
+
+@pytest.mark.parametrize("model_seconds", [0.5, 60], ids=["model-deadline", "job-deadline"])
+def test_stalled_builtin_returns_completed_rule_pdf(workdirs, monkeypatch, model_seconds):
+    from test_decision import scan
+
+    install_test_builtin(workdirs, monkeypatch, STALLED_BUILTIN, model_seconds)
+    monkeypatch.setattr(jobs, "TIMEOUT", 10)
+    with TestClient(server.app, base_url="http://localhost") as client:
+        response = client.post("/api/render", headers={"Accept": "multipart/form-data"}, json=BUILTIN_RENDER)
+    finished = monotonic()
+    started, = workdirs.glob("*/inference-start")
+    assert response.status_code == 200
+    assert finished - float(started.read_text()) < model_seconds + 1
+    assert response.headers["X-Jjokgyeol-Decision"] == "rule"
+    assert response.headers["X-Jjokgyeol-Decision-Reason"] == "timeout"
+    assert response.content == (started.parent / "measure/book.pdf").read_bytes()
+    assert scan(response.content)[0] == [9, 11]
+
+
+def test_cancelling_stalled_inference_after_measurement_propagates(workdirs, monkeypatch):
+    install_test_builtin(workdirs, monkeypatch, STALLED_BUILTIN)
+    body = json.dumps(BUILTIN_RENDER).encode()
+
+    async def cancel_during_inference():
+        task = asyncio.create_task(jobs.render(body, monotonic() + 30))
+        try:
+            async with asyncio.timeout(15):
+                while not any(workdirs.glob("*/inference-start")):
+                    await asyncio.sleep(.02)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(cancel_during_inference())
+
+
+@pytest.mark.parametrize(("exit_code", "before_poll"), [(1, False), (1, True), (jobs.INVALID_INPUT, False)])
+def test_crashed_builtin_delivers_verified_rule_pdf(workdirs, monkeypatch, exit_code, before_poll):
+    install_test_builtin(workdirs, monkeypatch, f"""
+import os
+def predict(options, *, timeout):
+    os._exit({exit_code})
+""")
+    if before_poll:
+        # Feed the real worker before handing it to the supervisor to force the exit/poll race.
+        request = workdirs / "input.json"
+        request.write_text(json.dumps(BUILTIN_RENDER))
+        launch = subprocess.Popen
+
+        def exited_worker(command, **kwargs):
+            with request.open("rb") as stream:
+                process = launch(command, **{**kwargs, "stdin": stream})
+            process.wait(timeout=15)
+            return process
+
+        monkeypatch.setattr(jobs.subprocess, "Popen", exited_worker)
+    with TestClient(server.app, base_url="http://localhost") as client:
+        response = client.post("/api/render", json=BUILTIN_RENDER)
+    baseline, = workdirs.glob("*/measure/book.pdf")
+    assert response.status_code == 200
+    assert response.headers["X-Jjokgyeol-Decision"] == "rule"
+    assert response.headers["X-Jjokgyeol-Decision-Reason"] == "invalid_response"
+    assert response.content == baseline.read_bytes()
+
+
+def test_crash_with_truncated_committed_pdf_is_an_error(workdirs, monkeypatch):
+    install_test_builtin(workdirs, monkeypatch, """
+import os
+from pathlib import Path
+def predict(options, *, timeout):
+    Path("measure/book.pdf").write_bytes(b"%PDF-truncated")
+    os._exit(1)
+""")
+    with TestClient(server.app, base_url="http://localhost") as client:
+        response = client.post("/api/render", json=BUILTIN_RENDER)
+    assert response.status_code == 500
+    assert response.headers["Content-Type"] == "application/json"
+
+
+@pytest.mark.parametrize(("stop", "status"), [("time.sleep(60)", 504), ("os._exit(1)", 500)])
+def test_failed_measurement_never_delivers_uncommitted_pdf(workdirs, monkeypatch, stop, status):
+    # Even a PDF with a trailer is provisional until its typesetter exits successfully.
+    (workdirs / "typeset.py").write_text(f"""
+import os, time
+
+def typeset(doc, style, folder, **kwargs):
+    (folder / "book.pdf").write_bytes(b"%PDF-provisional\\n%%EOF")
+    {stop}
+""")
+    launcher = (
+        f"import runpy, sys; sys.path.insert(0, {str(Path(jobs.__file__).parents[1])!r}); "
+        f"import app; app.__path__ = [{str(workdirs)!r}, *app.__path__]; "
+        f"runpy.run_path({jobs.__file__!r}, run_name='__main__')"
+    )
+    monkeypatch.setattr(jobs, "WORKER_CMD", (sys.executable, "-IB", "-c", launcher))
+    monkeypatch.setenv("JJOKGYEOL_DECISION_HOST", "127.0.0.1")
+    monkeypatch.setattr(jobs, "TIMEOUT", 2)
+    with TestClient(server.app, base_url="http://localhost") as client:
+        response = client.post("/api/render", json={"source": SOURCE, "style": STYLE, "decision": "model"})
+    provisional, = workdirs.glob("*/measure/book.pdf")
+    assert provisional.read_bytes().endswith(b"%%EOF")
+    assert response.status_code == status
+    assert response.headers["Content-Type"] == "application/json"
 
 
 @pytest.mark.parametrize(("route", "body"), [

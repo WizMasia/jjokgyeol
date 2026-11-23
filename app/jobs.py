@@ -24,6 +24,7 @@ TIMEOUT = LIMITS.timeout_seconds
 MAX_FILE = LIMITS.worker_file_bytes
 WORKER_CMD = (sys.executable, "-IB", str(Path(__file__).resolve()))
 INVALID_INPUT = 64
+BASELINE_READY = "baseline-ready"
 
 
 class JobError(Exception):
@@ -44,6 +45,20 @@ def limit_worker_files():
 def connection_error(code, message="모델 연결 설정을 확인하세요."):
     status = {"rate_limit": 429, "unavailable": 502, "invalid_response": 502, "timeout": 504}.get(code, 422)
     return JobError(status, "connection", message, code=code)
+
+
+def publish_baseline(end):
+    # Publish the worker's monotonic deadline only after the measured PDF is complete.
+    pending = Path(BASELINE_READY + ".tmp")
+    pending.write_text(str(end), "ascii")
+    pending.replace(BASELINE_READY)
+
+
+def read_rule_pdf(workdir):
+    rule = (workdir / "measure/book.pdf").read_bytes()
+    if not complete_pdf(rule):
+        raise JobError(500)
+    return rule
 
 
 def read_payload(workdir, checking):
@@ -114,7 +129,8 @@ def worker():
         elif mode == "model" and (connection is not None or os.getenv("JJOKGYEOL_DECISION_HOST")):
             from app.ai.decision import render_provider_choice
             deadline = float(sys.argv[1]) if len(sys.argv) > 1 else monotonic() + TIMEOUT
-            pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection)
+            pdf, status, reason = render_provider_choice(doc, style, workdir, deadline, connection,
+                                                        baseline_ready=publish_baseline)
         elif "decision" in payload:
             pdf = typeset(doc, style, workdir, collect_candidates=True)
         else:
@@ -156,7 +172,8 @@ async def render(body, deadline=None, *, compare=False, allow_key=True):
     command = decision_command(str(deadline), allow_key=allow_key)
     if compare:
         command += ("--compare",)
-    return await isolated_job(body, command, None, "response.pdf", with_decision=with_decision, compare=compare)
+    result = await isolated_job(body, command, None, "response.pdf", with_decision=True, compare=compare)
+    return result if with_decision else result[0]
 
 
 async def isolated_job(
@@ -185,10 +202,18 @@ async def isolated_job(
             stdout=subprocess.PIPE if request_name is None else subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         pipe = None
+        marker = workdir / BASELINE_READY
+        model_deadline = None
+        model_timed_out = False
         try:
             if request_name is None:
                 pipe = asyncio.create_task(asyncio.to_thread(process.communicate, body))
             while process.poll() is None:
+                if with_decision and model_deadline is None and marker.is_file():
+                    model_deadline = float(marker.read_text("ascii"))
+                if model_deadline is not None and monotonic() >= model_deadline:
+                    model_timed_out = True
+                    break
                 await asyncio.sleep(.015)
         finally:
             # Descendants may hold a pipe open even after the worker exits.
@@ -197,12 +222,20 @@ async def isolated_job(
                 output, _ = await pipe
         status = process.returncode
         if status == INVALID_INPUT and pipe is not None:
-            http_status, field, message, code = json.loads(output)
-            raise JobError(http_status, field, message, code=code)
+            try:
+                http_status, field, message, code = json.loads(output)
+            except (ValueError, TypeError):
+                pass  # A crashed model can exit with this status without a validation receipt.
+            else:
+                raise JobError(http_status, field, message, code=code)
         if status == INVALID_INPUT and (workdir / "invalid.json").is_file():
             field, message = json.loads((workdir / "invalid.json").read_text("utf-8"))
             raise JobError(422, field, message)
-        if status != 0:
+        if status != 0 or model_timed_out:
+            # A worker can publish its baseline and exit between consecutive polls.
+            if with_decision and marker.is_file():
+                reason = "timeout" if model_timed_out else "invalid_response"
+                return read_rule_pdf(workdir), "rule", reason
             raise JobError(500)
         if response_name is None:
             return output
@@ -210,10 +243,7 @@ async def isolated_job(
         if with_decision:
             applied, reason = json.loads((workdir / "decision-status").read_text("ascii"))
             if compare and applied in ("model", "mixed"):
-                rule = (workdir / "measure/book.pdf").read_bytes()
-                if not complete_pdf(rule):
-                    raise JobError(500)
-                return (rule, data), applied, reason
+                return (read_rule_pdf(workdir), data), applied, reason
             return data, applied, reason
         return data
 

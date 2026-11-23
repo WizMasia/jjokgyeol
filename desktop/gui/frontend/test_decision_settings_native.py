@@ -45,6 +45,7 @@ class DecisionSettingsTest(unittest.TestCase):
                       return takeConnection(args.revision);
                     }
                     if (command === "check_decision_connection") {
+                      if (args.connection.provider === "builtin") throw JSON.stringify({code:"builtin_unavailable"});
                       if (window.failCheck) throw JSON.stringify({code:"authentication", message:"native-test-key"});
                       return {ok:true};
                     }
@@ -193,3 +194,13 @@ class DecisionSettingsTest(unittest.TestCase):
             expect(again.locator("#decision-api-key")).to_have_value("")
             again.locator("#close-settings").click()
             self.assertTrue(again.evaluate("calls.some(c => c.command === 'cancel_settings')"))
+
+            builtin = open_child()
+            builtin.locator("#decision-mode").select_option("builtin")
+            expect(builtin.locator("#decision-fields")).to_be_hidden()
+            builtin.locator("#decision-check").click()
+            expect(builtin.locator("#decision-check-status")).to_contain_text("내장 모델")
+            builtin.locator("#apply-settings").click()
+            builtin.wait_for_function("calls.some(c => c.command === 'apply_settings')")
+            self.assertEqual(builtin.evaluate("calls.find(c => c.command === 'apply_settings').args.snapshot.connection"),
+                             {"provider": "builtin"})

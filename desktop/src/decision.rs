@@ -25,6 +25,7 @@ fn public_code(value: &Value) -> Option<&str> {
                 | "model"
                 | "rate_limit"
                 | "timeout"
+                | "builtin_unavailable"
                 | "unavailable"
                 | "invalid_response"
         )

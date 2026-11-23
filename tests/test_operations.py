@@ -99,7 +99,7 @@ async def check_live_limits():
         prefix = '<script type="application/json" id="editor-settings">'
         bootstrap = json.loads(first.text.split(prefix, 1)[1].split("</script>", 1)[0])
         assert set(bootstrap) == {
-            "decision_providers", "operator_decision",
+            "decision_providers", "operator_decision", "builtin_decision",
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
             "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
             "new_paragraph_layout", "new_spacing", "justified_spacing", "page_presets_mm", "indent_units",

@@ -172,7 +172,8 @@ function editManuscript() {
 
 const settings = JSON.parse(byId("editor-settings").textContent);
 let decisionConnection;
-const connectionForm = decisionSettings(settings.decision_providers ?? [], !nativeDesktop && settings.operator_decision);
+const connectionForm = decisionSettings(settings.decision_providers ?? [], settings.builtin_decision,
+  !nativeDesktop && settings.operator_decision);
 const stylePanel = byId("style");
 const marginMode = byId("margin-mode");
 marginMode.add(new Option("고정 좌우 여백", "fixed"));

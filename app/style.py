@@ -828,6 +828,7 @@ def editor_bootstrap() -> dict:
         text_defaults = dict(TEXT_DEFAULTS)
         text_defaults["note_pt"] = _pt(text_defaults.pop("note_sp"))
     return {
+        "builtin_decision": True,
         "decision_providers": read_config(CONFIG_DIR / "decision-providers.json")["providers"],
         "operator_decision": bool(os.getenv("JJOKGYEOL_DECISION_HOST")),
         "document_limits": {"request": LIMITS.request_body_bytes, "file": LIMITS.worker_file_bytes},

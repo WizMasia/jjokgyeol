@@ -12,25 +12,24 @@ from threading import Event, Thread
 from time import monotonic
 from urllib.parse import quote, unquote, urlsplit
 
+from app.ai.builtin import BuiltinDecision
+from app.ai.model import LIMITS, ProviderError
 from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.security import LOOPBACK_HOSTS
 
 
 DEFAULTS = {row["id"]: row["base_url"] for row in
             read_config(CONFIG_DIR / "decision-providers.json")["providers"]}
-LIMITS = read_config(CONFIG_DIR / "decision.json")
 PROMPT = ('Choose one of the measured paragraph layouts. Balance line lengths including the last '
           'line, avoid isolated glyphs and split words, and prefer smooth spacing. Widths use sp '
           'and spacing ratios use 10000 as one unit. Return only a JSON object {"id":"..."} '
           'containing the exact ID of your chosen layout.')
-EXAMPLE = {"a": [{"end_glyph": 4, "remaining_sp": 100, "available_sp": 500}],
-           "b": [{"end_glyph": 4, "remaining_sp": 200, "available_sp": 500}]}
-
-
-class ProviderError(ValueError):
-    def __init__(self, code):
-        super().__init__(code)
-        self.code = code
+# Use the same line fields a trained selector will see during real rendering.
+_EXAMPLE_LINE = {"end_glyph": 4, "available_sp": 500, "start_sp": 0, "tracking_per_10000": 0,
+                 "space_per_10000": 10000, "tracking_delta": 0, "space_deviation": 0,
+                 "tracking_change": 0, "space_change": 0, "split_word": False,
+                 "first_char_class": "Lo", "last_char_class": "Lo"}
+EXAMPLE = {"a": [dict(_EXAMPLE_LINE, remaining_sp=100)], "b": [dict(_EXAMPLE_LINE, remaining_sp=200)]}
 
 
 def _loopback(host):
@@ -70,6 +69,8 @@ def _address(provider, base, *, desktop, key):
 
 
 def parse_connection(raw, *, desktop=False):
+    if raw == {"provider": "builtin"}:
+        return BuiltinDecision.installed()
     if not isinstance(raw, dict) or raw.keys() - {"provider", "base_url", "model", "api_key"}:
         raise ProviderError("invalid_connection")
     provider = raw.get("provider")
@@ -99,7 +100,7 @@ def parse_render_connection(raw, *, desktop=False):
     try:
         return parse_connection(raw, desktop=desktop), None
     except ProviderError as error:
-        if error.code not in ("model", "address"):
+        if error.code not in ("model", "address", "builtin_unavailable"):
             raise
         return None, error.code
 

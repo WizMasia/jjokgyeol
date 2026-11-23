@@ -12,14 +12,13 @@ from threading import current_thread, main_thread
 from time import monotonic
 from unicodedata import category
 
-from app.ai.providers import Connection, ProviderError
-from app.configuration import CONFIG_DIR, read_config, unique_fields
+from app.ai.model import DecisionModel, LIMITS as PIN, ProviderError
+from app.configuration import unique_fields
 from app.document import InputError
 from app.security import complete_pdf
 from app.style import Style
 from app.typeset import typeset
 
-PIN = read_config(CONFIG_DIR / "decision.json")
 MODEL_DIR = Path("/opt/decision-model")
 MODEL_ERRORS = (OSError, HTTPException, ValueError, TypeError, KeyError, IndexError, RecursionError)
 NUMBERS = ("end_glyph", "available_sp", "remaining_sp", "start_sp", "tracking_per_10000",
@@ -147,7 +146,7 @@ def features(lines, style, final_glyph):
 class ParagraphDecision:
     style: Style
     rule_id: str
-    model: LocalModel | Connection | None
+    model: LocalModel | DecisionModel | None
     used_model: bool = False
     reason: str | None = None
 
@@ -184,7 +183,7 @@ class ParagraphDecision:
         return self.rule_id
 
 
-class DecisionExpired(Exception):
+class DecisionExpired(TimeoutError):
     pass
 
 
@@ -299,10 +298,12 @@ def measure_rule(doc, style, measure, *, typesetter=typeset):
     return baseline
 
 
-def render_provider_choice(doc, style, workdir, deadline, connection, *, typesetter=typeset):
+def render_provider_choice(doc, style, workdir, deadline, connection, *, typesetter=typeset, baseline_ready=None):
     measure = workdir / "measure"
     baseline = measure_rule(doc, style, measure, typesetter=typesetter)
     end = min(monotonic() + PIN["decision_seconds"], deadline - PIN["delivery_reserve_seconds"])
+    if baseline_ready is not None:
+        baseline_ready(end)
     try:
         with decision_timer(end):
             choices = {}
@@ -326,7 +327,7 @@ def render_provider_choice(doc, style, workdir, deadline, connection, *, typeset
                 seconds_left(end)
                 if selector.used_model:
                     choices[row["block"]] = selected
-                elif selector.reason in ("authentication", "model", "address", "rate_limit"):
+                elif selector.reason in ("authentication", "model", "address", "rate_limit", "builtin_unavailable"):
                     reason = selector.reason
                     break
                 else:

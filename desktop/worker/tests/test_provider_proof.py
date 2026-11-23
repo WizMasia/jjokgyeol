@@ -69,3 +69,20 @@ def test_packaged_rejected_address_delivers_rule_without_provider_call(tmp_path,
     assert not (tmp_path / 'response.pdf').exists()
     ends, _ = scan((tmp_path / 'measure/book.pdf').read_bytes())
     assert ends == [9, 11]
+
+
+def test_packaged_builtin_without_weights_delivers_rule(tmp_path, staged_worker):
+    from test_decision import SOURCE, STYLE, scan
+    from app.style import Style, apply_style
+
+    worker, runtime = staged_worker
+    connection = {'provider': 'builtin'}
+    checked = subprocess.run([worker, '--check-decision'], cwd=tmp_path, input=json.dumps(connection).encode(),
+                             capture_output=True, timeout=30)
+    assert checked.returncode != 0 and json.loads(checked.stderr) == {'code': 'builtin_unavailable'}
+    request = {'connection': connection, 'source': SOURCE, 'style': apply_style(Style(), STYLE).to_stored()}
+    result = subprocess.run([worker, '--model-proof', runtime], cwd=tmp_path, input=json.dumps(request).encode(),
+                            capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((tmp_path / 'decision.json').read_bytes()) == {'decision': 'rule', 'reason': 'builtin_unavailable'}
+    assert scan((tmp_path / 'measure/book.pdf').read_bytes())[0] == [9, 11]

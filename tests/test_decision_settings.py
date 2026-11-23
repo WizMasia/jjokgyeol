@@ -36,7 +36,7 @@ def test_operator_default_can_be_overridden_and_restored(desk):
     desk.reply(1, desk.pdf)
 
 
-@pytest.mark.parametrize("desk", [{"decision_providers": []}], indirect=True)
+@pytest.mark.parametrize("desk", [{"decision_providers": [], "builtin_decision": False}], indirect=True)
 def test_editor_with_older_bootstrap_hides_connection_controls(desk):
     desk.ready()
     open_settings(desk.page)
@@ -195,3 +195,38 @@ def test_latest_settings_win_without_serializing_credentials(desk):
     open_settings(other.page)
     expect(other.page.locator("#decision-mode")).to_have_value("rule")
     other.page.close()
+
+
+def test_builtin_mode_checks_and_renders_with_only_its_id(desk):
+    desk.ready()
+    page = desk.page
+    page.route("**/api/decision/check", lambda route: route.fulfill(status=422, json={"code": "builtin_unavailable"}))
+    open_settings(page)
+    choose_model(page)
+    mode = page.locator("#decision-mode")
+    expect(mode.locator('option[value="builtin"]')).to_have_count(1)
+    mode.select_option("builtin")
+    expect(page.locator("#decision-fields")).to_be_hidden()
+    with page.expect_request(ORIGIN + "/api/decision/check") as probe:
+        page.locator("#decision-check").click()
+    assert probe.value.post_data_json == {"provider": "builtin"}
+    expect(page.locator("#decision-check-status")).to_contain_text("내장 모델")
+    page.locator("#apply-settings").click()
+    desk.submit(desk.refresh)
+    assert desk.requests[-1]["connection"] == {"provider": "builtin"}
+    desk.reply(0, desk.pdf)
+    open_settings(page)
+    expect(mode).to_have_value("builtin")
+    mode.select_option("model")
+    expect(page.locator("#decision-api-key")).to_have_value("")
+
+
+@pytest.mark.parametrize("desk", [{"decision_providers": []}], indirect=True)
+def test_builtin_can_be_used_without_any_external_providers(desk):
+    desk.ready()
+    open_settings(desk.page)
+    mode = desk.page.locator("#decision-mode")
+    expect(mode).to_be_visible()
+    expect(mode.locator('option[value="model"]')).to_have_count(0)
+    mode.select_option("builtin")
+    expect(desk.page.locator("#decision-check")).to_be_visible()
