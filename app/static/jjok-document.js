@@ -8,6 +8,7 @@ function documentError(error, message) {
 }
 
 byId("save-document").addEventListener("click", async () => {
+  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
   if (savingDocument !== null || fileLoads.source || fileLoads.style) return;
   const identity = documentIdentity;
   const revision = documentRevision;
