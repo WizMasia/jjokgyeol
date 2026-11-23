@@ -41,6 +41,9 @@ def verify(lock):
     for faces in lock["fonts"].values():
         for record in faces.values():
             check_file(record)
+    font_dir = Path(next(iter(lock["fonts"].values()))["regular"]["path"]).parent
+    for filename, record in lock.get("document_font_files", {}).items():
+        check_file({"path": str(font_dir / filename), "sha256": record["sha256"]})
 
 
 if __name__ == "__main__":

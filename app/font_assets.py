@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.configuration import APP_DIR, CONFIG_DIR, read_config
 from app.operations import LIMITS
-from app.publication import FONT_LABELS
+from app.publication import FONT_DIR, FONT_LABELS
 
 
 def _load_limits():
@@ -35,6 +35,13 @@ def _catalog():
             faces[digest] = {"family": family, "name": FONT_LABELS[family],
                              "weight": weight, "version": record["version"]}
             paths[digest] = Path(record["path"])
+    for filename, face in lock.get("document_font_files", {}).items():
+        if Path(filename).name != filename or not filename.lower().endswith((".ttf", ".otf")):
+            raise ValueError("runtime.lock: invalid document font filename")
+        digest = face["sha256"]
+        faces[digest] = {key: face[key] for key in ("family", "name", "weight", "version")}
+        faces[digest]["fallback"] = False
+        paths[digest] = FONT_DIR / filename
     notice = lock["font_license"]
     paths[notice["sha256"]] = Path(notice["path"])
     return {"faces": faces, "notice": notice["sha256"]}, paths
