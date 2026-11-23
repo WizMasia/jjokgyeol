@@ -223,7 +223,6 @@ def test_typeset_and_poppler_pass_sanitized_env(
 
 def test_outbound_url_enforces_https_for_remote_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     from app import reference
-    from app.ai import style as ai_style
 
     monkeypatch.setenv("JJOKGYEOL_VISION_MODEL", "vision-test")
     monkeypatch.setenv("JJOKGYEOL_VISION_TOKEN", "bearer-secret")
@@ -243,10 +242,23 @@ def test_outbound_url_enforces_https_for_remote_endpoints(monkeypatch: pytest.Mo
     monkeypatch.setenv("JJOKGYEOL_VISION_URL", "https://remote.example/v1")
     assert reference.load_settings()["vision_url"] == "https://remote.example/v1"
 
-    monkeypatch.setenv("JJOKGYEOL_STYLE_URL", "http://remote.example/v1")
-    monkeypatch.setenv("JJOKGYEOL_STYLE_MODEL", "style-test")
-    with pytest.raises(ValueError):
-        ai_style._infer("본문 크기를 키워줘", {"body_pt": "11"})
+
+def test_suggestion_worker_rejects_remote_http_key_without_persisting_request(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    address = "http://remote.example/v1"
+    monkeypatch.setenv("JJOKGYEOL_DECISION_BASE_URLS", address)
+    connection = {"provider": "chat", "base_url": address, "model": "test", "api_key": "private-test-key"}
+    payload = {"request": "본문 크기를 키워줘", "style": {}, "connection": connection}
+    worker = Path(__file__).resolve().parents[1] / "app/ai/style_worker.py"
+    result = subprocess.run([sys.executable, "-IB", str(worker), "--stdin"], cwd=tmp_path,
+                            input=json.dumps(payload), text=True, capture_output=True)
+    assert result.returncode == jobs.INVALID_INPUT
+    status, field, _, code = json.loads(result.stdout)
+    assert (status, field, code) == (422, "connection", "address")
+    assert connection["api_key"] not in result.stdout + result.stderr
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_workers_sanitize_internal_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

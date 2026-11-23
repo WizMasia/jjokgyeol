@@ -15,6 +15,7 @@
   <script src="/static/decision-settings.js" defer></script>
   <script src="/static/font-rights.js" defer></script>
   <script src="/static/document-fonts.js" defer></script>
+  <script src="/static/personal-defaults.js" defer></script>
   <script src="/static/editor.js" defer></script>
   <script src="/static/style-file.js" defer></script>
   <script src="/static/zip.min.js" defer></script>
@@ -117,19 +118,28 @@
       <header class="settings-head">
         <h2 id="settings-title">출판 설정</h2>
         <div class="settings-actions">
+          <button id="save-personal-defaults" type="button">새 문서 기본값으로 저장</button>
+          <button id="restore-personal-defaults" type="button">쪽결 기본값으로 복원</button>
           <button id="close-settings" type="button" aria-label="출판 설정 닫기">닫기</button>
           <button id="apply-settings" class="primary" type="button">적용</button>
         </div>
+        <span id="personal-defaults-status" aria-live="polite"></span>
       </header>
       <p id="settings-error" role="alert"></p>
       <fieldset id="decision-settings" hidden>
-        <legend>이 편집기의 조판 설정</legend>
-        <label>줄바꿈 결정 <select id="decision-mode"></select></label>
+        <legend>AI 모델 설정</legend>
+        <label>조판 방식 <select id="decision-mode"></select></label>
         <div id="decision-fields" hidden>
-          <label>API 형식 <select id="decision-provider"></select></label>
-          <label>모델명 <input id="decision-model" type="text" autocomplete="off" spellcheck="false" required></label>
+          <label>공급자 · API 형식 <select id="decision-provider"></select></label>
+          <label>모델 ID <input id="decision-model" type="text" autocomplete="off" spellcheck="false" required></label>
           <label>서버 주소 <input id="decision-base-url" type="url" autocomplete="off" spellcheck="false" required></label>
           <label>API 키 <input id="decision-api-key" type="password" autocomplete="off" spellcheck="false"></label>
+          <button id="decision-list-models" type="button">모델 목록 조회</button>
+          <span id="decision-model-status" role="status"></span>
+          <label id="decision-model-choices" hidden>목록에서 선택 <select id="decision-model-list"></select></label>
+          <details id="decision-manual-models"><summary>모델 목록 직접 입력</summary>
+            <label>한 줄에 모델 ID 하나 <textarea id="decision-model-lines" rows="3" spellcheck="false"></textarea></label>
+          </details>
           <button id="decision-clear-key" type="button">키 지우기</button>
           <small id="decision-key-help" hidden>API 키를 사용하려면 편집기를 HTTPS 또는 같은 기기의 루프백 주소(localhost 등)로 여세요. 이 주소에서는 키 없이 모델에 연결할 수 있습니다.</small>
         </div>
@@ -250,10 +260,11 @@
       </details>
     </section>
     <section id="style-suggestion" aria-labelledby="open-suggestion" hidden>
+      <p id="suggestion-destination"></p>
       <form class="reference-tools" id="suggestion-form">
         <label for="suggestion-request">양식 변경 요청</label>
         <input id="suggestion-request" type="text" required placeholder="본문만 16pt로">
-        <button type="submit">제안 받기</button>
+        <button type="submit" aria-describedby="suggestion-destination" disabled>제안 받기</button>
       </form>
       <p id="suggestion-message" aria-live="polite"></p>
       <ul id="suggestion-fields" hidden></ul>

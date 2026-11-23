@@ -105,7 +105,7 @@ def bundled_typesetter(runtime):
     return partial(typeset, engine=Path(engine_path(engine)), font_dir=fonts, max_pdf_bytes=LIMITS.worker_file_bytes)
 
 
-def decision_request(runtime, *, plain=False, with_spacing=False):
+def decision_request(runtime, *, plain=False, with_spacing=False, catalog=False):
     from app.ai.providers import ProviderError, check_connection, parse_render_connection
 
     deadline = monotonic() + LIMITS.timeout_seconds
@@ -137,6 +137,10 @@ def decision_request(runtime, *, plain=False, with_spacing=False):
             print(json.dumps({'code': 'invalid_connection'}), file=sys.stderr)
             return 1
     try:
+        if catalog:
+            from app.ai.providers import list_models
+            print(json.dumps({'models': list_models(request, desktop=True)}))
+            return 0
         if runtime is None:
             check_connection(request, desktop=True)
             print(json.dumps({'ok': True}))
@@ -192,6 +196,7 @@ def main():
     modes.add_argument('--model-proof', type=Path)
     modes.add_argument('--plain-proof', type=Path)
     modes.add_argument('--check-decision', action='store_true')
+    modes.add_argument('--list-decision-models', action='store_true')
     modes.add_argument('--paragraph-align', action='store_true')
     modes.add_argument('--style-open', action='store_true')
     modes.add_argument('--style-export', action='store_true')
@@ -199,9 +204,9 @@ def main():
     try:
         args = parser.parse_args()
         limit_worker_files(LIMITS.worker_file_bytes)
-        if args.plain_proof or args.model_proof or args.check_decision:
+        if args.plain_proof or args.model_proof or args.check_decision or args.list_decision_models:
             return decision_request(args.plain_proof or args.model_proof, plain=args.plain_proof is not None,
-                                    with_spacing=args.spacing_receipt)
+                                    with_spacing=args.spacing_receipt, catalog=args.list_decision_models)
         if args.paragraph_align:
             from app.paragraph_worker import alignment_response
             sys.stdout.buffer.write(alignment_response(sys.stdin.buffer))

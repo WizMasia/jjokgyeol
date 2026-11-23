@@ -55,6 +55,7 @@ def resource_config(runtime, platform=sys.platform, *, release_tag=None):
 
 def validate_frontend(dist, release_tag=None):
     for name in ('index.html', 'sample.md', 'static/desktop.js', 'static/editor.js',
+                 'static/decision-settings.js', 'static/personal-defaults.js',
                  'static/zip.min.js', 'static/zip.LICENSE.txt', 'static/jjok-archive.js', 'static/jjok-document.js',
                  'static/document-fonts.js', 'static/font-rights.js', 'static/ofl-1.1.txt',
                  'static/sha256.min.js', 'static/sha256.LICENSE.txt',

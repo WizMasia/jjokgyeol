@@ -88,7 +88,7 @@ class Desk:
             expect(self.frame).to_be_visible()
         else:
             expect(self.page.get_by_text("PDF 다운로드로 지면을 확인하세요.", exact=False)).to_be_visible()
-        assert self.requests == [{"source": SAMPLE, "style": expected_style}]
+        assert self.requests == [{"source": SAMPLE, "style": expected_style, "connection": {"provider": "rule"}}]
 
     def submit(self, button):
         button.scroll_into_view_if_needed()
@@ -297,7 +297,7 @@ def test_changed_bootstrap_precedes_sample(desk, monkeypatch):
     with desk.page.expect_request(ORIGIN + "/api/render"):
         samples[0].fulfill(content_type="text/plain; charset=utf-8", body=SAMPLE)
     expect(size).to_have_value("14.500")
-    assert desk.requests[-1] == {"source": SAMPLE, "style": {**defaults, "body_pt": "14.500"}}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": SAMPLE, "style": {**defaults, "body_pt": "14.500"}}
     desk.reply(0, desk.pdf)
 
 
@@ -372,7 +372,7 @@ def test_list_presets_and_custom_levels(desk):
     close_settings(page)
     desk.source.fill(manuscript)
     desk.submit(desk.export)
-    assert desk.requests[-1] == {"source": manuscript, "style": {**DEFAULTS, "list_levels": LIST_PRESETS["report"]}}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": manuscript, "style": {**DEFAULTS, "list_levels": LIST_PRESETS["report"]}}
     with page.expect_download() as saved:
         desk.reply(0, desk.pdf)
     assert saved.value.url == desk.frame.get_attribute("src")

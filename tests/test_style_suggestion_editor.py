@@ -20,7 +20,7 @@ TEXT_STYLES = {"heading1": {"font_pt": "18", "color": "#17365d"}}
 
 
 @pytest.fixture
-def page(browser, server_url):
+def panel(browser, server_url):
     with browser.new_context() as context:
         p = context.new_page()
         p.set_default_timeout(8000)
@@ -31,6 +31,97 @@ def page(browser, server_url):
         open_settings(p)
         p.get_by_text("AI 양식 제안", exact=True).click()
         yield p
+
+
+def apply_external(page, connection):
+    open_settings(page)
+    page.locator("#decision-mode").select_option("model")
+    page.locator("#decision-provider").select_option(connection["provider"])
+    page.locator("#decision-base-url").fill(connection["base_url"])
+    page.locator("#decision-model").fill(connection["model"])
+    page.locator("#decision-api-key").fill(connection.get("api_key", ""))
+    page.locator("#apply-settings").click()
+    open_settings(page)
+
+
+@pytest.fixture
+def page(panel, local_model):
+    apply_external(panel, local_model[0]["connection"])
+    return panel
+
+
+def test_suggestion_requires_applied_external_connection(panel):
+    calls = []
+    def capture(route):
+        calls.append(route.request)
+        route.fulfill(json={"patch": {}})
+
+    panel.route("**" + ENDPOINT, capture)
+    ask = panel.get_by_role("button", name="제안 받기")
+    panel.get_by_label("양식 변경 요청").fill(BODY)
+    expect(ask).to_be_disabled()
+    info = panel.locator("#suggestion-destination")
+    expect(info).to_contain_text("외부 API")
+    panel.locator("#decision-mode").select_option("model")
+    panel.locator("#decision-model").fill("unapplied")
+    expect(ask).to_be_disabled()
+    close_settings(panel)
+    open_settings(panel)
+    expect(ask).to_be_disabled()
+    panel.locator("#suggestion-form").evaluate("form => form.requestSubmit()")
+    assert not calls
+
+
+def test_destination_and_request_follow_applied_connection(page, local_model):
+    connection = local_model[0]["connection"]
+    info = page.locator("#suggestion-destination")
+    expect(info).to_contain_text(connection["base_url"])
+    expect(info).to_contain_text(connection["model"])
+    expect(info).to_contain_text("요청 문구")
+    expect(info).to_contain_text("현재 양식")
+    expect(info).to_contain_text("머리글")
+    expect(info).not_to_contain_text(connection["api_key"])
+    page.locator("#decision-model").fill("unapplied")
+    page.locator("#suggestion-request").fill(BODY)
+    page.route("**" + ENDPOINT, lambda route: route.fulfill(json={"patch": {"body_pt": "16"}}))
+    with page.expect_request("**" + ENDPOINT) as sent:
+        page.get_by_role("button", name="제안 받기").click()
+    assert sent.value.post_data_json == {"request": BODY, "style": page.evaluate("styleForm.get()"),
+                                         "connection": connection}
+    expect(page.locator("#suggestion-apply")).to_be_visible()
+    apply_external(page, {**connection, "model": "replacement"})
+    expect(info).to_contain_text("replacement")
+    expect(page.locator("#suggestion-apply")).to_be_hidden()
+
+
+def test_invalid_destination_does_not_display_credentials(page, local_model):
+    connection = local_model[0]["connection"]
+    address = connection["base_url"] + "?token=" + connection["api_key"]
+    apply_external(page, {**connection, "base_url": address})
+    expect(page.locator("#suggestion-destination")).not_to_contain_text(connection["api_key"])
+    expect(page.get_by_role("button", name="제안 받기")).to_be_disabled()
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_connection_change_aborts_pending_request(page, local_model, ok):
+    connection = local_model[0]["connection"]
+    page.evaluate("""() => {
+      const fetch = window.fetch;
+      window.fetch = (url, options) => {
+        if (url !== '/api/style-suggestion') return fetch(url, options);
+        window.suggestionSignal = options.signal;
+        return new Promise(resolve => window.finishSuggestion = resolve);
+      };
+    }""")
+    page.locator("#suggestion-request").fill(BODY)
+    page.get_by_role("button", name="제안 받기").click()
+    apply_external(page, {**connection, "api_key": "replacement-key"})
+    assert page.evaluate("window.suggestionSignal.aborted")
+    page.evaluate("""ok => finishSuggestion(new Response(JSON.stringify(ok ?
+      {patch: {body_pt: '16'}} : {message: 'stale failure'}), {status: ok ? 200 : 502}))""", ok)
+    expect(page.locator("#suggestion-apply")).to_be_hidden()
+    expect(page.locator("#suggestion-message")).not_to_contain_text("stale failure")
+    expect(page.locator("#body_pt")).to_have_value("11")
 
 
 def pdf(page, destination):
@@ -70,9 +161,17 @@ def open_saved_style(page):
 
 
 @pytest.mark.parametrize("real", [False, pytest.param(True, marks=pytest.mark.skipif(
-    os.environ.get("JJOKGYEOL_TEST_STYLE_MODEL") != "1", reason="로컬 모델 인수 전용"))], ids=["offline", "gemma"])
-def test_suggestions_reach_pdf(page, request, real, tmp_path):
+    os.environ.get("JJOKGYEOL_TEST_STYLE_MODEL") != "1", reason="로컬 모델 인수 전용"))], ids=["offline", "external"])
+def test_suggestions_reach_pdf(panel, request, real, tmp_path, monkeypatch):
+    page = panel
     control = None if real else request.getfixturevalue("local_model")[0]
+    if real:
+        address = os.environ["JJOKGYEOL_TEST_STYLE_BASE_URL"]
+        connection = {"provider": "chat", "base_url": address, "model": os.environ["JJOKGYEOL_TEST_STYLE_MODEL_ID"]}
+        monkeypatch.setenv("JJOKGYEOL_DECISION_BASE_URLS", address)
+    else:
+        connection = control["connection"]
+    apply_external(page, connection)
     open_saved_style(page)
     open_settings(page)
     page.locator("#style summary").click()

@@ -65,6 +65,12 @@ impl ModelBudget {
     }
 }
 
+fn read_pipe(pipe: impl Read, limit: u64) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.take(limit + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 fn run(
     runtime: &Path,
     work: &Path,
@@ -73,7 +79,7 @@ fn run(
     deadline: Instant,
     mut budget: Option<ModelBudget>,
     with_spacing: bool,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     let config = operations().map_err(|_| error("unavailable"))?;
     let request_limit = config_number(&config, "request_body_bytes");
     if flag == "--model-proof" && request.first() == Some(&0) {
@@ -97,23 +103,19 @@ fn run(
     )
     .map_err(|_| error("unavailable"))?;
     let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take();
     let stderr = child.stderr.take().unwrap();
     let marker = work.join("baseline-ready");
     // A stalled worker can block the pipe writer; the supervising thread must stay free to kill it.
-    let (exit, diagnostic, sent) = thread::scope(|scope| {
+    let (exit, diagnostic, sent, output) = thread::scope(|scope| {
         let writer = scope.spawn(move || {
             if Instant::now() >= deadline {
                 return Err(error("timeout"));
             }
             stdin.write_all(&request).map_err(|_| error("unavailable"))
         });
-        let reader = scope.spawn(move || {
-            let mut bytes = Vec::new();
-            stderr
-                .take(WORKER_ERROR_LIMIT + 1)
-                .read_to_end(&mut bytes)?;
-            Ok::<_, std::io::Error>(bytes)
-        });
+        let reader = scope.spawn(move || read_pipe(stderr, WORKER_ERROR_LIMIT));
+        let reply = stdout.map(|pipe| scope.spawn(move || read_pipe(pipe, request_limit)));
         let exit = wait_worker(
             &mut child,
             deadline.saturating_duration_since(Instant::now()),
@@ -127,9 +129,14 @@ fn run(
                 Ok(())
             },
         );
-        // On Windows closing the job kills descendants retaining either pipe.
+        // On Windows closing the job kills descendants retaining a pipe.
         drop(child);
-        (exit, reader.join().unwrap(), writer.join().unwrap())
+        (
+            exit,
+            reader.join().unwrap(),
+            writer.join().unwrap(),
+            reply.map(|task| task.join().unwrap()).transpose(),
+        )
     });
     let status = exit.map_err(|cause| {
         error(if cause == "worker timed out" {
@@ -138,9 +145,15 @@ fn run(
             "unavailable"
         })
     })?;
+    let output = output
+        .map_err(|_| error("invalid_response"))?
+        .unwrap_or_default();
+    if output.len() as u64 > request_limit {
+        return Err(error("invalid_response"));
+    }
     if !status.success() {
         let bytes = diagnostic.unwrap_or_default();
-        if flag != "--check-decision" {
+        if matches!(flag, "--plain-proof" | "--model-proof") {
             if let Some(message) = validation_error(&bytes) {
                 return Err(message);
             }
@@ -148,7 +161,8 @@ fn run(
         let data = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
         return Err(error(public_code(&data["code"]).unwrap_or("unavailable")));
     }
-    sent
+    sent?;
+    Ok(output)
 }
 
 fn deadline_after(timeout: Duration) -> Result<Instant, String> {
@@ -164,22 +178,49 @@ pub fn decision_check_timeout(timeout: Duration) -> Duration {
     timeout.min(ModelBudget::configured().duration)
 }
 
-pub fn check_decision_connection(
+fn connection_request(
     runtime: &Path,
     connection: Vec<u8>,
     timeout: Duration,
-) -> Result<(), String> {
+    flag: &str,
+) -> Result<Vec<u8>, String> {
     let deadline = deadline_after(decision_check_timeout(timeout))?;
     let work = tempfile::tempdir().map_err(|_| error("unavailable"))?;
     run(
         runtime,
         work.path(),
-        "--check-decision",
+        flag,
         connection,
         deadline,
         None,
         false,
     )
+}
+
+pub fn check_decision_connection(
+    runtime: &Path,
+    connection: Vec<u8>,
+    timeout: Duration,
+) -> Result<(), String> {
+    connection_request(runtime, connection, timeout, "--check-decision").map(|_| ())
+}
+
+pub fn list_decision_models(
+    runtime: &Path,
+    connection: Vec<u8>,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let bytes = connection_request(runtime, connection, timeout, "--list-decision-models")?;
+    let reply: Value = serde_json::from_slice(&bytes).map_err(|_| error("invalid_response"))?;
+    if reply.as_object().is_some_and(|obj| obj.len() == 1)
+        && reply["models"]
+            .as_array()
+            .is_some_and(|models| models.iter().all(Value::is_string))
+    {
+        Ok(reply)
+    } else {
+        Err(error("invalid_response"))
+    }
 }
 
 pub fn render_model_proof(
@@ -261,7 +302,7 @@ pub fn render_preview(
     };
     let mut selected_folder = path.to_path_buf();
     let (decision, reason, selected) =
-        match result.and_then(|()| selection().ok_or_else(|| error("invalid_response"))) {
+        match result.and_then(|_| selection().ok_or_else(|| error("invalid_response"))) {
             Ok(proof) => proof,
             Err(cause) => {
                 let cause: Value = serde_json::from_str(&cause).unwrap_or(Value::Null);

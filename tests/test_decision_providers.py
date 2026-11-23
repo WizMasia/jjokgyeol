@@ -18,6 +18,7 @@ DEFAULTS = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
     "claude": "https://api.anthropic.com/v1",
     "ollama": "http://127.0.0.1:11434",
+    "lmstudio": "http://127.0.0.1:1234/v1",
 }
 
 
@@ -46,8 +47,14 @@ def raw(provider="chat", base_url=DEFAULTS["chat"], **extra):
 @pytest.fixture
 def api(monkeypatch):
     class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.respond(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+
         def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            self.server.last_request_bytes = self.rfile.read(int(self.headers["Content-Length"]))
+            self.respond(json.loads(self.server.last_request_bytes))
+
+        def respond(self, body):
             self.server.calls.append((self.path, self.headers, body))
             status, headers, wire = self.server.respond(body)
             if not isinstance(wire, bytes):
@@ -84,6 +91,7 @@ def api(monkeypatch):
 def test_registry_and_packaging():
     registry = json.loads((ROOT / "app/config/decision-providers.json").read_text())
     assert {row["id"]: row["base_url"] for row in registry["providers"]} == DEFAULTS
+    assert [row["id"] for row in registry["providers"]] == list(DEFAULTS)
     assert all(row["label"] for row in registry["providers"])
     responses, = [row for row in registry["providers"] if row["id"] == "responses"]
     assert "Codex" in responses["label"]
@@ -92,10 +100,30 @@ def test_registry_and_packaging():
         assert "!app/config/decision-providers.json" in (ROOT / ".dockerignore").read_text().splitlines()
 
 
+@pytest.mark.parametrize("key,value", [("max_tokens", True), ("max_response_bytes", -2)])
+def test_invalid_style_budget_rejected_at_load(monkeypatch, key, value):
+    import runpy
+    from app import configuration
+    from app.ai import providers
+
+    read = configuration.read_config
+
+    def bad_config(path):
+        config = read(path)
+        if path.name == "decision-providers.json":
+            config["style_suggestion"][key] = value
+        return config
+
+    monkeypatch.setattr(configuration, "read_config", bad_config)
+    with pytest.raises(ValueError, match=key):
+        runpy.run_path(providers.__file__)
+
+
 @pytest.mark.parametrize("provider,suffix,auth", [
     ("responses", "/responses", "Authorization"), ("chat", "/chat/completions", "Authorization"),
     ("gemini", "/models/sample:generateContent", "x-goog-api-key"),
     ("claude", "/messages", "x-api-key"), ("ollama", "/api/chat", "Authorization"),
+    ("lmstudio", "/chat/completions", "Authorization"),
 ])
 def test_request_and_completed_answer(api, provider, suffix, auth):
     from app.ai.providers import parse_connection
@@ -147,6 +175,62 @@ def test_check_calls_once_with_example_only_and_optional_key(api):
     assert_code("invalid_response", lambda: check_connection(connection))
 
 
+@pytest.mark.parametrize("provider", DEFAULTS)
+def test_generate_json_sends_style_prompt_and_decodes_edits(api, provider, monkeypatch):
+    from app.ai import providers
+
+    monkeypatch.setitem(providers.LIMITS, "decision_seconds", 0)
+    prompt = "Return JSON style edits."
+    payload = {"요청": "본문을 키워 주세요", "현재 양식": {"body_pt": "10.0625"}}
+    edits = {"edits": [{"field": "body_pt", "value": "12.125"}]}
+    api.respond = lambda _: (200, {}, reply(provider, json.dumps(edits)))
+    conn = providers.parse_connection(raw(provider, api.base))
+    assert conn.generate_json(prompt, payload, timeout=1) == edits
+    (_, _, body), = api.calls
+    if provider == "responses":
+        instruction, data = body["instructions"], body["input"]
+        assert body["max_output_tokens"] == 512
+    elif provider == "gemini":
+        instruction = body["systemInstruction"]["parts"][0]["text"]
+        data = body["contents"][0]["parts"][0]["text"]
+        assert body["generationConfig"]["maxOutputTokens"] == 512
+    else:
+        instruction = body["system"] if provider == "claude" else body["messages"][0]["content"]
+        data = body["messages"][-1]["content"]
+        if provider == "ollama":
+            assert body["options"]["num_predict"] == 512
+        elif provider == "chat":
+            assert body["max_completion_tokens"] == 512
+        else:
+            assert body["max_tokens"] == 512
+    assert instruction == prompt and json.loads(data) == payload
+    assert payload["요청"] in data and payload["요청"].encode("utf-8") in api.last_request_bytes
+
+
+def test_generate_json_rejects_ambiguous_text_and_expired_deadlines(api):
+    from app.ai.providers import parse_connection
+
+    conn = parse_connection(raw(base_url=api.base))
+    api.respond = lambda _: (200, {}, reply("chat", '{"edits":[],"edits":[]}'))
+    assert_code("invalid_response", lambda: conn.generate_json("prompt", {}, timeout=1))
+    for seconds in (0, float("inf"), float("nan")):
+        assert_code("timeout", lambda: conn.generate_json("prompt", {}, timeout=seconds))
+    assert len(api.calls) == 1
+
+
+def test_generate_json_bounds_even_valid_style_replies_before_decoding(api):
+    from app.ai.providers import parse_connection
+
+    conn = parse_connection(raw(base_url=api.base))
+    style_reply = json.dumps(reply("chat", '{"edits":[]}')).encode()
+    api.respond = lambda _: (200, {}, style_reply.ljust(32768))
+    assert conn.generate_json("prompt", {}, timeout=1) == {"edits": []}
+    api.respond = lambda _: (200, {}, style_reply.ljust(32769))
+    assert_code("invalid_response", lambda: conn.generate_json("prompt", {}, timeout=1))
+    api.respond = lambda _: (200, {}, json.dumps(reply("chat")).encode().ljust(32769))
+    assert conn.predict(OPTIONS) == "layout-b"
+
+
 def assert_code(code, call):
     from app.ai.providers import ProviderError
 
@@ -162,7 +246,10 @@ def test_web_addresses_are_provider_specific_and_operator_entries_exact(monkeypa
     custom = "http://intranet.test:8181/proxy/v1"
     monkeypatch.setenv("JJOKGYEOL_DECISION_BASE_URLS", "https://elsewhere.test, " + custom)
     for provider, url in DEFAULTS.items():
-        if provider != "ollama":
+        if provider in ("ollama", "lmstudio"):
+            assert_code("address", lambda: parse_connection(raw(provider, url)))
+            parse_connection(raw(provider, url), desktop=True)
+        else:
             parse_connection(raw(provider, url))
     parse_connection(raw(base_url=custom, api_key=""))
     for url in (custom + "/extra", custom.replace("8181", "8182"), custom.replace("http:", "https:"),
@@ -284,7 +371,7 @@ def test_rejects_incomplete_and_refused_even_with_valid_id(api, provider):
     bad = reply(provider)
     if provider == "responses":
         bad["status"] = "incomplete"
-    elif provider == "chat":
+    elif provider in ("chat", "lmstudio"):
         bad["choices"][0]["finish_reason"] = "length"
     elif provider == "gemini":
         bad["candidates"][0]["finishReason"] = "MAX_TOKENS"
@@ -298,7 +385,7 @@ def test_rejects_incomplete_and_refused_even_with_valid_id(api, provider):
     bad = reply(provider)
     if provider == "responses":
         bad["output"][-1]["content"].append({"type": "refusal", "refusal": "no"})
-    elif provider == "chat":
+    elif provider in ("chat", "lmstudio"):
         bad["choices"][0]["message"]["refusal"] = "no"
     elif provider == "gemini":
         bad["promptFeedback"] = {"blockReason": "SAFETY"}

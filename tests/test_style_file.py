@@ -250,7 +250,7 @@ def test_overlapping_file_opens(desk, first):
     expect(desk.export).to_be_enabled()
     close_settings(desk.page)
     desk.submit(desk.refresh)
-    assert desk.requests[-1] == {"source": "# 다음", "style": {**DEFAULTS, "body_pt": "16"}}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": "# 다음", "style": {**DEFAULTS, "body_pt": "16"}}
     desk.reply(0, desk.pdf)
 
 

@@ -18,11 +18,11 @@ def test_bootstrap_uses_provider_registry():
 
 
 @pytest.mark.parametrize("desk", [{"operator_decision": True}], indirect=True)
-def test_operator_default_can_be_overridden_and_restored(desk):
+def test_operator_connection_requires_explicit_selection(desk):
     desk.ready()
     page = desk.page
     open_settings(page)
-    expect(page.locator("#decision-mode")).to_have_value("default")
+    expect(page.locator("#decision-mode")).to_have_value("rule")
     page.locator("#decision-mode").select_option("rule")
     page.locator("#apply-settings").click()
     desk.submit(desk.refresh)
@@ -230,3 +230,66 @@ def test_builtin_can_be_used_without_any_external_providers(desk):
     expect(mode.locator('option[value="model"]')).to_have_count(0)
     mode.select_option("builtin")
     expect(desk.page.locator("#decision-check")).to_be_visible()
+
+
+def test_model_catalog_can_populate_or_leave_free_text(desk):
+    desk.ready()
+    page = desk.page
+    open_settings(page)
+    page.locator("#decision-mode").select_option("model")
+    providers = page.locator("#decision-provider")
+    choices = providers.locator("option").evaluate_all("items => items.map(item => item.value)")
+    assert choices[choices.index("ollama") + 1] == "lmstudio"
+    providers.select_option("lmstudio")
+    model = page.locator("#decision-model")
+    expect(model).to_be_empty()
+    requests = []
+    page.route("**/api/decision/models", lambda route: requests.append(route))
+    with page.expect_request(ORIGIN + "/api/decision/models"):
+        page.locator("#decision-list-models").click()
+    assert requests[0].request.post_data_json == {
+        "provider": "lmstudio", "base_url": "http://127.0.0.1:1234/v1", "api_key": ""}
+    requests.pop().fulfill(json={"models": ["local-one", "local-two"]})
+    page.locator("#decision-model-list").select_option("local-two")
+    expect(model).to_have_value("local-two")
+    model.fill("manual-model")
+    with page.expect_request(ORIGIN + "/api/decision/models"):
+        page.locator("#decision-list-models").click()
+    providers.select_option("ollama")
+    requests.pop().fulfill(json={"models": ["stale"]})
+    expect(page.locator("#decision-model-list")).to_be_hidden()
+    expect(model).to_have_value("manual-model")
+
+
+def test_manual_model_list_works_offline_and_survives_discovery_failure(desk):
+    desk.ready()
+    page = desk.page
+    open_settings(page)
+    page.locator("#decision-mode").select_option("model")
+    page.locator("#decision-manual-models summary").click()
+    page.locator("#decision-model-lines").fill("alpha\nbeta\nalpha")
+    options = page.locator("#decision-model-list")
+    expect(options.locator("option")).to_have_count(3)
+    options.select_option("beta")
+    expect(page.locator("#decision-model")).to_have_value("beta")
+    page.route("**/api/decision/models", lambda route: route.fulfill(status=401, json={"code": "authentication"}))
+    page.locator("#decision-list-models").click()
+    expect(page.locator("#decision-model-status")).to_contain_text("인증")
+    expect(options).to_have_value("beta")
+    expect(page.locator("#decision-model")).to_have_value("beta")
+
+def test_clearing_key_keeps_manual_model_ids_and_drops_discovered_ids(desk):
+    desk.ready()
+    page = desk.page
+    open_settings(page)
+    page.locator("#decision-mode").select_option("model")
+    page.locator("#decision-api-key").fill("sample")
+    page.locator("#decision-manual-models summary").click()
+    page.locator("#decision-model-lines").fill("first\nsecond")
+    page.route("**/api/decision/models", lambda route: route.fulfill(json={"models": ["remote"]}))
+    page.locator("#decision-list-models").click()
+    options = page.locator("#decision-model-list option")
+    expect(options).to_have_count(4)
+    page.locator("#decision-clear-key").click()
+    expect(options).to_have_text(["모델 선택", "first", "second"])
+    expect(page.locator("#decision-model-lines")).to_have_value("first\nsecond")

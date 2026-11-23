@@ -1,10 +1,6 @@
 {
-  "url": "http://127.0.0.1:1234/v1",
-  "model": "google/gemma-4-e2b",
   "max_request_bytes": 65536,
   "max_request_chars": 2000,
-  "max_response_bytes": 32768,
-  "max_tokens": 512,
   "timeout_seconds": 90,
   "worker_memory_bytes": 268435456,
   "slots": 1

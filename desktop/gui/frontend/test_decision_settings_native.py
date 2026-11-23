@@ -46,6 +46,7 @@ class DecisionSettingsTest(unittest.TestCase):
                       }
                       return takeConnection(args.revision);
                     }
+                    if (command === "list_decision_models") return {models:["native-model", "another-model"]};
                     if (command === "check_decision_connection") {
                       if (args.connection.provider === "builtin") throw JSON.stringify({code:"builtin_unavailable"});
                       if (window.failCheck) throw JSON.stringify({code:"authentication", message:"native-test-key"});
@@ -102,7 +103,12 @@ class DecisionSettingsTest(unittest.TestCase):
             child = open_child()
             child.locator("#decision-mode").select_option("model")
             child.locator("#decision-provider").select_option("chat")
-            child.locator("#decision-model").fill("native-model")
+            child.locator("#decision-list-models").click()
+            child.locator("#decision-model-list").select_option("native-model")
+            expect(child.locator("#decision-model")).to_have_value("native-model")
+            catalog = child.evaluate("calls.find(c => c.command === 'list_decision_models').args.connection")
+            self.assertEqual(catalog["provider"], "chat")
+            self.assertNotIn("model", catalog)
             child.locator("#decision-api-key").fill("native-test-key")
             assert not child.evaluate("calls.some(c => c.command === 'check_decision_connection')")
             child.evaluate("window.failCheck = true")

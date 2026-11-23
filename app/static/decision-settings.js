@@ -35,7 +35,37 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
   const check = byId("decision-check");
   const status = byId("decision-check-status");
   let generation = 0;
-  let useDefaultConnection = true;
+  const listButton = byId("decision-list-models");
+  const listStatus = byId("decision-model-status");
+  const list = byId("decision-model-list");
+  const choices = byId("decision-model-choices");
+  const manual = byId("decision-model-lines");
+  let catalogGeneration = 0;
+  let fetched = [];
+  function manualIds() {
+    return Array.from(new Set(manual.value.split(/\r?\n/).map(id => id.trim()).filter(Boolean)));
+  }
+  function setManualIds(ids) {
+    manual.value = ids.join("\n");
+    showCatalog();
+  }
+  function showCatalog() {
+    const ids = new Set([...manualIds(), ...fetched]);
+    list.replaceChildren(new Option("모델 선택", ""), ...Array.from(ids, id => new Option(id, id)));
+    choices.hidden = !ids.size;
+    list.value = ids.has(model.value) ? model.value : "";
+  }
+  function clearCatalog(keepManual = false) {
+    catalogGeneration++;
+    fetched = [];
+    if (!keepManual) {
+      manual.value = "";
+      byId("decision-manual-models").open = false;
+    }
+    listButton.disabled = false;
+    listStatus.textContent = "";
+    showCatalog();
+  }
   if (operatorDefault) mode.add(new Option("운영자 설정", "default"));
   mode.add(new Option("규칙", "rule"));
   if (builtinSupported) mode.add(new Option("내장 모델", "builtin"));
@@ -60,12 +90,15 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
     check.disabled = false;
   }
   function changedDraft() {
-    useDefaultConnection = false;
     settingsDialog.classList.add("decision-edited");
     invalidateCheck();
   }
   panel.addEventListener("input", event => {
+    if ([mode, provider, address].includes(event.target)) clearCatalog();
+    if (event.target === key) clearCatalog(true);
+    if (event.target === manual || event.target === list) return;
     if (event.target === provider) address.value = defaultAddress();
+    if (event.target === model) list.value = model.value;
     if (event.target === address || event.target === provider) key.value = "";
     if (event.target === mode && mode.value === "builtin") key.value = "";
     showMode();
@@ -73,16 +106,18 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
   });
   clearKey.addEventListener("click", () => {
     key.value = "";
+    clearCatalog(true);
     changedDraft();
     key.focus();
   });
 
   function open(connection) {
-    useDefaultConnection = !connection;
+    clearCatalog();
     settingsDialog.classList.remove("decision-edited");
     invalidateCheck();
-    mode.value = connection ? (["rule", "builtin"].includes(connection.provider) ? connection.provider : "model") :
-      (operatorDefault ? "default" : "rule");
+    const selected = connection?.provider ?? "rule";
+    mode.value = selected === "operator" ? (operatorDefault ? "default" : "rule") :
+      (["rule", "builtin"].includes(selected) ? selected : "model");
     showMode();
     provider.selectedIndex = 0;
     if (connection && mode.value === "model") provider.value = connection.provider;
@@ -92,7 +127,7 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
   }
 
   function value() {
-    if (useDefaultConnection || mode.value === "default") return undefined;
+    if (mode.value === "default") return {provider: "operator"};
     if (mode.value === "rule" || mode.value === "builtin") return {provider: mode.value};
     return {provider: provider.value, base_url: address.value.trim(), model: model.value.trim(),
       api_key: keyAllowed ? key.value : ""};
@@ -101,6 +136,48 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
   function valid() {
     return mode.value !== "model" || (model.reportValidity() && address.reportValidity());
   }
+
+  manual.addEventListener("input", showCatalog);
+  list.addEventListener("change", () => {
+    if (!list.value) return;
+    model.value = list.value;
+    model.dispatchEvent(new Event("input", {bubbles: true}));
+  });
+  listButton.addEventListener("click", async () => {
+    if (mode.value !== "model" || !address.reportValidity()) return;
+    const turn = ++catalogGeneration;
+    const connection = {provider: provider.value, base_url: address.value.trim(),
+      api_key: keyAllowed ? key.value : ""};
+    listButton.disabled = true;
+    listStatus.textContent = "모델 목록 조회 중…";
+    try {
+      let result;
+      if (nativeDesktop) {
+        result = await desktop.invoke("list_decision_models", {connection});
+      } else {
+        const response = await fetch("/api/decision/models", {
+          method: "POST", headers: {"Content-Type": "application/json"}, redirect: "error",
+          body: JSON.stringify(connection),
+        });
+        result = await response.json();
+        if (!response.ok) throw {code: result?.code};
+      }
+      if (turn !== catalogGeneration) return;
+      if (!Array.isArray(result?.models) || result.models.some(id => typeof id !== "string" || !id)) {
+        throw {code: "invalid_response"};
+      }
+      fetched = result.models;
+      showCatalog();
+      listStatus.textContent = fetched.length ? `모델 ${fetched.length}개를 찾았습니다.` :
+        "조회된 모델이 없습니다. 모델 ID를 직접 입력할 수 있습니다.";
+    } catch (error) {
+      if (turn === catalogGeneration) {
+        listStatus.textContent = decisionMessage(error?.code) || "모델 목록을 조회하지 못했습니다.";
+      }
+    } finally {
+      if (turn === catalogGeneration) listButton.disabled = false;
+    }
+  });
 
   check.addEventListener("click", async () => {
     if (!valid()) return;
@@ -126,5 +203,5 @@ function decisionSettings(providers, builtinSupported, operatorDefault) {
       if (turn === generation) check.disabled = false;
     }
   });
-  return {open, value, valid, keyAllowed};
+  return {open, value, valid, keyAllowed, manualIds, setManualIds};
 }

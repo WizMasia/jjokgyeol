@@ -7,7 +7,8 @@ use windows_spawn::{Child, Command, DropPolicy, SpawnOptions, Stdio};
 
 mod decision;
 pub use decision::{
-    check_decision_connection, decision_check_timeout, render_model_proof, render_preview,
+    check_decision_connection, decision_check_timeout, list_decision_models, render_model_proof,
+    render_preview,
 };
 use std::{
     error::Error,
@@ -328,7 +329,7 @@ fn spawn_worker(
         .join(format!("jjokgyeol-worker{}", std::env::consts::EXE_SUFFIX));
     let mut command = Command::new(worker);
     command.env_clear().envs(worker_env_pairs()).arg(flag);
-    if flag != "--check-decision" {
+    if !matches!(flag, "--check-decision" | "--list-decision-models") {
         command.arg(runtime);
     }
     if spacing_receipt {
@@ -337,7 +338,11 @@ fn spawn_worker(
     command
         .current_dir(work)
         .stdin(stdin)
-        .stdout(Stdio::null())
+        .stdout(if flag == "--list-decision-models" {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stderr(stderr);
     #[cfg(unix)]
     return command.process_group(0).spawn();

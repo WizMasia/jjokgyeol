@@ -6,7 +6,10 @@ fn main() {
         fs::write(&args[2], "survived").unwrap();
         return;
     }
-    if args[1] == "--model-proof" || args[1] == "--plain-proof" || args[1] == "--check-decision" {
+    if matches!(
+        args[1].to_str(),
+        Some("--model-proof" | "--plain-proof" | "--check-decision" | "--list-decision-models")
+    ) {
         use std::io::Read;
         if env::current_exe()
             .unwrap()
@@ -34,6 +37,27 @@ fn main() {
             .all(|arg| !arg.to_string_lossy().contains("test-only-secret")));
         assert!(env::vars_os().all(|(_, val)| !val.to_string_lossy().contains("test-only-secret")));
         assert_eq!(fs::read_dir(".").unwrap().count(), 0);
+        if args[1] == "--list-decision-models" {
+            assert_eq!(args.len(), 2);
+            if request.contains("denied") {
+                eprintln!(r#"{{"code":"authentication","message":"test-only-secret"}}"#);
+                std::process::exit(1);
+            } else if request.contains("private-error") {
+                eprintln!(
+                    r#"{{"code":"invalid_input","field":"model","message":"test-only-secret"}}"#
+                );
+                std::process::exit(1);
+            } else if request.contains("malformed") {
+                println!(r#"{{"models":[42]}}"#);
+            } else if request.contains("oversized") {
+                println!(r#"{{"models":["{}"]}}"#, "x".repeat(2_000_000));
+            } else if request.contains("empty") {
+                println!(r#"{{"models":[]}}"#);
+            } else {
+                println!(r#"{{"models":["모델/a","z"]}}"#);
+            }
+            return;
+        }
         if args[1] == "--check-decision" {
             if request.contains("reject") {
                 eprintln!(r#"{{"code":"authentication","message":"test-only-secret"}}"#);

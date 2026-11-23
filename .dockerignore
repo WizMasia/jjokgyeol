@@ -33,6 +33,7 @@
 !app/static/cmaps/*
 !app/static/standard_fonts/
 !app/static/standard_fonts/*
+!app/static/favicon.png
 !app/static/*.html
 !app/static/general-report.json
 !app/tex/

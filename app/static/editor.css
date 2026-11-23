@@ -73,9 +73,9 @@ h2 { font: 700 clamp(1.12rem, 1.6vw, 1.65rem)/1.3 var(--serif); letter-spacing: 
 .settings-window #settings-dialog::backdrop { background: transparent; }
 .settings-window #apply-settings, #settings-dialog.decision-edited #apply-settings { display: inline-block; }
 #decision-settings { margin: 1rem 0 0; }
-#decision-settings[hidden] { display: none; }
+#decision-settings[hidden], #decision-model-choices[hidden] { display: none; }
 #decision-fields:not([hidden]) { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem 1rem; margin-top: .7rem; }
-#decision-fields label { display: grid; gap: .2rem; min-width: 0; max-width: 100%; }
+#decision-fields label:not([hidden]) { display: grid; gap: .2rem; min-width: 0; max-width: 100%; }
 #decision-fields input { min-height: 36px; min-width: 0; padding: .3rem .45rem; }
 .decision-check-row:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; width: 100%; font-size: .85rem; }
 #proof-decision { white-space: normal; overflow-wrap: anywhere; }

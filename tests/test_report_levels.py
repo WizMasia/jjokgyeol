@@ -4,7 +4,6 @@ import json
 import pytest
 from playwright.sync_api import expect
 
-from app.ai import style as style_ai
 from app.document import InputError, parse_md
 from settings_ui import open_settings
 from app.style import Style, apply_style, editor_bootstrap, from_stored_style
@@ -12,6 +11,7 @@ from app.typeset import typeset
 from test_editor import browser
 from test_list_typeset import BP_PER_MM, baselines, text
 from test_slice import server_url
+from test_style_ai import model, reply
 
 
 PT = 72 / 72.27
@@ -27,14 +27,14 @@ ROWS = [
 ROWS[2]["mark_weight"] = "bold"
 
 
-def test_stored_editor_and_list_suggestion_round_trip(monkeypatch):
+def test_stored_editor_and_list_suggestion_round_trip():
     saved = {**Style().to_stored(), "list_levels": ROWS}
     style = from_stored_style(saved)
     editor = style.to_editor()
     assert [r["font_pt"] for r in editor["list_levels"]] == ["16", "15", "15", "13"]
     assert apply_style(Style(), editor).to_stored() == saved
-    monkeypatch.setattr(style_ai, "_infer", lambda *_: {"edits": [{"field": "list.2.expr", "value": "둘"}]})
-    patch = style_ai.suggest_patch("둘째 표지 바꾸기", style, draft=editor)
+    suggest = model(reply(("list.2.expr", "둘")))
+    patch = suggest("둘째 표지 바꾸기", style, draft=editor)
     assert apply_style(style, patch).to_stored()["list_levels"] == [ROWS[0], {**ROWS[1], "expr": "둘"}, *ROWS[2:]]
 
 

@@ -331,6 +331,54 @@ def test_check_rejects_unsafe_address_without_leaking_key(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_list_decision_models_uses_desktop_connection_without_model(tmp_path, monkeypatch):
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    monkeypatch.delenv('JJOKGYEOL_DECISION_BASE_URLS', raising=False)
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            seen.append((self.path, self.headers.get('Authorization')))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': [{'id': '모델/a'}, {'id': 'z'}]}).encode())
+
+    with HTTPServer(('127.0.0.1', 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            connection = {'provider': 'chat', 'base_url': f'http://127.0.0.1:{server.server_port}/v1',
+                          'api_key': 'private-test-key'}
+            result = style_cli(tmp_path, '--list-decision-models', json.dumps(connection).encode())
+        finally:
+            server.shutdown()
+            thread.join()
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'models': ['모델/a', 'z']}
+    assert not result.stderr
+    assert seen == [('/v1/models', 'Bearer private-test-key')]
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(('raw', 'code'), [
+    (b'{"provider":"chat","base_url":"http://public.example.test/v1"}', 'address'),
+    (b'{"provider":"chat","provider":"ollama","base_url":"http://public.example.test/v1"}', 'invalid_connection'),
+    (b'{"provider":"chat","base_url":"http://public.example.test/v1"}' + b' ' * worker.LIMITS.request_body_bytes,
+     'invalid_connection'),
+], ids=['unsafe-address', 'duplicate-fields', 'oversized'])
+def test_list_decision_models_returns_public_error(tmp_path, raw, code):
+    result = style_cli(tmp_path, '--list-decision-models', raw)
+    assert result.returncode == 1
+    assert json.loads(result.stderr) == {'code': code}
+    assert not result.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_worker_checks_and_replays_through_bundled_engine(tmp_path, monkeypatch, capsys):
     import io
     import threading

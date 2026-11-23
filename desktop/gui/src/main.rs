@@ -427,6 +427,23 @@ async fn run_with_deadline<T: Send + 'static>(
         .map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?
 }
 
+async fn connection_request(
+    window: &WebviewWindow,
+    app: &tauri::AppHandle,
+    state: &Limits,
+    connection: &serde_json::Value,
+    action: fn(&Path, Vec<u8>, Duration) -> Result<serde_json::Value, String>,
+) -> Result<serde_json::Value, String> {
+    let deadline = Instant::now() + jjokgyeol_proof::decision_check_timeout(state.timeout);
+    require_any_window(window, &["main", "settings"])?;
+    let body = decision_body(connection, state.request)?;
+    let runtime = runtime(app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
+    run_with_deadline(&state.render_slots, deadline, move |timeout| {
+        action(&runtime, body, timeout)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn check_decision_connection(
     window: WebviewWindow,
@@ -434,14 +451,33 @@ async fn check_decision_connection(
     state: State<'_, Limits>,
     connection: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let deadline = Instant::now() + jjokgyeol_proof::decision_check_timeout(state.timeout);
-    require_any_window(&window, &["main", "settings"])?;
-    let body = decision_body(&connection, state.request)?;
-    let runtime = runtime(&app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
-    run_with_deadline(&state.render_slots, deadline, move |timeout| {
-        jjokgyeol_proof::check_decision_connection(&runtime, body, timeout)?;
-        Ok(serde_json::json!({"ok":true}))
-    })
+    connection_request(
+        &window,
+        &app,
+        &state,
+        &connection,
+        |runtime, body, timeout| {
+            jjokgyeol_proof::check_decision_connection(runtime, body, timeout)?;
+            Ok(serde_json::json!({"ok":true}))
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_decision_models(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: State<'_, Limits>,
+    connection: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    connection_request(
+        &window,
+        &app,
+        &state,
+        &connection,
+        jjokgyeol_proof::list_decision_models,
+    )
     .await
 }
 
@@ -782,6 +818,7 @@ fn main() {
             paragraph_align,
             render_proof,
             check_decision_connection,
+            list_decision_models,
             render_model_proof,
             render_font_proof,
             list_fonts,

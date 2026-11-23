@@ -151,10 +151,10 @@ class DocumentJob:
                 504: "양식 제안 시간이 초과되었습니다.",
             }.get(status)
             return failure(status, field or "request", message)
-        if self.action == "check" and status in (500, 504):
+        if self.action in ("check", "models") and status in (500, 504):
             code = "timeout" if status == 504 else "unavailable"
             return failure(status, "connection", "모델 연결을 확인할 수 없습니다.", code=code)
-        if self.action not in ("render", "check") and not message:
+        if self.action not in ("render", "check", "models") and not message:
             field = "reference" if self.action == "analyze" else "source"
             message = {
                 413: f"파일은 {byte_limit:,}바이트 이하여야 합니다.",
@@ -167,7 +167,7 @@ class DocumentJob:
     def limits(self):
         if self.action == "render":
             return MAX_BODY, SLOTS, jobs.TIMEOUT
-        if self.action == "check":
+        if self.action in ("check", "models"):
             return MAX_BODY, SLOTS, min(jobs.TIMEOUT, DECISION["decision_seconds"])
         if self.action == "import":
             return IMPORT_MAX_BYTES, SLOTS, jobs.TIMEOUT
@@ -180,11 +180,11 @@ class DocumentJob:
         raise KeyError(self.action)
 
     async def result(self, request, worker_deadline, byte_limit, font_destination=None):
-        if self.action in ("render", "check"):
+        if self.action in ("render", "check", "models"):
             body = await read_body(request, byte_limit)
             allow_key = allows_decision_key(request.scope.get("scheme", "http"), request.url.hostname)
-            if self.action == "check":
-                command = jobs.decision_command("--check", allow_key=allow_key)
+            if self.action in ("check", "models"):
+                command = jobs.decision_command("--" + self.action, allow_key=allow_key)
                 result = await while_connected(
                     jobs.isolated_job(body, command, request_name=None, response_name=None), request.receive)
                 return Response(result, media_type="application/json", headers=NO_STORE)
@@ -201,6 +201,14 @@ class DocumentJob:
                 files = result if isinstance(result, tuple) else (result,)
                 return proof_pair_response(*files, headers=headers, spacing=extra[0] if with_spacing else None)
             return Response(result, media_type="application/pdf", headers=headers)
+        if self.action == "suggest":
+            command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"), "--stdin")
+            if not allows_decision_key(request.scope.get("scheme", "http"), request.url.hostname):
+                command += ("--keyless",)
+            body = await read_body(request, byte_limit)
+            result = await while_connected(
+                jobs.isolated_job(body, command, None, "response.json", "suggest"), request.receive)
+            return Response(result, media_type="application/json", headers=NO_STORE)
         if self.action == "import":
             name = request.query_params.get("name", "")
             if not name or "\x00" in name:
@@ -211,9 +219,6 @@ class DocumentJob:
         elif self.action == "align":
             command = (sys.executable, "-IB", str(ROOT / "app/paragraph_worker.py"))
             role = "pin"
-        elif self.action == "suggest":
-            command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"))
-            role = "suggest"
         else:
             command = reference_command(request, targets=self.action == "targets", deadline=worker_deadline)
             role = "reference"
@@ -264,6 +269,7 @@ app.add_middleware(SecurityMiddleware)
 app.add_route("/api/paragraph/align", DocumentJob("align"), methods=["POST"])
 app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
 app.add_route("/api/style-suggestion", DocumentJob("suggest"), methods=["POST"])
+app.add_route("/api/decision/models", DocumentJob("models"), methods=["POST"])
 app.add_route("/api/decision/check", DocumentJob("check"), methods=["POST"])
 app.add_route("/api/render", DocumentJob("render"), methods=["POST"])
 app.add_route("/api/reference/analyze", DocumentJob("analyze"), methods=["POST"])

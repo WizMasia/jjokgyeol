@@ -50,7 +50,7 @@ def test_model_first_switch_locally_and_keep_choice_on_next_export(desk):
     expect(status).to_contain_text("규칙")
     desk.submit(desk.refresh)
     assert desk.pending[0].request.headers["accept"] == "multipart/form-data"
-    assert desk.requests[-1] == {"source": SAMPLE, "style": DEFAULTS}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": SAMPLE, "style": DEFAULTS}
     pair = reply_pair(desk, 0)
     expect(status).to_contain_text("모델 조판")
     model = desk.frame.get_attribute("src")
@@ -74,17 +74,23 @@ def test_model_first_switch_locally_and_keep_choice_on_next_export(desk):
     select.select_option("model")
     expect(status).to_contain_text("일부 문단")
     assert_download(desk, updated["model"])
-    assert desk.requests[-1] == {"source": SAMPLE, "style": {**DEFAULTS, "body_pt": "14"}}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": SAMPLE, "style": {**DEFAULTS, "body_pt": "14"}}
     assert len(desk.requests) == 3
 
 
 def test_fallback_keeps_model_preference_and_recovers(desk):
     desk.ready()
+    open_settings(desk.page)
+    desk.page.locator("#decision-mode").select_option("builtin")
+    desk.page.locator("#apply-settings").click()
     desk.submit(desk.refresh)
     body = desk.pdf + b"\n% rule only\n"
-    desk.pending[0].fulfill(content_type="application/pdf", headers={"X-Jjokgyeol-Decision": "rule"}, body=body)
+    assert desk.requests[-1]["connection"] == {"provider": "builtin"}
+    desk.pending[0].fulfill(content_type="application/pdf", headers={
+        "X-Jjokgyeol-Decision": "rule", "X-Jjokgyeol-Decision-Reason": "timeout",
+    }, body=body)
     status = desk.page.locator("#proof-decision")
-    expect(status).to_contain_text("모델 결과 없음")
+    expect(status).to_contain_text("응답 시간 초과")
     expect(choice(desk)).to_have_value("model")
     assert_download(desk, body)
     desk.submit(desk.refresh)
@@ -152,7 +158,7 @@ def test_opening_files_drops_pending_export_and_retains_choice(desk):
     desk.submit(desk.export)
     with desk.page.expect_download() as saved:
         updated = reply_pair(desk, 2)
-    assert desk.requests[-1] == {"source": "# New", "style": {**DEFAULTS, "body_pt": "12"}}
+    assert desk.requests[-1] == {"connection": {"provider": "rule"}, "source": "# New", "style": {**DEFAULTS, "body_pt": "12"}}
     assert saved.value.suggested_filename == "새.pdf" and saved.value.path().read_bytes() == updated["rule"]
 
 

@@ -38,7 +38,7 @@ def test_face_edits_inherit_by_path_and_survive_style_file(desk):
         {"path": ["표지"], "role": "footer", "face": "first", "values": {"visible": False}},
     ]
     apply(d)
-    p.locator("summary").click()
+    p.locator("#style summary").click()
     with p.expect_download() as download:
         p.locator("#save-style").click()
     stored = download.value.path().read_bytes()

@@ -74,10 +74,7 @@ _ROLE_ENV_KEYS: dict[str, tuple[str, ...]] = {
         "JJOKGYEOL_VISION_MODEL",
         "JJOKGYEOL_VISION_TOKEN",
     ),
-    "suggest": (
-        "JJOKGYEOL_STYLE_URL",
-        "JJOKGYEOL_STYLE_MODEL",
-    ),
+    "suggest": ("JJOKGYEOL_DECISION_BASE_URLS",),
     "import": (),
     "pin": (),
     "engine": (),

@@ -113,7 +113,7 @@ def read_payload(workdir, checking):
 def worker():
     harden_worker(max_file_bytes=MAX_FILE)
     workdir = Path.cwd()
-    checking = "--check" in sys.argv
+    checking = "--check" in sys.argv or "--models" in sys.argv
     payload, assets = read_payload(workdir, checking)
     if assets:
         from app.document_fonts import use_document_fonts
@@ -137,6 +137,10 @@ def process_payload(workdir, payload, checking):
     if checking:
         from app.ai.providers import ProviderError, check_connection
         try:
+            if "--models" in sys.argv:
+                from app.ai.providers import list_models
+                print(json.dumps({"models": list_models(payload)}))
+                return
             check_connection(payload)
         except ProviderError as error:
             raise connection_error(error.code) from None

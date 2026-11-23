@@ -192,7 +192,8 @@ function editManuscript(event) {
 }
 
 const settings = JSON.parse(byId("editor-settings").textContent);
-let decisionConnection;
+let decisionConnection = {provider: "rule"};
+let connectionRevision = 0;
 const connectionForm = decisionSettings(settings.decision_providers ?? [], settings.builtin_decision,
   !nativeDesktop && settings.operator_decision);
 const stylePanel = byId("style");
@@ -472,9 +473,11 @@ function settingsJson(value) {
   });
 }
 
-function applyConnection(connection) {
+function applyConnection(connection = {provider: "rule"}) {
+  connectionRevision++;
   if (settingsJson(connection) === settingsJson(decisionConnection)) return;
   decisionConnection = connection;
+  document.dispatchEvent(new Event("decision-connection-changed"));
   invalidatePreview();
 }
 
@@ -551,7 +554,7 @@ const httpMessages = {
 };
 
 async function fetchProof(style, signal) {
-  const connection = decisionConnection;
+  const connection = decisionConnection.provider === "operator" ? undefined : decisionConnection;
   const source = sourceText();
   if (!nativeDesktop && connection?.api_key && !connectionForm.keyAllowed) throw new Error(byId("decision-key-help").textContent);
   const {files, appliedFonts} = documentFonts.resolveForRender(style);
@@ -798,6 +801,7 @@ function updateFileActions() {
   pinButton.disabled = Boolean(fileLoads.source);
   scheduleAlignmentQuery();
   byId("save-style").disabled = Boolean(fileLoads.style);
+  byId("save-personal-defaults").disabled = Boolean(fileLoads.style) || stylePanel.inert;
   if (busy) statusText.textContent = fileLoads.document ? "쪽결 문서 불러오는 중" :
     fileLoads.style ? "양식 불러오는 중" : "원고 처리 중";
 }
@@ -811,11 +815,12 @@ function cancelFileOpen(kind) {
   }
 }
 
-function beginFileOpen(kind) {
+function beginFileOpen(kind, token = Symbol()) {
   documentFonts.cancel();
+  // Opening a file replaces startup defaults. Typing in the same manuscript keeps its style.
+  if (fileLoads.style === startupStyleToken) fileLoads.style = null;
   cancelFileOpen(kind);
   if (kind !== "source") document.dispatchEvent(new Event("style-suggestion-invalidate"));
-  const token = Symbol();
   if (kind === "document") fileLoads.source = fileLoads.style = token;
   else fileLoads[kind] = token;
   referenceStateChanged();
@@ -1311,12 +1316,12 @@ byId("save").addEventListener("click", async () => {
     markDirty("source", false);
   }
 });
-if (!settingsView) openMarkdown(null);
-
 const settingsSnapshot = () => ({
   style: styleForm.get(), dirty: styleDirty, inactiveArticleExpr: articleExpr.value,
   baseRevision: styleRevision,
 });
+
+const startupDefaults = initializePersonalDefaults();
 
 if (settingsView) {
   settingsDialog.showModal();
@@ -1325,16 +1330,19 @@ if (settingsView) {
   byId("decision-settings").disabled = true;
   stylePanel.inert = true;
   applyButton.disabled = true;
+  byId("save-personal-defaults").disabled = true;
   let initialSnapshot;
   desktop.invoke("settings_snapshot").then(snapshot => {
     initialSnapshot = snapshot;
     documentFonts.receiveChoices(snapshot.fontChoices);
-    connectionForm.open(snapshot.connection);
+    byId("personal-defaults-status").textContent = snapshot.defaultsMessage ?? "";
+    openSettingsConnection(snapshot.connection);
     byId("decision-settings").disabled = false;
     styleForm.set(snapshot.style, {inactiveArticleExpr: snapshot.inactiveArticleExpr});
     styleDirty = snapshot.dirty;
     stylePanel.inert = false;
     applyButton.disabled = false;
+    byId("save-personal-defaults").disabled = false;
   }).catch(error => showStyleError(error));
   const cancel = () => desktop.invoke("cancel_settings").catch(error => showStyleError(error));
   closeButton.addEventListener("click", cancel);
@@ -1407,13 +1415,17 @@ if (settingsView) {
     if (pendingSpacingEdit && !await pendingSpacingEdit) return;
     try {
       await listener;
-      await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), fontChoices: documentFonts.choices(), connection: decisionConnection}});
+      await startupDefaults;
+      const message = byId("personal-defaults-status");
+      await desktop.invoke("open_settings_window", {snapshot: {...settingsSnapshot(), fontChoices: documentFonts.choices(),
+        connection: decisionConnection, ...(message.textContent && {defaultsMessage: message.textContent})}});
+      message.textContent = "";
     } catch (error) { errorText.textContent = error.message; }
   });
 } else {
   byId("open-settings").addEventListener("click", async () => {
     if (pendingSpacingEdit && !await pendingSpacingEdit) return;
-    connectionForm.open(decisionConnection);
+    openSettingsConnection(decisionConnection);
     settingsDialog.showModal();
   });
   byId("apply-settings").addEventListener("click", () => {

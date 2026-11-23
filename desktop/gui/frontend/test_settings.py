@@ -3,13 +3,74 @@ import json
 import os
 import threading
 import unittest
+from tempfile import TemporaryDirectory
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from editor_server import EditorServer
 
 
 class SettingsTest(unittest.TestCase):
+    def test_defaults_saved_in_child_survive_profile_restart(self):
+        server = EditorServer()
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        url = f'http://127.0.0.1:{server.server_port}/index.html'
+        with TemporaryDirectory() as profile, sync_playwright() as p:
+            def launch():
+                context = p.chromium.launch_persistent_context(profile, executable_path=os.getenv('CHROME_PATH'))
+                context.set_default_timeout(3000)
+                context.add_init_script('''
+                    window.calls = [];
+                    window.__TAURI__ = {core: {invoke: async (name, args) => {
+                        calls.push({name, args});
+                        if (name === 'style_convert') return JSON.parse(args.body);
+                        if (name === 'settings_snapshot') return snapshot;
+                        if (name.startsWith('render_')) throw 'test renderer';
+                    }}};
+                ''')
+                return context
+
+            with launch() as context:
+                main = context.new_page()
+                main.goto(url)
+                main.wait_for_function("calls.some(c => c.name === 'render_proof')")
+                main.locator('#open-settings').click()
+                snapshot = main.evaluate("calls.find(c => c.name === 'open_settings_window').args.snapshot")
+                child = context.new_page()
+                child.add_init_script('window.snapshot = ' + json.dumps(snapshot))
+                child.goto(url + '?view=settings')
+                expect(child.locator('#apply-settings')).to_be_enabled()
+                child.locator('#body_pt').fill('14')
+                child.locator('#decision-mode').select_option('model')
+                child.locator('#decision-provider').select_option('chat')
+                child.locator('#decision-model').fill('native-test')
+                child.locator('#decision-api-key').fill('session-only')
+                child.locator('#decision-manual-models summary').click()
+                child.locator('#decision-model-lines').fill('native-one\nnative-two')
+                child.get_by_role('button', name='새 문서 기본값으로 저장').click()
+                expect(child.locator('#personal-defaults-status')).to_contain_text('저장했습니다')
+                self.assertNotIn('session-only', main.evaluate('JSON.stringify(localStorage)'))
+                self.assertFalse(child.evaluate("calls.some(c => ['apply_settings','render_model_proof','set_style_dirty'].includes(c.name))"))
+                expect(main.locator('#body_pt')).to_have_value('11')
+            with launch() as context:
+                main = context.new_page()
+                main.goto(url)
+                main.wait_for_function("calls.some(c => c.name === 'render_model_proof')")
+                first, = main.evaluate("calls.filter(c => c.name.startsWith('render_'))")
+                self.assertEqual(first['args']['style']['body_pt'], '14')
+                self.assertEqual(first['args']['connection']['model'], 'native-test')
+                self.assertNotIn('api_key', first['args']['connection'])
+                self.assertNotIn('model_ids', first['args']['connection'])
+                self.assertFalse(main.evaluate("calls.some(c => ['set_dirty','set_style_dirty'].includes(c.name))"))
+                main.locator('#open-settings').click()
+                snapshot = main.evaluate("calls.find(c => c.name === 'open_settings_window').args.snapshot")
+                child = context.new_page()
+                child.add_init_script('window.snapshot = ' + json.dumps(snapshot))
+                child.goto(url + '?view=settings')
+                expect(child.locator('#decision-model-lines')).to_have_value('native-one\nnative-two')
+
     def test_native_snapshot_apply_and_child_isolation(self):
         server = EditorServer()
         threading.Thread(target=server.serve_forever, daemon=True).start()

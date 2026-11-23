@@ -333,6 +333,36 @@ fn decision_worker_uses_private_stdin_and_returns_binary_comparison() {
 }
 
 #[test]
+fn catalog_worker_uses_private_stdin_and_returns_only_model_lists() {
+    let (runtime, _root) = setup();
+    let list = |scenario| {
+        let request = serde_json::json!({"provider":"chat","base_url":format!("https://{scenario}.test/v1"),
+                                        "api_key":"test-only-secret"});
+        jjokgyeol_proof::list_decision_models(
+            &runtime,
+            request.to_string().into_bytes(),
+            std::time::Duration::from_secs(5),
+        )
+    };
+    assert_eq!(
+        list("valid").unwrap(),
+        serde_json::json!({"models":["모델/a","z"]})
+    );
+    assert_eq!(list("empty").unwrap(), serde_json::json!({"models":[]}));
+    for (scenario, expected) in [
+        ("denied", "authentication"),
+        ("private-error", "unavailable"),
+        ("malformed", "invalid_response"),
+        ("oversized", "invalid_response"),
+    ] {
+        assert_eq!(
+            list(scenario).unwrap_err(),
+            serde_json::json!({"code":expected}).to_string()
+        );
+    }
+}
+
+#[test]
 fn failed_check_returns_only_a_public_code() {
     let (runtime, _root) = setup();
     for (scenario, expected) in [("reject", "authentication"), ("private", "unavailable")] {
@@ -409,6 +439,7 @@ fn expired_decision_reports_timeout_before_opening_runtime() {
     let zero = std::time::Duration::ZERO;
     let errors = [
         jjokgyeol_proof::check_decision_connection(&missing, b"{}".to_vec(), zero).unwrap_err(),
+        jjokgyeol_proof::list_decision_models(&missing, b"{}".to_vec(), zero).unwrap_err(),
         jjokgyeol_proof::render_model_proof(&missing, b"{}".to_vec(), zero).unwrap_err(),
     ];
     for error in errors {

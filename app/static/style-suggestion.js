@@ -1,6 +1,7 @@
 const form = byId("suggestion-form");
 const prompt = byId("suggestion-request");
 const message = byId("suggestion-message");
+const destination = byId("suggestion-destination");
 const fields = byId("suggestion-fields");
 const confirm = byId("suggestion-apply");
 const cancel = byId("suggestion-cancel");
@@ -65,8 +66,26 @@ function clear(text) {
   active = undefined;
   fields.replaceChildren();
   fields.hidden = confirm.hidden = cancel.hidden = true;
-  submit.disabled = false;
+  refreshDestination();
   message.textContent = text;
+}
+
+function refreshDestination() {
+  submit.disabled = true;
+  const provider = settings.decision_providers?.find(item => item.id === decisionConnection?.provider);
+  if (!provider) {
+    destination.textContent = "AI 모델 설정에서 외부 API의 서버 주소와 모델 ID를 입력하고 적용하세요.";
+    return;
+  }
+  try {
+    const {base_url, model} = publicDefaultConnection(decisionConnection);
+    destination.textContent = `${provider.label} · ${base_url} · ${model}에 요청 문구와 현재 양식 값을 보냅니다. ` +
+      "전송 항목은 판형·여백, 본문 크기·행간·글꼴·들여쓰기·자간·어절 공백, 제목 글꼴, 조 번호, " +
+      "목록 표지·들여쓰기·간격, 공통 머리글·바닥글 문구와 사용 가능한 글꼴 목록입니다.";
+    submit.disabled = Boolean(active);
+  } catch {
+    destination.textContent = "AI 모델 설정에서 서버 주소와 모델 ID를 확인하고 다시 적용하세요.";
+  }
 }
 
 const changedMessage = "현재 양식이 바뀌었습니다. 다시 요청하세요.";
@@ -88,7 +107,13 @@ byId("open-suggestion").addEventListener("click", event => {
   panel.hidden = !panel.hidden;
   event.currentTarget.setAttribute("aria-expanded", String(!panel.hidden));
   if (panel.hidden) clear("");
-  else prompt.focus();
+  else {
+    refreshDestination();
+    prompt.focus();
+  }
+});
+document.addEventListener("decision-connection-changed", () => {
+  clear(active ? "모델 연결이 바뀌었습니다. 다시 요청하세요." : "");
 });
 document.addEventListener("style-suggestion-invalidate", () => { if (active) clear(changedMessage); });
 byId("reference-bindings").addEventListener("input", () => { if (active) clear(changedMessage); });
@@ -98,6 +123,7 @@ cancel.addEventListener("click", () => clear("제안을 취소했습니다."));
 form.addEventListener("submit", async event => {
   event.preventDefault();
   clear("");
+  if (submit.disabled) return;
   if (fileLoads.style) {
     message.textContent = "양식을 연 뒤 다시 요청하세요.";
     return;
@@ -110,7 +136,8 @@ form.addEventListener("submit", async event => {
   try {
     const response = await fetch("/api/style-suggestion", {
       method: "POST", redirect: "error", signal: job.controller.signal,
-      headers: {"Content-Type": "application/json"}, body: JSON.stringify({request: prompt.value, style: job.before}),
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({request: prompt.value, style: job.before, connection: decisionConnection}),
     });
     const result = await response.json();
     job.patch = result.patch;

@@ -10,6 +10,7 @@ from test_editor import browser
 from test_mirrored_margin_editor import controls, field, open_style, save_style, switch
 from test_reference_editor import review
 from test_slice import server_url
+from test_style_suggestion_editor import apply_external
 
 
 def indent_controls(d):
@@ -139,6 +140,7 @@ def test_mirrored_conversion_with_one_sp_of_line_width_in_pt(review):
 def test_ai_and_reference_apply_in_pt_view(review):
     d, p = review, review.page
     unit, first, rest = indent_controls(d)
+    apply_external(p, {"provider": "chat", "base_url": "https://example.org/v1", "model": "fixture"})
     unit.select_option("pt")
     rest.fill("+001.000")
     p.locator("#open-suggestion").scroll_into_view_if_needed()

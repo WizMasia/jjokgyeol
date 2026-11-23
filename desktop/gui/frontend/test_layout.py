@@ -34,7 +34,7 @@ class EditorLayoutTest(unittest.TestCase):
                     self.assertFalse(dialog.is_visible())
                     self.assertTrue(opening.evaluate("button => button === document.activeElement"))
                     opening.click()
-                    page.locator("details > summary").click()
+                    page.locator("#style details > summary").click()
                     font_size = page.locator("#text-roles [data-text='font_pt']")
                     self.assertTrue(
                         font_size.evaluate(

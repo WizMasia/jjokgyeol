@@ -1,25 +1,31 @@
-"""Session-scoped, nonstreaming decision APIs for measured paragraph candidates."""
+"""Session-scoped model discovery and nonstreaming JSON generation."""
 from concurrent.futures import Future
 from contextlib import suppress
 from dataclasses import dataclass, field
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from ipaddress import ip_address
 import json
+from math import isfinite
 import os
 import re
 import socket
 from threading import Event, Thread
 from time import monotonic
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from app.ai.builtin import BuiltinDecision
 from app.ai.model import LIMITS, ProviderError, SPACING_PROMPT
 from app.configuration import CONFIG_DIR, read_config, unique_fields
+from app.operations import LIMITS as OPERATIONS
 from app.security import LOOPBACK_HOSTS
 
 
-DEFAULTS = {row["id"]: row["base_url"] for row in
-            read_config(CONFIG_DIR / "decision-providers.json")["providers"]}
+_CONFIG = read_config(CONFIG_DIR / "decision-providers.json")
+DEFAULTS = {row["id"]: row["base_url"] for row in _CONFIG["providers"]}
+STYLE_LIMITS = _CONFIG["style_suggestion"]
+for key in ("max_tokens", "max_response_bytes"):
+    if type(STYLE_LIMITS.get(key)) is not int or STYLE_LIMITS[key] <= 0:
+        raise ValueError(f"decision-providers.json: invalid style_suggestion.{key}")
 PROMPT = ('Choose one of the measured paragraph layouts. Balance line lengths including the last '
           'line, avoid isolated glyphs and split words, and prefer smooth spacing. Widths use sp '
           'and spacing ratios use 10000 as one unit. Return only a JSON object {"id":"..."} '
@@ -71,16 +77,29 @@ def _address(provider, base, *, desktop, key):
 def parse_connection(raw, *, desktop=False):
     if raw == {"provider": "builtin"}:
         return BuiltinDecision.installed()
-    if not isinstance(raw, dict) or raw.keys() - {"provider", "base_url", "model", "api_key"}:
+    return _external_connection(raw, desktop=desktop, catalog=False)
+
+
+def _external_connection(raw, *, desktop, catalog):
+    fields = {"provider", "base_url", "api_key"}
+    if not catalog:
+        fields.add("model")
+    if not isinstance(raw, dict) or raw.keys() - fields:
         raise ProviderError("invalid_connection")
     provider = raw.get("provider")
-    model = raw.get("model")
     base = raw.get("base_url")
     key = raw.get("api_key", "")
     if (not isinstance(provider, str) or provider not in DEFAULTS or not isinstance(base, str)
-            or not isinstance(model, str)
             or not isinstance(key, str) or not key.isascii()
             or any(not c.isprintable() or c.isspace() for c in key)):
+        raise ProviderError("invalid_connection")
+    model = None if catalog else _model_id(provider, raw.get("model"))
+    _address(provider, base, desktop=desktop, key=key)
+    return Connection(provider, base, model, key, desktop)
+
+
+def _model_id(provider, model):
+    if not isinstance(model, str):
         raise ProviderError("invalid_connection")
     if provider == "gemini":
         model = model.removeprefix("models/")
@@ -88,8 +107,77 @@ def parse_connection(raw, *, desktop=False):
             raise ProviderError("model")
     elif not model.strip() or not model.isprintable():
         raise ProviderError("invalid_connection")
-    _address(provider, base, desktop=desktop, key=key)
-    return Connection(provider, base, model, key, desktop)
+    return model
+
+
+def list_models(raw, *, desktop=False) -> list[str]:
+    """List selectable model IDs without inference, within one request deadline."""
+    conn = _external_connection(raw, desktop=desktop, catalog=True)
+    deadline = monotonic() + LIMITS["decision_seconds"]
+    suffix = "/api/tags" if conn.provider == "ollama" else "/models"
+    path = suffix
+    models = {}
+    # Both workers print the default ASCII-escaped JSON envelope followed by a newline.
+    reply_bytes = len(json.dumps({"models": []}) + os.linesep)
+    seen_cursors = set()
+    while True:
+        page = conn._request_json("GET", path, None, deadline, max_response_bytes=LIMITS["max_response_bytes"])
+        try:
+            ids, cursor = _catalog_page(conn.provider, page)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise ProviderError("invalid_response") from None
+        for model in ids:
+            if model not in models:
+                reply_bytes += len(json.dumps(model)) + (len(", ") if models else 0)
+                models[model] = None
+        if reply_bytes > OPERATIONS.request_body_bytes:
+            raise ProviderError("invalid_response")
+        if monotonic() >= deadline:
+            raise ProviderError("timeout")
+        if cursor is None:
+            return list(models)
+        if cursor in seen_cursors:
+            raise ProviderError("invalid_response")
+        seen_cursors.add(cursor)
+        param = "after_id" if conn.provider == "claude" else "pageToken"
+        path = suffix + "?" + urlencode({param: cursor})
+
+
+def _catalog_page(provider, page):
+    if not isinstance(page, dict) or page.get("error") is not None:
+        raise ValueError
+    named = provider in ("gemini", "ollama")
+    rows_field, id_field = ("models", "name") if named else ("data", "id")
+    rows = page.get(rows_field, [] if provider == "gemini" else None)
+    if not isinstance(rows, list):
+        raise ValueError
+    ids = []
+    for row in rows:
+        if provider == "claude" and row.get("lifecycle") == "retired":
+            continue
+        if provider == "gemini":
+            methods = row.get("supportedGenerationMethods", [])
+            if not isinstance(methods, list):
+                raise ValueError
+            if "generateContent" not in methods:
+                continue
+        ids.append(_model_id(provider, row[id_field]))
+    cursor = None
+    if provider == "gemini":
+        cursor = page.get("nextPageToken")
+        if cursor == "":
+            cursor = None
+    if provider == "claude":
+        more = page.get("has_more", False)
+        if not isinstance(more, bool):
+            raise ValueError
+        if more:
+            cursor = page["last_id"]
+            if cursor is None:
+                raise ValueError
+    if cursor is not None and (not isinstance(cursor, str) or not cursor or not cursor.isprintable()):
+        raise ValueError
+    return ids, cursor
 
 
 def check_connection(raw, *, desktop=False):
@@ -109,13 +197,14 @@ def parse_render_connection(raw, *, desktop=False):
 class Connection:
     provider: str
     base_url: str
-    model: str
+    model: str | None
     api_key: str = field(repr=False)
     desktop: bool = field(repr=False)
 
-    def _request(self, options, prompt):
-        data = json.dumps(options, separators=(",", ":"))
-        headers = {"Content-Type": "application/json"}
+    def _request_json(self, method, suffix, body, deadline, *, max_response_bytes):
+        headers = {} if body is None else {"Content-Type": "application/json"}
+        if self.provider == "claude":
+            headers["anthropic-version"] = "2023-06-01"
         if self.api_key:
             if self.provider == "gemini":
                 headers["x-goog-api-key"] = self.api_key
@@ -123,23 +212,54 @@ class Connection:
                 headers["x-api-key"] = self.api_key
             else:
                 headers["Authorization"] = "Bearer " + self.api_key
+        url = urlsplit(self.base_url)
+        base_path = url.path.rstrip("/")
+        if self.provider == "ollama":
+            base_path = base_path.removesuffix("/api")
+        path = quote(base_path, safe="/!$&'()*+,;=:@%") + suffix
+        status, wire = _http_request(method, url, path, headers, body, deadline,
+                                     max_response_bytes=max_response_bytes,
+                                     local_only=_requires_loopback(url, self.desktop, self.api_key))
+        if status != 200:
+            raise _request_error(status, wire, self.model)
+        try:
+            return _json(wire.decode("utf-8"))
+        except (ValueError, RecursionError):
+            raise ProviderError("invalid_response") from None
+
+    def _generation_request(self, prompt, data, max_tokens, schema, structured_chat):
+        if schema is not None and not structured_chat:
+            prompt += "\n다음 스키마에 맞는 JSON 객체만 반환하세요.\n" + json.dumps(schema, ensure_ascii=False)
         user = {"role": "user", "content": data}
         if self.provider == "responses":
             path = "/responses"
             body = {"model": self.model, "instructions": prompt, "input": data, "store": False}
+            if max_tokens is not None:
+                body["max_output_tokens"] = max_tokens
         elif self.provider == "gemini":
             path = f"/models/{self.model}:generateContent"
             body = {"systemInstruction": {"parts": [{"text": prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": data}]}]}
+            if max_tokens is not None:
+                body["generationConfig"] = {"maxOutputTokens": max_tokens}
         elif self.provider == "claude":
-            headers["anthropic-version"] = "2023-06-01"
             path = "/messages"
-            body = {"model": self.model, "system": prompt, "messages": [user], "max_tokens": 1024}
+            body = {"model": self.model, "system": prompt, "messages": [user],
+                    "max_tokens": 1024 if max_tokens is None else max_tokens}
         else:
-            path = "/chat/completions" if self.provider == "chat" else "/api/chat"
+            path = "/api/chat" if self.provider == "ollama" else "/chat/completions"
             body = {"model": self.model, "stream": False,
                     "messages": [{"role": "system", "content": prompt}, user]}
-        return path, headers, json.dumps(body).encode()
+            if structured_chat:
+                body["temperature"] = 0
+                body["response_format"] = {"type": "json_schema",
+                                           "json_schema": {"name": "style_edits", "schema": schema}}
+            if max_tokens is not None:
+                if self.provider == "ollama":
+                    body["options"] = {"num_predict": max_tokens}
+                else:
+                    body["max_tokens" if self.provider == "lmstudio" else "max_completion_tokens"] = max_tokens
+        return path, body
 
     def predict(self, options, *, timeout=None):
         return self._predict(options, PROMPT, timeout)
@@ -151,32 +271,46 @@ class Connection:
         seconds = LIMITS["decision_seconds"]
         if timeout is not None:
             seconds = min(seconds, timeout)
-        if seconds <= 0:
+        answer = self._generate_json(prompt, options, timeout=seconds, max_tokens=None, ensure_ascii=True,
+                                     max_response_bytes=LIMITS["max_response_bytes"])
+        if (not isinstance(answer, dict) or answer.keys() != {"id"}
+                or not isinstance(answer["id"], str) or answer["id"] not in options):
+            raise ProviderError("invalid_response")
+        return answer["id"]
+
+    def generate_json(self, prompt, payload, *, timeout, schema=None):
+        """Generate a JSON style suggestion using the configured output budgets."""
+        return self._generate_json(prompt, payload, timeout=timeout, schema=schema, **STYLE_LIMITS)
+
+    def _generate_json(self, prompt, payload, *, timeout, max_tokens, max_response_bytes, schema=None,
+                       ensure_ascii=False):
+        if not isfinite(timeout) or timeout <= 0:
             raise ProviderError("timeout")
-        deadline = monotonic() + seconds
-        url = urlsplit(self.base_url)
-        suffix, headers, body = self._request(options, prompt)
-        base_path = url.path.rstrip("/")
-        if self.provider == "ollama":
-            base_path = base_path.removesuffix("/api")
-        path = quote(base_path, safe="/!$&'()*+,;=:@%") + suffix
-        status, wire = _post(url, path, headers, body, deadline,
-                             local_only=_requires_loopback(url, self.desktop, self.api_key))
-        if status != 200:
-            raise ProviderError(_request_error_code(status, wire, self.model))
+        deadline = monotonic() + timeout
+        data = json.dumps(payload, separators=(",", ":"), ensure_ascii=ensure_ascii)
+
+        def request(structured_chat):
+            path, body = self._generation_request(prompt, data, max_tokens, schema, structured_chat)
+            wire = json.dumps(body, ensure_ascii=ensure_ascii).encode("utf-8", "backslashreplace")
+            return self._request_json("POST", path, wire, deadline, max_response_bytes=max_response_bytes)
+
+        structured_chat = schema is not None and self.provider in ("chat", "lmstudio")
         try:
-            answer = _json(_answer_text(self.provider, _json(wire.decode("utf-8"))))
-            if (not isinstance(answer, dict) or answer.keys() != {"id"}
-                    or not isinstance(answer["id"], str) or answer["id"] not in options):
-                raise ValueError
+            reply = request(structured_chat)
+        except _UnsupportedChatFormat:
+            if not structured_chat or self.provider != "chat":
+                raise
+            reply = request(False)
+        try:
+            answer = _json(_answer_text(self.provider, reply))
         except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
             raise ProviderError("invalid_response") from None
         if monotonic() >= deadline:
             raise ProviderError("timeout")
-        return answer["id"]
+        return answer
 
 
-def _post(url, path, headers, body, deadline, *, local_only):
+def _http_request(method, url, path, headers, body, deadline, *, local_only, max_response_bytes):
     # http.client never follows redirects or consults proxy variables. A socket
     # timeout alone cannot bound DNS resolution or a continuously trickled reply.
     transport = HTTPSConnection if url.scheme == "https" else HTTPConnection
@@ -195,9 +329,9 @@ def _post(url, path, headers, body, deadline, *, local_only):
                 raise ProviderError("timeout")
             if local_only and not _loopback(active_socket.getpeername()[0]):
                 raise ProviderError("address")
-            conn.request("POST", path, body, headers)
+            conn.request(method, path, body, headers)
             with conn.getresponse() as response:
-                reply = response.status, _read_response(response)
+                reply = response.status, _read_response(response, max_response_bytes)
             result.set_result(reply)
         except ProviderError as error:
             result.set_exception(error)
@@ -222,7 +356,7 @@ def _post(url, path, headers, body, deadline, *, local_only):
                 active_socket.shutdown(socket.SHUT_RDWR)
 
 
-def _read_response(response):
+def _read_response(response, limit):
     status = response.status
     if 300 <= status < 400:
         raise ProviderError("address")
@@ -234,7 +368,6 @@ def _read_response(response):
         raise ProviderError("timeout")
     if status not in (200, 400, 404, 422):
         raise ProviderError("unavailable")
-    limit = LIMITS["max_response_bytes"]
     unreadable = "address" if status == 404 else "invalid_response"
     if response.length is not None and response.length > limit:
         raise ProviderError(unreadable)
@@ -252,8 +385,12 @@ MODEL_ERROR_MESSAGE = re.compile(
     r"|(?:unknown|unsupported) model\b", re.IGNORECASE)
 
 
-def _request_error_code(status, wire, model):
-    fallback = "address" if status == 404 else "invalid_connection"
+class _UnsupportedChatFormat(ProviderError):
+    """The server rejected structured generation before accepting the completion."""
+
+
+def _request_error(status, wire, model):
+    fallback = ProviderError("address" if status == 404 else "invalid_connection")
     try:
         error = _json(wire.decode("utf-8"))["error"]
     except (ValueError, TypeError, KeyError, RecursionError):
@@ -263,26 +400,30 @@ def _request_error_code(status, wire, model):
         message = error.get("message")
         if (error.get("param") == "model"
                 or error.get("code") in ("model_not_found", "unsupported_model", "model_not_supported")):
-            return "model"
+            return ProviderError("model")
         if (error.get("type") == "not_found_error" and isinstance(message, str)
                 and re.match(r"model:\s*\S", message.strip(), re.IGNORECASE)):
-            return "model"
+            return ProviderError("model")
         if status != 404 and error.get("code") == "invalid_api_key":
-            return "authentication"
+            return ProviderError("authentication")
+        if (status in (400, 422) and error.get("param") in ("response_format", "temperature")
+                and (error.get("code") in ("unsupported_parameter", "unsupported_value")
+                     or isinstance(message, str) and re.search(r"unsupported|not supported", message, re.I))):
+            return _UnsupportedChatFormat("invalid_connection")
         details = error.get("details")
         if isinstance(details, list):
             for detail in details:
                 if not isinstance(detail, dict):
                     continue
                 if status != 404 and detail.get("reason") == "API_KEY_INVALID":
-                    return "authentication"
+                    return ProviderError("authentication")
                 if (error.get("status") == "NOT_FOUND" and detail.get("resourceName") == f"models/{model}"
                         and detail.get("@type") == "type.googleapis.com/google.rpc.ResourceInfo"):
-                    return "model"
+                    return ProviderError("model")
     if isinstance(message, str):
         match = MODEL_ERROR_MESSAGE.match(message.strip())
         if match and match["name"] in (None, model):
-            return "model"
+            return ProviderError("model")
     return fallback
 
 
