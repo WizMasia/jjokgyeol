@@ -84,6 +84,22 @@ pub fn within_limit(bytes: &[u8], limit: u64) -> bool {
     bytes.len() as u64 <= limit
 }
 
+/// Tauri 웹뷰가 앱 내부 출처 외 외부·로컬 파일 URL로 이동하지 못하도록 검증합니다.
+/// Allow navigation only to bundled Tauri app origins or `about:blank`, blocking external and `file://` URLs.
+pub fn is_allowed_navigation_url(url: &tauri::Url) -> bool {
+    if url.as_str() == "about:blank" {
+        return true;
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost") && url.port().is_none(),
+        "http" | "https" => url.host_str() == Some("tauri.localhost") && url.port().is_none(),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +130,32 @@ mod tests {
     fn request_size_counts_utf8_bytes() {
         assert!(within_limit("한글".as_bytes(), 6));
         assert!(!within_limit("한글".as_bytes(), 5));
+    }
+
+    #[test]
+    fn navigation_allows_only_bundled_app_origins() {
+        for allowed in [
+            "tauri://localhost/index.html",
+            "tauri://localhost/index.html?view=settings",
+            "http://tauri.localhost/index.html",
+            "https://tauri.localhost/index.html?view=settings",
+            "about:blank",
+        ] {
+            let url = tauri::Url::parse(allowed).unwrap();
+            assert!(is_allowed_navigation_url(&url), "expected allowed: {allowed}");
+        }
+        for blocked in [
+            "https://example.com/",
+            "http://127.0.0.1:8000/",
+            "http://tauri.localhost:8080/index.html",
+            "http://user@tauri.localhost/index.html",
+            "tauri://evil.example/index.html",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,<h1>hi</h1>",
+        ] {
+            let url = tauri::Url::parse(blocked).unwrap();
+            assert!(!is_allowed_navigation_url(&url), "expected blocked: {blocked}");
+        }
     }
 }

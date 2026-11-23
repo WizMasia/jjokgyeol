@@ -56,13 +56,15 @@ def _text(raw, numbers):
     return "".join(pieces)
 
 
-def _paragraph(raw, ranges, chars, numbers, warn):
+def _paragraph(raw, ranges, chars, numbers, warn, *, count=None):
     if not raw:
         return ""
     if len(raw) % 2 or not ranges or ranges[0][0] != 0:
         raise ValueError("HWP 본문과 글자 모양의 범위가 올바르지 않습니다.")
     runs = []
     for i, (start, shape) in enumerate(ranges):
+        if count is not None:
+            count()
         end = ranges[i + 1][0] if i + 1 < len(ranges) else len(raw) // 2
         if not start <= end <= len(raw) // 2:
             raise ValueError("HWP 글자 모양 위치가 본문 밖입니다.")
@@ -132,8 +134,14 @@ def _section(data, paras, chars, out, section=1):
                         label = (chr(prefix) if prefix else "") + str(number) + (chr(suffix) if suffix else "")
                     paragraph.numbers.append(label)
     for paragraph in paragraphs:
-        text = _paragraph(paragraph.raw, paragraph.ranges, chars, iter(paragraph.numbers),
-                          lambda msg: out.warn(f"{paragraph.location} · {msg}"))
+        text = _paragraph(
+            paragraph.raw,
+            paragraph.ranges,
+            chars,
+            iter(paragraph.numbers),
+            lambda msg: out.warn(f"{paragraph.location} · {msg}"),
+            count=out.count,
+        )
         out.block(text, paragraph.kind, paragraph.depth, location=paragraph.location)
 
 
@@ -155,7 +163,11 @@ def read(data, out):
             nonlocal remaining
             if ole.get_size(name) > LIMITS["max_bytes"]:
                 raise ValueError("HWP 스트림 크기가 한도를 넘었습니다.")
-            raw = ole.openstream(name).read()
+            # OLE 헤더 크기를 신뢰하지 않고 실제 읽기 바이트 상한을 강제합니다.
+            # Enforce actual stream read cap rather than trusting OLE directory metadata alone.
+            raw = ole.openstream(name).read(LIMITS["max_bytes"] + 1)
+            if len(raw) > LIMITS["max_bytes"]:
+                raise ValueError("HWP 스트림 크기가 한도를 넘었습니다.")
             if flags & 1:
                 budget = min(remaining, len(raw) * LIMITS["max_compression_ratio"])
                 inflater = zlib.decompressobj(-15)

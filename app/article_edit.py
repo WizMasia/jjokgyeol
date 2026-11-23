@@ -129,13 +129,21 @@ def toggle_pin(source: str, first_line: int, last_line: int, aligned_roles=()) -
 
 
 if __name__ == "__main__":
+    from app.configuration import unique_fields
     from app.jobs import INVALID_INPUT
     from app.operations import LIMITS
-    from app.security import harden_worker
+    from app.security import harden_worker, reject_json_constant
 
     harden_worker(max_file_bytes=LIMITS.worker_file_bytes)
     try:
-        values = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
+        raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
+        if len(raw) > LIMITS.request_body_bytes:
+            raise ValueError
+        values = json.loads(
+            raw.decode("utf-8-sig"),
+            object_pairs_hook=unique_fields,
+            parse_constant=reject_json_constant,
+        )
         required = {"source", "first_line", "last_line"}
         if not isinstance(values, dict) or not required <= values.keys() <= required | {"aligned_roles"}:
             raise ValueError
@@ -146,4 +154,7 @@ if __name__ == "__main__":
     except (ValueError, RecursionError):
         sys.stdout.buffer.write("원고와 선택한 줄을 확인하세요.".encode())
         sys.exit(INVALID_INPUT)
-    sys.stdout.buffer.write(json.dumps({"source": result}, ensure_ascii=False).encode())
+    encoded = json.dumps({"source": result}, ensure_ascii=False, allow_nan=False).encode()
+    if len(encoded) > LIMITS.worker_file_bytes:
+        sys.exit(1)
+    sys.stdout.buffer.write(encoded)

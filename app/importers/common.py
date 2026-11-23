@@ -134,6 +134,8 @@ class Manuscript:
 
     def block(self, text, kind="body", depth=1, *, location=""):
         self.count()
+        if type(depth) is not int or depth < 1:
+            raise ValueError("문서 구조의 단계 값이 올바르지 않습니다.")
         text = text.strip()
         list_item = kind in ("ordered", "bullet")
         if not text and not list_item:

@@ -8,10 +8,10 @@ from time import monotonic
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.configuration import CONFIG_DIR, read_config
+from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.document import InputError
 from app.jobs import INVALID_INPUT, LIMITS
-from app.security import harden_worker, sanitize_user_error, validate_outbound_url
+from app.security import harden_worker, reject_json_constant, sanitize_user_error, validate_outbound_url
 
 
 def load_settings():
@@ -26,9 +26,12 @@ def load_settings():
         settings[field] = os.environ.get("JJOKGYEOL_" + field.upper(), settings.get(field, ""))
     if bool(settings["vision_url"]) != bool(settings["vision_model"]):
         raise ValueError("JJOKGYEOL_VISION_URL and JJOKGYEOL_VISION_MODEL must be configured together")
+    token = settings["vision_token"]
+    if not isinstance(token, str) or (token and (not token.isascii() or any(not c.isprintable() or c.isspace() for c in token))):
+        raise ValueError("invalid JJOKGYEOL_VISION_TOKEN")
     if settings["vision_url"]:
         try:
-            validate_outbound_url(settings["vision_url"], has_token=bool(settings["vision_token"]))
+            validate_outbound_url(settings["vision_url"], has_token=bool(token))
         except ValueError as error:
             raise ValueError(f"invalid JJOKGYEOL_VISION_URL: {error}") from None
     return settings
@@ -55,7 +58,11 @@ def worker(fmt, page, deadline):
     if fmt == "targets":
         from app.reference_rules import targets
         try:
-            request = json.loads(data.decode("utf-8-sig"))
+            request = json.loads(
+                data.decode("utf-8-sig"),
+                object_pairs_hook=unique_fields,
+                parse_constant=reject_json_constant,
+            )
             if not isinstance(request, dict) or request.keys() != {"source"} or not isinstance(request["source"], str):
                 raise ValueError
         except (ValueError, RecursionError):

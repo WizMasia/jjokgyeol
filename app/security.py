@@ -1,7 +1,7 @@
 """공통 보안 경계 모듈 / Shared defensive security boundaries for server, workers, and parsers."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from io import BytesIO
 from ipaddress import ip_address
 import json
@@ -91,6 +91,9 @@ def _parse_host_port(value: str) -> tuple[str, int | None] | None:
     raw = value.strip()
     if not raw or not raw.isascii() or not _HOST_CHAR_RE.fullmatch(raw):
         return None
+    # 포트 번호 없이 콜론으로 끝나는 비정상 Host 거부 / Reject malformed trailing empty port colon.
+    if raw.endswith(":") and not raw.endswith("]"):
+        return None
     try:
         parsed = urlsplit("http://" + raw)
     except ValueError:
@@ -103,6 +106,8 @@ def _parse_host_port(value: str) -> tuple[str, int | None] | None:
     try:
         port = parsed.port
     except ValueError:
+        return None
+    if port == 0:
         return None
     return hostname.lower(), port
 
@@ -167,20 +172,42 @@ def _default_port(scheme: str, port: int | None) -> int | None:
     return None
 
 
+def _single_header(
+    headers: Mapping[str, str | Sequence[str]],
+    name: str,
+) -> tuple[str | None, bool]:
+    """단일 헤더 값을 추출하고 중복 여부를 반환합니다. / Extract a single header value and flag duplicates."""
+    raw = headers.get(name)
+    if raw is None:
+        return None, False
+    if isinstance(raw, str):
+        return raw, False
+    if len(raw) > 1:
+        return None, True
+    return (raw[0] if raw else None), False
+
+
 def validate_post_csrf(
-    headers: Mapping[str, str],
+    headers: Mapping[str, str | Sequence[str]],
     host_parts: tuple[str, int | None],
     scheme: str,
 ) -> tuple[int, str] | None:
-    """POST API 요청의 CSRF 헤더와 Content-Type을 검증합니다. / Validate CSRF headers and Content-Type on POST APIs."""
-    fetch_site = headers.get("sec-fetch-site")
+    """상태 변경 API 요청의 CSRF 헤더·중복 헤더·Content-Type을 검증합니다.
+
+    Validate CSRF headers, duplicate security headers, and Content-Type on state-changing APIs.
+    """
+    fetch_site, dup_fetch_site = _single_header(headers, "sec-fetch-site")
+    if dup_fetch_site:
+        return 403, "허용되지 않은 교차 출처 요청입니다."
     if fetch_site is not None and fetch_site.strip().lower() not in ALLOWED_FETCH_SITES:
         return 403, "허용되지 않은 교차 출처 요청입니다."
 
-    origin = headers.get("origin")
+    origin, dup_origin = _single_header(headers, "origin")
+    if dup_origin:
+        return 403, "허용되지 않은 출처(Origin) 요청입니다."
     if origin is not None:
         raw_origin = origin.strip()
-        if not raw_origin or raw_origin.lower() == "null":
+        if not raw_origin or raw_origin.lower() == "null" or "@" in raw_origin:
             return 403, "허용되지 않은 출처(Origin) 요청입니다."
         try:
             parsed = urlsplit(raw_origin)
@@ -193,14 +220,19 @@ def validate_post_csrf(
         if (
             origin_scheme != req_scheme
             or origin_host != host_parts[0]
+            or origin_port == 0
             or _default_port(origin_scheme, origin_port) != _default_port(req_scheme, host_parts[1])
+            or parsed.username
+            or parsed.password
             or parsed.path not in ("", "/")
             or parsed.query
             or parsed.fragment
         ):
             return 403, "허용되지 않은 출처(Origin) 요청입니다."
 
-    content_type = headers.get("content-type")
+    content_type, dup_content_type = _single_header(headers, "content-type")
+    if dup_content_type:
+        return 415, "지원하지 않는 요청 형식입니다."
     if content_type is not None:
         media_type = content_type.split(";", 1)[0].strip().lower()
         if media_type in SIMPLE_CSRF_CONTENT_TYPES:
@@ -222,16 +254,16 @@ class SecurityMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers: dict[str, str] = {}
-        host_values: list[str] = []
+        # 모든 헤더 값을 리스트로 보관하여 중복 헤더 우회를 차단합니다.
+        # Preserve all header occurrences as lists to prevent duplicate-header bypasses.
+        headers: dict[str, list[str]] = {}
         for raw_key, raw_val in scope.get("headers", ()):
             key = raw_key.decode("latin-1").lower()
             val = raw_val.decode("latin-1")
-            if key == "host":
-                host_values.append(val)
-            headers[key] = val
+            headers.setdefault(key, []).append(val)
 
         # 중복 Host 헤더 거부 / Reject duplicate Host headers.
+        host_values = headers.get("host", [])
         if len(host_values) != 1:
             await self._send_json_error(
                 403,
@@ -251,7 +283,7 @@ class SecurityMiddleware:
 
         method = scope.get("method", "GET").upper()
         path = scope.get("path", "")
-        if method == "POST" and path.startswith("/api/"):
+        if method not in ("GET", "HEAD", "OPTIONS") and path.startswith("/api/"):
             csrf_error = validate_post_csrf(headers, host_parts, scope.get("scheme", "http"))
             if csrf_error is not None:
                 status_code, message = csrf_error
@@ -305,14 +337,26 @@ class SecurityMiddleware:
         return {**event, "headers": raw_headers}
 
 
+def reject_json_constant(_value: str) -> Any:
+    """JSON 비표준 상수(NaN/Infinity)를 거부합니다. / Reject non-standard JSON constants (NaN/Infinity)."""
+    raise ValueError("비표준 JSON 숫자 상수는 허용되지 않습니다.")
+
+
 def validate_outbound_url(raw: str, *, has_token: bool = False) -> SplitResult:
     """외부 AI 엔드포인트 URL의 스킴·호스트·토큰 전송 정책을 검증합니다.
 
     Validate outbound AI endpoint URL scheme, host, and plaintext bearer token policy.
     """
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or any(c.isspace() or not c.isprintable() for c in raw)
+        or any(c in raw for c in "?#\\")
+    ):
+        raise ValueError("연결 URL 형식이 올바르지 않습니다.")
     try:
         parsed = urlsplit(raw)
-        _ = parsed.port
+        port = parsed.port
     except ValueError as error:
         raise ValueError("연결 URL 형식이 올바르지 않습니다.") from error
     scheme = parsed.scheme.lower()
@@ -320,8 +364,10 @@ def validate_outbound_url(raw: str, *, has_token: bool = False) -> SplitResult:
     if (
         scheme not in ("https", "http")
         or not hostname
+        or port == 0
         or parsed.username
         or parsed.password
+        or "@" in parsed.netloc
         or parsed.fragment
         or parsed.query
     ):

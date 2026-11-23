@@ -18,11 +18,11 @@ import xml.etree.ElementTree as ET
 
 from PIL import Image, ImageOps
 
-from app.configuration import CONFIG_DIR, read_config
+from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.list_marks import format_mark
 from app.publication import FONT_LABELS
 from app.running_heads import RUNNING_ROLES, SLOTS, escape_running_literal, parse_running_text
-from app.security import validate_outbound_url, worker_env
+from app.security import is_loopback_host, reject_json_constant, validate_outbound_url, worker_env
 
 MM_PER_BP = 25.4 / 72
 PT_PER_BP = 72.27 / 72
@@ -201,15 +201,35 @@ def _scan_slot(crop):
     return None
 
 
+class _LoopbackCheckedHTTPConnection(http.client.HTTPConnection):
+    """루프백 HTTP 연결 시 실제 소켓 피어 IP를 검증해 DNS Rebinding을 차단합니다.
+
+    Verify the resolved peer IP is loopback before transmitting plaintext HTTP requests or tokens.
+    """
+
+    def connect(self) -> None:
+        super().connect()
+        peer = self.sock.getpeername()[0] if self.sock is not None else None
+        if not is_loopback_host(peer):
+            self.close()
+            raise ValueError("루프백 전용 HTTP 연결에서 비루프백 피어가 감지되었습니다.")
+
+
 def _vision(unit, settings, deadline, hints):
     if not settings.get("vision_url") or not settings.get("vision_model"):
         raise ValueError("모델 연결 설정 필요")
-    url = validate_outbound_url(settings["vision_url"], has_token=bool(settings.get("vision_token")))
+    has_token = bool(settings.get("vision_token"))
+    url = validate_outbound_url(settings["vision_url"], has_token=has_token)
     deadline = min(deadline, monotonic() + settings["vision_timeout_seconds"])
-    cls = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
+    if url.scheme == "https":
+        cls = http.client.HTTPSConnection
+    elif is_loopback_host(url.hostname) or has_token:
+        cls = _LoopbackCheckedHTTPConnection
+    else:
+        cls = http.client.HTTPConnection
     conn = cls(url.hostname, url.port, timeout=_remaining(deadline))
     headers = {"Content-Type": "application/json"}
-    if settings.get("vision_token"):
+    if has_token:
         headers["Authorization"] = "Bearer " + settings["vision_token"]
     data = {"model": settings["vision_model"], "temperature": 0, "max_tokens": settings["vision_max_tokens"],
             "response_format": {"type": "json_schema", "json_schema": {"name": "page_style", "schema": _MODEL_SCHEMA}},
@@ -241,13 +261,21 @@ def _vision(unit, settings, deadline, hints):
         conn.close()
     if len(reply) > settings["max_vision_response_bytes"]:
         raise ValueError("모델 응답 길이 초과")
-    content = json.loads(reply)["choices"][0]["message"]["content"]
+    content = json.loads(
+        reply,
+        object_pairs_hook=unique_fields,
+        parse_constant=reject_json_constant,
+    )["choices"][0]["message"]["content"]
     if not isinstance(content, str):
         raise ValueError("모델 응답 형식 오류")
     content = content.strip()
     if content.startswith("```") and content.endswith("```"):
         content = content.partition("\n")[2][:-3]
-    result = json.loads(content)
+    result = json.loads(
+        content,
+        object_pairs_hook=unique_fields,
+        parse_constant=reject_json_constant,
+    )
     if not isinstance(result, dict) or not isinstance(result.get("candidates"), list):
         raise ValueError("모델 응답 형식 오류")
     if result.get("section") in ("표지", "목차", "본문"):

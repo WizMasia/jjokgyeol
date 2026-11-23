@@ -420,4 +420,211 @@ def test_evaluation_blind_pdf_enforces_size_and_page_bounds(monkeypatch: pytest.
         packet.blind_pdf(buf.getvalue())
 
 
+async def test_middleware_rejects_duplicate_security_headers_and_userinfo_origin() -> None:
+    """중복 보안 헤더·userinfo Origin·비정상 포트가 미들웨어에서 차단되는지 검증합니다.
+
+    Verify duplicate CSRF/Content-Type headers, userinfo Origin, and port 0 Host are rejected.
+    """
+    from app.security import SecurityMiddleware
+
+    async def ok_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"application/json")]})
+        await send({"type": "http.response.body", "body": b"{}", "more_body": False})
+
+    middleware = SecurityMiddleware(ok_app)
+
+    async def call(raw_headers: list[tuple[bytes, bytes]], method: str = "POST", path: str = "/api/style/export") -> int:
+        status: list[int] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"{}", "more_body": False}
+
+        async def send(event):
+            if event["type"] == "http.response.start":
+                status.append(event["status"])
+
+        scope = {
+            "type": "http",
+            "method": method,
+            "scheme": "http",
+            "path": path,
+            "headers": raw_headers,
+        }
+        await middleware(scope, receive, send)
+        return status[0]
+
+    # 중복 Origin 헤더로 교차 출처 검사를 우회할 수 없어야 함 / Duplicate Origin cannot bypass CSRF check.
+    assert await call([
+        (b"host", b"127.0.0.1:8000"),
+        (b"origin", b"https://evil.example"),
+        (b"origin", b"http://127.0.0.1:8000"),
+    ]) == 403
+
+    # 중복 Sec-Fetch-Site 헤더 차단 / Duplicate Sec-Fetch-Site rejected.
+    assert await call([
+        (b"host", b"127.0.0.1:8000"),
+        (b"sec-fetch-site", b"cross-site"),
+        (b"sec-fetch-site", b"same-origin"),
+    ]) == 403
+
+    # 중복 Content-Type 헤더 차단 / Duplicate Content-Type rejected.
+    assert await call([
+        (b"host", b"127.0.0.1:8000"),
+        (b"content-type", b"application/x-www-form-urlencoded"),
+        (b"content-type", b"application/json"),
+    ]) == 415
+
+    # 사용자정보(@)가 포함된 Origin 차단 / Origin with userinfo rejected.
+    assert await call([
+        (b"host", b"127.0.0.1:8000"),
+        (b"origin", b"http://attacker@127.0.0.1:8000"),
+    ]) == 403
+
+    # 포트 0 또는 빈 콜론 Host 헤더 차단 / Port 0 and trailing empty-port Host rejected.
+    assert await call([(b"host", b"127.0.0.1:0")], method="GET", path="/") == 403
+    assert await call([(b"host", b"127.0.0.1:")], method="GET", path="/") == 403
+
+
+async def test_api_rejects_duplicate_json_keys_nan_and_oversized_import_name(
+    client: httpx.AsyncClient,
+) -> None:
+    """중복 JSON 키·NaN 상수·초장문 가져오기 파일명이 차단되는지 검증합니다.
+
+    Verify duplicate JSON keys, NaN constants, and oversized/control import filenames are rejected.
+    """
+    dup_style = b'{"body_pt": "11", "body_pt": "12"}'
+    assert (await client.post("/api/style/export", content=dup_style, headers={"Content-Type": "application/json"})).status_code == 422
+
+    nan_style = b'{"body_pt": NaN}'
+    assert (await client.post("/api/style/export", content=nan_style, headers={"Content-Type": "application/json"})).status_code == 422
+
+    dup_pin = b'{"source": "# \xec\xa0\x9c1\xec\xa1\xb0", "source": "x", "first_line": 0, "last_line": 0}'
+    assert (await client.post("/api/article/pin", content=dup_pin, headers={"Content-Type": "application/json"})).status_code == 422
+
+    dup_targets = b'{"source": "# \xec\xa0\x9c\xeb\xaa\xa9", "source": "# \xeb\x8b\xa4\xeb\xa5\xb8"}'
+    assert (await client.post("/api/reference/targets", content=dup_targets, headers={"Content-Type": "application/json"})).status_code == 422
+
+    long_name = "a" * 1025 + ".txt"
+    assert (await client.post("/api/import", params={"name": long_name}, content=b"hello")).status_code == 422
+    assert (await client.post("/api/import", params={"name": "bad\n.txt"}, content=b"hello")).status_code == 422
+    assert (await client.post("/api/import", params={"name": ".."}, content=b"hello")).status_code == 422
+
+
+def test_catalog_pagination_and_cursor_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """모델 카탈로그 페이지 수·커서 길이 상한을 검증합니다.
+
+    Verify catalog pagination page cap and cursor length cap.
+    """
+    from app.ai import providers
+    from app.ai.model import ProviderError
+
+    # 페이지 수 상한 초과 시 무한 루프 대신 invalid_response 반환 / Exceeding max_catalog_pages fails cleanly.
+    monkeypatch.setitem(providers.LIMITS, "max_catalog_pages", 3)
+    calls = 0
+
+    def fake_request_json(self, method, suffix, body, deadline, *, max_response_bytes):
+        nonlocal calls
+        calls += 1
+        return {"models": [], "nextPageToken": f"token-{calls}"}
+
+    monkeypatch.setattr(providers.Connection, "_request_json", fake_request_json)
+    with pytest.raises(ProviderError) as paged:
+        providers.list_models(
+            {"provider": "gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta"},
+            desktop=True,
+        )
+    assert paged.value.code == "invalid_response"
+    assert calls == 3
+
+    # 커서 길이 상한 초과 차단 / Oversized cursor token is rejected.
+    monkeypatch.setitem(providers.LIMITS, "max_catalog_cursor_chars", 16)
+    monkeypatch.setattr(
+        providers.Connection,
+        "_request_json",
+        lambda self, method, suffix, body, deadline, *, max_response_bytes: {
+            "models": [],
+            "nextPageToken": "x" * 17,
+        },
+    )
+    with pytest.raises(ProviderError) as long_cursor:
+        providers.list_models(
+            {"provider": "gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta"},
+            desktop=True,
+        )
+    assert long_cursor.value.code == "invalid_response"
+
+
+def test_outbound_url_vision_token_and_loopback_peer_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """외부 URL 제어문자·비전 토큰 헤더 인젝션·루프백 피어 IP 검증을 확인합니다.
+
+    Verify outbound URL control-char/port-0 checks, vision token validation, and loopback peer guard.
+    """
+    from app import reference, reference_media
+    from app.security import validate_outbound_url
+
+    for bad_url in (
+        "https://remote.example/v1\r\nX-Injected: 1",
+        "http://127.0.0.1:0/v1",
+        "https://user:pass@remote.example/v1",
+    ):
+        with pytest.raises(ValueError):
+            validate_outbound_url(bad_url)
+
+    monkeypatch.setenv("JJOKGYEOL_VISION_URL", "https://remote.example/v1")
+    monkeypatch.setenv("JJOKGYEOL_VISION_MODEL", "vision-test")
+    monkeypatch.setenv("JJOKGYEOL_VISION_TOKEN", "bad\r\nX-Injected: 1")
+    with pytest.raises(ValueError, match="JJOKGYEOL_VISION_TOKEN"):
+        reference.load_settings()
+
+    # DNS Rebinding으로 비루프백 IP가 반환되면 요청 전송 전에 연결을 닫고 차단 / Close and block non-loopback peer IP.
+    class FakeSock:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def getpeername(self):
+            return ("198.51.100.10", 1234)
+
+        def close(self) -> None:
+            self.closed = True
+
+    sock = FakeSock()
+
+    def fake_super_connect(self):
+        self.sock = sock
+
+    monkeypatch.setattr(reference_media.http.client.HTTPConnection, "connect", fake_super_connect)
+    conn = reference_media._LoopbackCheckedHTTPConnection("localhost", 1234, timeout=1)
+    with pytest.raises(ValueError, match="루프백"):
+        conn.connect()
+    assert sock.closed
+
+
+def test_importer_depth_and_hwp_range_count_bounds() -> None:
+    """임포터 음수 depth 및 HWP 글자 모양 범위 레코드 상한을 검증합니다.
+
+    Verify importer rejects non-positive depth and counts HWP char-shape ranges against max_records.
+    """
+    from app.importers import hwp
+    from app.importers.common import Manuscript
+
+    out = Manuscript()
+    with pytest.raises(ValueError):
+        out.block("제목", "heading", 0)
+    with pytest.raises(ValueError):
+        out.block("제목", "heading", -1)
+
+    counted = 0
+
+    def inc() -> None:
+        nonlocal counted
+        counted += 1
+        if counted > 2:
+            raise ValueError("원고의 구조 요소 수가 한도를 넘었습니다.")
+
+    raw = "가".encode("utf-16le")
+    with pytest.raises(ValueError, match="한도"):
+        hwp._paragraph(raw, [(0, 0), (0, 0), (0, 0)], [0], iter(()), lambda _m: None, count=inc)
+
+
+
 

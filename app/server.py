@@ -20,12 +20,19 @@ from app import jobs, publication
 from app import style as styles
 from app.ai.decision import PIN as DECISION
 from app.ai.style import SETTINGS as SUGGESTION
-from app.configuration import CONFIG_DIR, read_config
+from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.document import InputError
 from app.font_assets import FONT_LIMITS, FRAME_LIMIT, LOCKED_ASSET_PATHS
 from app.operations import LIMITS
 from app.reference import load_settings
-from app.security import SecurityMiddleware, allows_decision_key, is_loopback_host, worker_env
+from app.security import (
+    SecurityMiddleware,
+    allows_decision_key,
+    is_loopback_host,
+    reject_json_constant,
+    sanitize_user_error,
+    worker_env,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app/static"
@@ -211,9 +218,16 @@ class DocumentJob:
             return Response(result, media_type="application/json", headers=NO_STORE)
         if self.action == "import":
             name = request.query_params.get("name", "")
-            if not name or "\x00" in name:
+            # 파일 이름 길이·제어문자·경로 분리 검증 / Validate upload filename length, control chars, and basename.
+            basename = Path(name).name if name and "\x00" not in name else ""
+            if (
+                not basename
+                or basename in (".", "..")
+                or len(name) > 1024
+                or any(ord(c) < 32 or ord(c) == 127 for c in name)
+            ):
                 raise jobs.JobError(422, "source", "가져올 원고의 파일 이름을 확인하세요.")
-            command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), name,
+            command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), basename,
                        str(REFERENCE["worker_memory_bytes"]))
             role = "import"
         elif self.action == "align":
@@ -308,8 +322,14 @@ async def article_pin(request: Request):
                             pass
                         await worker.communicate()
                         raise
+        if len(output) > LIMITS.worker_file_bytes:
+            return failure(500)
         if worker.returncode == jobs.INVALID_INPUT:
-            return failure(422, "source", output.decode())
+            message = sanitize_user_error(
+                ValueError(output.decode("utf-8", "replace")),
+                "원고와 선택한 줄을 확인하세요.",
+            )
+            return failure(422, "source", message)
         if worker.returncode:
             return failure(500)
         return Response(output, media_type="application/json", headers=NO_STORE)
@@ -321,7 +341,12 @@ async def article_pin(request: Request):
 
 def _convert_style_payload(raw: bytes, *, export: bool) -> dict:
     """양식 JSON 파싱 및 단위 변환을 워커 스레드에서 수행합니다. / Parse and convert style JSON off the event loop."""
-    values = json.loads(raw.decode("utf-8-sig"), parse_float=Decimal)
+    values = json.loads(
+        raw.decode("utf-8-sig"),
+        parse_float=Decimal,
+        object_pairs_hook=unique_fields,
+        parse_constant=reject_json_constant,
+    )
     if export:
         return styles.from_editor_style(values).to_stored()
     return styles.from_stored_style(values).to_editor()

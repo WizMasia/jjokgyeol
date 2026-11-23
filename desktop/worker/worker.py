@@ -34,6 +34,9 @@ def resource(root, value):
 def limit_worker_files(max_bytes):
     if os.name == 'posix':
         import resource
+        # 임시·진단 파일이 소유자 전용 권한으로만 생성되도록 umask를 제한합니다.
+        # Restrict umask so worker-created files are owner-only on POSIX.
+        os.umask(0o077)
         _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
         limit = min(hard, max_bytes) if hard != resource.RLIM_INFINITY else max_bytes
         resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))

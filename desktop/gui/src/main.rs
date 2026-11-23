@@ -802,6 +802,13 @@ async fn save_bytes(
 
 fn main() {
     tauri::Builder::default()
+        // 모든 웹뷰에서 외부 URL 및 file:// 네비게이션을 차단합니다.
+        // Block external and file:// navigations across all application webviews.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
+                .on_navigation(|_webview, url| safety::is_allowed_navigation_url(url))
+                .build(),
+        )
         .manage(limits())
         .manage(Mutex::new(Arc::new(fonts::Catalog::default())))
         .manage(DirtyState::default())

@@ -731,7 +731,7 @@ function sampleExcerpt(unit) {
   if (leading > 0) excerpt.style.lineHeight = Math.min(leading, 72) + "pt";
   if (/^#[0-9a-f]{6}$/i.test(value("color"))) excerpt.style.color = value("color");
   const font = settings.fonts.find(f => f.id === value("font") || f.label === value("font"));
-  if (font) excerpt.style.fontFamily = '"' + font.label + '", var(--serif)';
+  if (font) excerpt.style.fontFamily = JSON.stringify(font.label) + ", var(--serif)";
   return excerpt;
 }
 

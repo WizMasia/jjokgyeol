@@ -26,6 +26,10 @@ STYLE_LIMITS = _CONFIG["style_suggestion"]
 for key in ("max_tokens", "max_response_bytes"):
     if type(STYLE_LIMITS.get(key)) is not int or STYLE_LIMITS[key] <= 0:
         raise ValueError(f"decision-providers.json: invalid style_suggestion.{key}")
+# 모델 카탈로그 페이지네이션 상한 검증 / Validate catalog pagination bounds from decision.json.
+for key in ("max_catalog_pages", "max_catalog_cursor_chars"):
+    if type(LIMITS.get(key)) is not int or LIMITS[key] <= 0:
+        raise ValueError(f"decision.json: invalid {key}")
 PROMPT = ('Choose one of the measured paragraph layouts. Balance line lengths including the last '
           'line, avoid isolated glyphs and split words, and prefer smooth spacing. Widths use sp '
           'and spacing ratios use 10000 as one unit. Return only a JSON object {"id":"..."} '
@@ -120,7 +124,12 @@ def list_models(raw, *, desktop=False) -> list[str]:
     # Both workers print the default ASCII-escaped JSON envelope followed by a newline.
     reply_bytes = len(json.dumps({"models": []}) + os.linesep)
     seen_cursors = set()
+    pages_fetched = 0
+    max_pages = LIMITS["max_catalog_pages"]
     while True:
+        pages_fetched += 1
+        if pages_fetched > max_pages:
+            raise ProviderError("invalid_response")
         page = conn._request_json("GET", path, None, deadline, max_response_bytes=LIMITS["max_response_bytes"])
         try:
             ids, cursor = _catalog_page(conn.provider, page)
@@ -175,7 +184,12 @@ def _catalog_page(provider, page):
             cursor = page["last_id"]
             if cursor is None:
                 raise ValueError
-    if cursor is not None and (not isinstance(cursor, str) or not cursor or not cursor.isprintable()):
+    if cursor is not None and (
+        not isinstance(cursor, str)
+        or not cursor
+        or len(cursor) > LIMITS["max_catalog_cursor_chars"]
+        or not cursor.isprintable()
+    ):
         raise ValueError
     return ids, cursor
 
