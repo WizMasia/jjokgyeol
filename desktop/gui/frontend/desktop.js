@@ -38,6 +38,9 @@ const desktop = {
       throw error;
     }
   },
+  paragraphAlign(payload) {
+    return this.invoke("paragraph_align", {payload});
+  },
   async style(action, body) {
     return this.invoke("style_convert", {action, body: typeof body === "string" ? body : await body.text()});
   },

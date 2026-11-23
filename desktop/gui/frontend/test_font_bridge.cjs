@@ -43,3 +43,16 @@ test('both binary frame inputs keep the exact view and decode rule and model PDF
     assert.equal(result.model && await result.model.text(), decision === 'rule' ? null : 'two');
   }
 });
+
+test('paragraph alignment forwards the payload and reply unchanged over local IPC', async () => {
+  const selection = {source: '원고', first_line: 0, last_line: 0};
+  for (const payload of [selection, {...selection, align: null}, {...selection, align: 'right'}]) {
+    const result = {supported: true, source: '결과', align: payload.align ?? null, message: ''};
+    const desktop = bridge((command, args) => {
+      assert.equal(command, 'paragraph_align');
+      assert.equal(args.payload, payload);
+      return result;
+    });
+    assert.equal(await desktop.paragraphAlign(payload), result);
+  }
+});

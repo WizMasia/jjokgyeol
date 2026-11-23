@@ -451,3 +451,33 @@ def test_framed_manuscript_uses_native_stored_style_validation(tmp_path):
     assert json.loads(result.stderr)['code'] == 'invalid_input'
     assert json.loads(result.stderr)['field'] == 'body_sp'
     assert not list(tmp_path.iterdir())
+
+
+def test_paragraph_alignment_without_runtime(tmp_path):
+    source = '점검팀'
+    marked = '<!-- 쪽결 정렬=가운데 -->\n' + source
+    for before, line, action, after, align in (
+        (source, 0, {'align': 'center'}, marked, 'center'),
+        (marked, 1, {}, marked, 'center'),
+        (marked, 1, {'align': None}, source, None),
+    ):
+        raw = json.dumps({'source': before, 'first_line': line, 'last_line': line, **action}).encode()
+        result = style_cli(tmp_path, '--paragraph-align', raw)
+        assert result.returncode == 0, result.stderr.decode()
+        reply = json.loads(result.stdout)
+        assert reply['source'] == after and reply['align'] == align and reply['supported'] is True
+        assert isinstance(reply['message'], str)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize('raw', [
+    pytest.param(b'{', id='malformed-json'),
+    pytest.param(b'{"source":"ok","first_line":0,"last_line":0}'.ljust(worker.LIMITS.request_body_bytes + 1),
+                 id='oversized-valid-query'),
+    pytest.param(b'{"source":12,"first_line":0,"last_line":0}', id='invalid-source'),
+])
+def test_paragraph_alignment_rejects_invalid_input(tmp_path, raw):
+    result = style_cli(tmp_path, '--paragraph-align', raw)
+    assert result.returncode == 1 and result.stdout == b''
+    error = json.loads(result.stderr)
+    assert error['code'] == 'invalid_input' and error['field'] and error['message']

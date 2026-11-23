@@ -390,7 +390,7 @@ fn decision_body(value: &serde_json::Value, limit: u64) -> Result<Vec<u8>, Strin
     Ok(body)
 }
 
-async fn run_decision<T: Send + 'static>(
+async fn run_with_deadline<T: Send + 'static>(
     slots: &Arc<Semaphore>,
     deadline: Instant,
     f: impl FnOnce(Duration) -> Result<T, String> + Send + 'static,
@@ -409,7 +409,7 @@ async fn run_decision<T: Send + 'static>(
         }
         f(remaining)
     });
-    // Once started, let the supervisor deliver its measured PDF on timeout.
+    // Once started, the process supervisor owns the remaining deadline and cleanup.
     if tokio::time::timeout_at(deadline.into(), started)
         .await
         .is_err()
@@ -433,7 +433,7 @@ async fn check_decision_connection(
     require_any_window(&window, &["main", "settings"])?;
     let body = decision_body(&connection, state.request)?;
     let runtime = runtime(&app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
-    run_decision(&state.render_slots, deadline, move |timeout| {
+    run_with_deadline(&state.render_slots, deadline, move |timeout| {
         jjokgyeol_proof::check_decision_connection(&runtime, body, timeout)?;
         Ok(serde_json::json!({"ok":true}))
     })
@@ -483,7 +483,7 @@ async fn decision_proof(
     deadline: Instant,
 ) -> Result<tauri::ipc::Response, String> {
     let runtime = runtime(app).map_err(|_| r#"{"code":"unavailable"}"#.to_owned())?;
-    run_decision(&state.render_slots, deadline, move |timeout| {
+    run_with_deadline(&state.render_slots, deadline, move |timeout| {
         jjokgyeol_proof::render_model_proof(&runtime, body, timeout).map(tauri::ipc::Response::new)
     })
     .await
@@ -545,6 +545,42 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
         return Err("worker output exceeds limit".into());
     }
     Ok(bytes)
+}
+
+fn paragraph_error(error: String) -> serde_json::Value {
+    if matches!(error.as_str(), r#"{"code":"timeout"}"# | "worker timed out") {
+        return serde_json::json!({"code":"timeout","status":504,"message":"문단 정렬 시간이 초과되었습니다."});
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&error) {
+        if value["code"] == "invalid_input" {
+            return value;
+        }
+    }
+    serde_json::json!({"code":"worker_error","status":500,"message":"문단 정렬을 처리할 수 없습니다."})
+}
+
+#[tauri::command]
+async fn paragraph_align(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: State<'_, Limits>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, serde_json::Value> {
+    let deadline = Instant::now() + state.timeout;
+    require_window(&window, "main")?;
+    let body = payload.to_string();
+    if !safety::within_limit(body.as_bytes(), state.request) {
+        return Err(
+            serde_json::json!({"code":"too_large","status":413,"message":"요청 크기가 너무 큽니다."}),
+        );
+    }
+    let runtime = runtime(&app).map_err(paragraph_error)?;
+    let limit = state.file;
+    run_with_deadline(&state.style_slots, deadline, move |timeout| {
+        convert(&runtime, "--paragraph-align", &body, limit, timeout)
+    })
+    .await
+    .map_err(paragraph_error)
 }
 
 #[tauri::command]
@@ -719,6 +755,7 @@ fn main() {
             cancel_settings,
             confirm_settings_replacement,
             style_convert,
+            paragraph_align,
             render_proof,
             check_decision_connection,
             render_model_proof,
@@ -957,6 +994,20 @@ mod tests {
 }
 
 #[test]
+fn paragraph_errors_keep_validation_fields_and_distinguish_deadlines() {
+    let invalid = serde_json::json!({"code":"invalid_input","field":"align","message":"정렬 값을 확인하세요."});
+    assert_eq!(paragraph_error(invalid.to_string()), invalid);
+    for error in [r#"{"code":"timeout"}"#, "worker timed out"] {
+        let reply = paragraph_error(error.to_owned());
+        assert_eq!(reply["code"], "timeout");
+        assert_eq!(reply["status"], 504);
+    }
+    let reply = paragraph_error("failed to open /private/path".to_owned());
+    assert_eq!(reply["status"], 500);
+    assert!(!reply.to_string().contains("/private/path"));
+}
+
+#[test]
 fn decision_ipc_limits_include_connection_before_queueing() {
     let value =
         serde_json::json!({"source":"원고", "style":{}, "connection":{"api_key":"test-key"}});
@@ -1023,7 +1074,7 @@ fn decision_queue_expires_before_a_slot_is_free() {
         let limit = Instant::now() + Duration::from_millis(50);
         let result: Result<(), _> = tokio::time::timeout(
             Duration::from_secs(2),
-            run_decision(&slots, limit, |_| panic!("late provider call")),
+            run_with_deadline(&slots, limit, |_| panic!("late provider call")),
         )
         .await
         .expect("a blocked decision must return at its deadline");
@@ -1043,7 +1094,7 @@ fn decision_supervisor_gets_only_the_remaining_budget() {
             std::thread::sleep(Duration::from_millis(100));
             release.add_permits(1);
         });
-        let budget = run_decision(&slots, deadline, Ok).await.unwrap();
+        let budget = run_with_deadline(&slots, deadline, Ok).await.unwrap();
         unlock.join().unwrap();
         assert!(!budget.is_zero() && budget <= Duration::from_millis(1900));
     });
@@ -1066,7 +1117,7 @@ fn expired_decision_never_starts_after_blocking_pool_frees_up() {
         let calls = Arc::new(AtomicBool::new(false));
         let invoked = Arc::clone(&calls);
         let start = Instant::now();
-        let result = run_decision(&slots, start + Duration::from_millis(50), move |_| {
+        let result = run_with_deadline(&slots, start + Duration::from_millis(50), move |_| {
             invoked.store(true, Ordering::SeqCst);
             Ok(())
         })

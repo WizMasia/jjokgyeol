@@ -164,7 +164,7 @@ class DocumentJob:
             return MAX_BODY, SLOTS, min(jobs.TIMEOUT, DECISION["decision_seconds"])
         if self.action == "import":
             return IMPORT_MAX_BYTES, SLOTS, jobs.TIMEOUT
-        if self.action == "targets":
+        if self.action in ("targets", "align"):
             return MAX_BODY, TARGET_SLOTS, jobs.TIMEOUT
         if self.action == "analyze":
             return REFERENCE["max_bytes"], REFERENCE_SLOTS, REFERENCE["timeout_seconds"]
@@ -198,6 +198,9 @@ class DocumentJob:
             command = (sys.executable, "-IB", str(ROOT / "app/import_worker.py"), name,
                        str(REFERENCE["worker_memory_bytes"]))
             role = "import"
+        elif self.action == "align":
+            command = (sys.executable, "-IB", str(ROOT / "app/paragraph_worker.py"))
+            role = "pin"
         elif self.action == "suggest":
             command = (sys.executable, "-IB", str(ROOT / "app/ai/style_worker.py"))
             role = "suggest"
@@ -248,6 +251,7 @@ class DocumentJob:
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware)
+app.add_route("/api/paragraph/align", DocumentJob("align"), methods=["POST"])
 app.add_route("/api/import", DocumentJob("import"), methods=["POST"])
 app.add_route("/api/style-suggestion", DocumentJob("suggest"), methods=["POST"])
 app.add_route("/api/decision/check", DocumentJob("check"), methods=["POST"])

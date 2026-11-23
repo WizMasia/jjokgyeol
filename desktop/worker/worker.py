@@ -188,6 +188,7 @@ def main():
     modes.add_argument('--runtime', type=Path)
     modes.add_argument('--model-proof', type=Path)
     modes.add_argument('--check-decision', action='store_true')
+    modes.add_argument('--paragraph-align', action='store_true')
     modes.add_argument('--style-open', action='store_true')
     modes.add_argument('--style-export', action='store_true')
     diagnostic = False
@@ -196,6 +197,10 @@ def main():
         limit_worker_files(LIMITS.worker_file_bytes)
         if args.model_proof or args.check_decision:
             return decision_request(args.model_proof)
+        if args.paragraph_align:
+            from app.paragraph_worker import alignment_response
+            sys.stdout.buffer.write(alignment_response(sys.stdin.buffer))
+            return 0
         if args.style_open or args.style_export:
             raw = sys.stdin.buffer.read(LIMITS.request_body_bytes + 1)
             if len(raw) > LIMITS.request_body_bytes:
