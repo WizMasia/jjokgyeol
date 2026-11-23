@@ -156,3 +156,12 @@ def test_report_date_and_author_share_a_pdf_line(tmp_path):
     source = "# 보고서\n\n2026. 11. 23.  작성자\n\n## 보고 요지\n\n1. 첫 항목\n2. 둘째 항목"
     lines = [text(chars) for _, chars in baselines(typeset(parse_md(source), Style(), tmp_path))]
     assert lines == ["보고서", "2026.11.23.작성자", "보고요지", "①첫항목", "②둘째항목"]
+
+
+def test_padded_strong_label_uses_bold_glyphs_only_in_label(tmp_path):
+    source = "- **① 검사 결과: **정상\n- **건의:** 보관"
+    lines = baselines(typeset(parse_md(source), Style(), tmp_path))
+    for (_, chars), marker, label, body in zip(lines, ("①", "②"), ("①검사결과:", "건의:"), ("정상", "보관"), strict=True):
+        assert text(chars) == marker + label + body
+        assert all("Bold" in c.font for c in chars[1:1 + len(label)])
+        assert all("Bold" not in c.font for c in chars[1 + len(label):])

@@ -149,3 +149,10 @@ def test_pin_edits_preserve_raw_escaped_punctuation(title):
     pinned = "### " + title + " {번호고정}  ###\r\n\r\n[^주]{메모}: 원문"
     assert toggle_pin(source, 0, 0) == pinned
     assert toggle_pin(pinned, 0, 0) == source
+
+
+def test_pin_roundtrip_preserves_spaces_inside_a_bold_label():
+    source = "# 제1조 **제목:  **"
+    pinned = toggle_pin(source, 0, 0)
+    assert pinned == source + " {번호고정}"
+    assert toggle_pin(pinned, 0, 0) == source

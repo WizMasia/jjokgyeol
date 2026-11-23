@@ -5,7 +5,7 @@ from bisect import bisect_left
 from copy import copy
 from dataclasses import dataclass, field, replace
 
-from app.manuscript_markup import read_escape
+from app.manuscript_markup import pair_padded_labels, read_escape
 
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import mdTrim
@@ -152,6 +152,7 @@ _IDEOGRAPHIC_INDENT = re.compile(r"\u3000[\u3000 \t]*\Z")
 # Start from plain text so links, HTML, entities and TeX escapes stay literal.
 _MD = MarkdownIt("zero", {"html": False}).enable(["heading", "lheading", "list", "emphasis"])
 _MD.inline.ruler.before("text", "annotation", read_annotation)
+_MD.inline.ruler2.after("emphasis", "padded_labels", pair_padded_labels)
 # The legacy renderer displays fenced examples with its original block styles.
 # Read fence boundaries separately so those examples never enter article numbering.
 _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])

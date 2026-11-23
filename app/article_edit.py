@@ -31,6 +31,8 @@ def _unpin(inline, text, pin):
         elif token.nesting:
             start = raw - len(token.markup)
             if token.nesting < 0:
+                if pin < visible <= marker:
+                    pin = visible  # Keep spaces inside a label that closes before the pin.
                 closes.append((start, raw, kept))
             else:
                 left, right, before = closes.pop()

@@ -253,3 +253,52 @@ def test_reports_errors_from_before_and_after_rounding():
     with pytest.raises(InputError) as error:
         apply_style(Style(), {"body_font": "unknown", "page_mm": ["0.00000001", 100], "margins_mm": [0, 0, 0, 0]})
     assert set(error.value.errors) == {"body_font", "page_mm"}
+
+
+@pytest.mark.parametrize("suffix", ["원문", '"인용문"', " 이어지는 글"])
+def test_padded_bold_label_preserves_spaces_and_following_face(suffix):
+    from app.document import Inline, parse_md
+
+    source = "- **① 점검 *결과*:  **" + suffix
+    block, = parse_md(source).blocks
+    assert block.inlines == [
+        Inline("strong", children=[Inline("text", "① 점검 "), Inline("emphasis", children=[Inline("text", "결과")]),
+                                   Inline("text", ":  ")]),
+        Inline("text", suffix),
+    ]
+
+
+def test_padded_bold_leaves_valid_pairs_and_literal_stars_intact():
+    from app.document import Inline, parse_md
+
+    source = r"\*\*별: \*\* / **기존: **중첩** 끝** / **항목: **내용 **끝**"
+    block, = parse_md(source).blocks
+    assert block.inlines == [
+        Inline("text", "**별: ** / "),
+        Inline("strong", children=[Inline("text", "기존: "), Inline("strong", children=[Inline("text", "중첩")]),
+                                   Inline("text", " 끝")]),
+        Inline("text", " / "), Inline("strong", children=[Inline("text", "항목: ")]),
+        Inline("text", "내용 "), Inline("strong", children=[Inline("text", "끝")]),
+    ]
+    for text in ["**열림\n다른 줄: **본문", "** 홀로: **본문", "**열린 채", "2 ** 3 ** 4"]:
+        assert parse_md(text).blocks[0].inlines == [Inline("text", text.replace("\n", " "))]
+
+
+def test_padded_label_cannot_start_in_a_formula_or_swallow_an_existing_bold_span():
+    from app.document import Inline, parse_md
+
+    formula = "계산 2**3, 결과: ** 8"
+    assert parse_md(formula).blocks[0].inlines == [Inline("text", formula)]
+    source = "- **가: **굵게** 뒤: **본문"
+    assert parse_md(source).blocks[0].inlines == [
+        Inline("text", "**가: "), Inline("strong", children=[Inline("text", "굵게")]), Inline("text", " 뒤: **본문"),
+    ]
+
+
+@pytest.mark.parametrize("middle", ["***굵게***", "**기울임*"])
+def test_partly_or_fully_claimed_stars_end_padded_label_recovery(middle):
+    from app.document import parse_md
+
+    spans = parse_md(f"- **가: {middle} 뒤: **본문").blocks[0].inlines
+    assert spans[0].kind == "text" and spans[0].text.startswith("**가: ")
+    assert spans[-1].text == " 뒤: **본문"
