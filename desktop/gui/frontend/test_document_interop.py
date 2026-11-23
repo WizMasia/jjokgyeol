@@ -39,7 +39,11 @@ class DocumentInteropTest(unittest.TestCase):
     def test_declined_web_face_makes_saved_proof_stale_on_native_reopen(self):
         self.exchange(external=True, consent=False)
 
-    def exchange(self, external=False, consent=True):
+    @unittest.skipUnless(os.getenv("JJOKGYEOL_NATIVE_RUNTIME"), "requires the packaged native typesetter")
+    def test_alignment_and_sizes_survive_web_native_exchange(self):
+        self.exchange(external=True, aligned=True)
+
+    def exchange(self, external=False, consent=True, aligned=False):
         server = EditorServer()
         self.addCleanup(server.server_close)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -50,10 +54,25 @@ class DocumentInteropTest(unittest.TestCase):
             web.goto(os.environ["JJOKGYEOL_REFERENCE_URL"])
             expect(web.locator("#status")).to_have_text("최신 버전", timeout=45000)
             line = "| 구분 | 주요 내용 |\n| --- | --- |\n| 10.16. | Abel 첫 문단 |\n" if external else "첫 문단"
+            if aligned:
+                line += "\n<!-- 쪽결 정렬=오른쪽 -->\n작성일과 작성자\n"
             source = b"\xef\xbb\xbf# " + f"원고\r\n\r\n{line}\n끝\r".encode()
             expected = f"# 원고\n\n{line}\n끝\n"
             web.locator("#file").set_input_files({"name": "초고.md", "mimeType": "text/markdown", "buffer": source})
             expect(web.locator("#filename")).to_have_text("초고.md")
+            if aligned:
+                web.locator("#open-settings").click()
+                web.locator("#style summary").click()
+                roles = web.locator("#text-role")
+                size = web.locator('#text-roles [data-text="font_pt"]')
+                align = web.locator('#text-roles [data-text="align"]')
+                roles.select_option("body")
+                size.fill("12.25")
+                align.select_option("left")
+                roles.select_option("heading1")
+                size.fill("18.5")
+                align.select_option("center")
+                web.locator("#close-settings").click()
             if external:
                 web.locator("#open-fonts").click()
                 web.locator("#font-files").set_input_files(ROOT / "tests/fixtures/fonts/abel/Abel-Regular.ttf")
@@ -70,6 +89,11 @@ class DocumentInteropTest(unittest.TestCase):
             with ZipFile(archived) as document:
                 self.assertEqual(document.read("manuscript.md"), source)
                 stored = json.loads(document.read("style.json"))
+                if aligned:
+                    self.assertEqual(stored["body_sp"], 802816)
+                    self.assertEqual(stored["text_styles"]["body"]["align"], "left")
+                    self.assertEqual(stored["text_styles"]["heading1"]["align"], "center")
+                    self.assertEqual(stored["text_styles"]["heading1"]["font_sp"], 1212416)
                 manifest = json.loads(document.read("manifest.json"))
                 lock = json.loads((ROOT / "runtime.lock").read_text())
                 default_hashes = {row["sha256"] for family in lock["fonts"].values() for row in family.values()}
