@@ -20,30 +20,36 @@
 
 ### 1. 원고 구문 및 범위
 
-- [ ] tests/test_paragraph_alignment.py에서 코드·표·날짜·Setext·중복 주석·혼합 개행에 대한 실패를 확인한다.
-- [ ] app/document.py에서 Block.align을 선택 값으로 제공한다. app/paragraph_edit.py의 edit_alignment(payload)에서 source, first_line, last_line과 선택 속성 align을 검증한다. align 생략은 조회, null은 해제, 문자열은 left/center/right. 응답은 {source, align, supported, message}이고 align은 직접 지정한 값 또는 null이다. 잘못된 요청은 InputError, 유효한 선택이지만 대상이 없으면 supported=false.
-- [ ] 신규 테스트와 기존 조 제목·표·원고 테스트를 실행하고 확인한다.
+- [x] tests/test_paragraph_alignment.py에서 코드·표·날짜·Setext·중복 주석·혼합 개행에 대한 실패를 확인한다.
+- [x] app/document.py에서 Block.align을 선택 값으로 제공한다. app/paragraph_edit.py의 edit_alignment(payload)에서 source, first_line, last_line과 선택 속성 align을 검증한다. align 생략은 조회, null은 해제, 문자열은 left/center/right. 응답은 {source, align, supported, message}이고 align은 직접 지정한 값 또는 null이다. 잘못된 요청은 InputError, 유효한 선택이지만 대상이 없으면 supported=false.
+- [x] 신규 테스트와 기존 조 제목·표·원고 테스트를 실행하고 확인한다.
 
 ### 2. 역할 양식과 조판
 
-- [ ] tests/test_alignment_engine.py에서 규칙·모델의 실제 PDF 위치 및 단계별 크기, 우선순위, 기존 지면을 검증하는 실패 테스트를 작성한다.
-- [ ] app/style.py, app/typeset.py, app/tex에서 text_styles.body/heading1~6.align과 Block.align을 적용한다. 0단계 정렬은 보통 문단에만 적용한다. 기존 font_sp/body_sp 및 줄 번호를 보존한다. 명시적 정렬 문단은 모델 후보에서 제외한다.
-- [ ] 기본과 명시값을 왕복하고 실제 PDF 글자 좌표·크기를 비교한다.
+- [x] tests/test_alignment_engine.py에서 규칙·모델의 실제 PDF 위치 및 단계별 크기, 우선순위, 기존 지면을 검증하는 실패 테스트를 작성한다.
+- [x] app/style.py, app/typeset.py, app/tex에서 text_styles.body/heading1~6.align과 Block.align을 적용한다. 0단계 정렬은 보통 문단에만 적용한다. 기존 font_sp/body_sp 및 줄 번호를 보존한다. 명시적 정렬 문단은 모델 후보에서 제외한다.
+- [x] 기본과 명시값을 왕복하고 실제 PDF 글자 좌표·크기를 비교한다.
 
 ### 3. 웹·Mac 편집 화면
 
-- [ ] 원고 한 문단 편집과 설정창의 단계 전환·역할별 크기 변경, 문서 왕복을 브라우저 테스트로 재현한다.
-- [ ] app/static/{index.html,editor.js,typography.js} 및 필요 시 공용 스타일 코덱과 네이티브 설정 창을 연결한다. /api/paragraph/align 또는 desktop.paragraphAlign(payload) 호출은 같은 계약을 사용한다. 선택 범위, 실행 취소, 원고 수정 상태, 늦은 응답을 검증한다.
-- [ ] 기존 편집기 및 오프라인 설정창 테스트와 신규 테스트를 실행한다.
+- [x] 원고 한 문단 편집과 설정창의 단계 전환·역할별 크기 변경, 문서 왕복을 브라우저 테스트로 재현한다.
+- [x] app/static/{index.html,editor.js,typography.js} 및 필요 시 공용 스타일 코덱과 네이티브 설정 창을 연결한다. /api/paragraph/align 또는 desktop.paragraphAlign(payload) 호출은 같은 계약을 사용한다. 선택 범위, 실행 취소, 원고 수정 상태, 늦은 응답을 검증한다.
+- [x] 기존 편집기 및 오프라인 설정창 테스트와 신규 테스트를 실행한다.
 
 ### 4. 웹·네이티브 전달 및 시험판
 
-- [ ] 웹 API와 로컬 워커의 조회/변경/잘못된 입력 테스트가 먼저 실패하는지 확인한다.
-- [ ] app/server.py와 desktop/worker, desktop/src, desktop/gui/src 및 desktop/gui/frontend/desktop.js에 같은 원고 편집 작업을 연결한다. 네이티브 명령 이름은 paragraph_align, JS 공개 함수는 paragraphAlign이다.
-- [ ] HTTP 및 오프라인 호출, 저장·재열기, 규칙·모델 PDF, 기존 기준 PDF를 확인한다. 통과한 변경을 main 및 네이티브 브랜치에 통합하고 로컬 웹·Mac 시험판을 제작한다.
+- [x] 웹 API와 로컬 워커의 조회/변경/잘못된 입력 테스트가 먼저 실패하는지 확인한다.
+- [x] app/server.py와 desktop/worker, desktop/src, desktop/gui/src 및 desktop/gui/frontend/desktop.js에 같은 원고 편집 작업을 연결한다. 네이티브 명령 이름은 paragraph_align, JS 공개 함수는 paragraphAlign이다.
+- [x] HTTP 및 오프라인 호출, 저장·재열기, 규칙·모델 PDF, 기존 기준 PDF를 확인한다. 통과한 변경을 main 및 네이티브 브랜치에 통합하고 로컬 웹·Mac 시험판을 제작한다.
 
 ### 5. 목록 단계별 글자 크기
 
-- [ ] tests/test_list_size_editor.py에서 소수 크기 및 생략 왕복과 0단계 바로 가기를 확인한다.
-- [ ] app/static/list-style.js와 목록 행에 기존 font_pt 선택 속성을 연결한다.
-- [ ] 해제와 단계 전환, 기존 목록 양식 테스트, 실제 목록 PDF 글자 크기를 대조한다.
+- [x] tests/test_list_size_editor.py에서 소수 크기 및 생략 왕복과 0단계 바로 가기를 확인한다.
+- [x] app/static/list-style.js와 목록 행에 기존 font_pt 선택 속성을 연결한다.
+- [x] 해제와 단계 전환, 기존 목록 양식 테스트, 실제 목록 PDF 글자 크기를 대조한다.
+
+## 로컬 시험판 검증 결과
+
+웹 전체 회귀 검사에서 1,690개가 통과했고 환경 조건에 따라 62개를 건너뛰었다. 최종 이미지에서 조 제목 번호 고정을 포함한 관련 검사 213개가 통과했다.
+
+웹과 설치한 Mac 앱 사이에서 교정 PDF 포함 여부를 바꿔 네 가지 문서 왕복을 확인했다. 두 시험판이 생성한 PDF에서 본문과 제목 1~6의 글자 크기, 목록 두 단계의 글자 크기, 제목과 날짜 문단의 위치가 일치했다.
