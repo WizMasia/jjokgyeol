@@ -401,6 +401,9 @@ def _text_styles(current, patch, stored, context, scale, errors):
                 if role != "body" and key == size_key:
                     value = _point_size(key, value, stored, context)
                     key = "font_sp"
+                elif key == "align" and role in ("body", *HEADING_ROLES):
+                    if value not in ("left", "center", "right"):
+                        raise ValueError("정렬은 left, center, right 중 하나여야 합니다.")
                 elif role == "heading1" and key == "frame":
                     if value != "box":
                         raise ValueError("제목 틀은 box를 지정하세요.")

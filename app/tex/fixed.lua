@@ -63,10 +63,11 @@ function fixed.apply(n, state)
   end
 end
 
-function fixed.prepare(head, style, candidate)
+function fixed.prepare(head, style, candidate, aligned)
   local low, high = table.unpack(style.space_per_10000)
   if candidate then low, high = candidate.space_per_10000, candidate.space_per_10000 end
   local ratio = math.max(low, math.min(fixed.RATIO_UNIT, high))
+  if aligned then low, high = ratio, ratio end
   local tracking = candidate and candidate.ko_tracking_per_10000 or style.ko_tracking_per_10000
   local state, previous, boundary = {}, false, nil
   local space_no, next_break = 0, 1

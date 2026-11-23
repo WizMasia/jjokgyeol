@@ -110,14 +110,17 @@ def _hierarchy_items(doc, style, levels):
 def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None, font_dir=None, max_pdf_bytes=None):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
+    role_styles = _role_styles(style)
+    aligned_roles = {role for role, fields in role_styles.items() if "align" in fields}
+    doc = doc.alignment_layout(aligned_roles)
     levels = style.resolved_list_levels()
     expressions = [row.expr for row in levels]
     expressions.extend(value for rule in style.section_rules or () if rule.role == "list"
                        for key, value in rule.values if key.endswith(".expr"))
     if any(map(uses_hierarchy, expressions)):
         doc = doc.hierarchy_layout(lambda view: _hierarchy_items(view, style, levels))
+    eligible = doc.alignment_blocks() if aligned_roles else ()
     overrides = block_values(doc.blocks, style, fenced_blocks=doc.fenced_blocks)
-    role_styles = _role_styles(style)
     for index, block in enumerate(doc.blocks):
         role = f"heading{block.level}" if block.kind == "heading" else "body"
         base = role_styles[role]
@@ -125,7 +128,11 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             level = levels[min(block.level, len(levels)) - 1]
             base = base | {k: v for k, v in (("font", level.font), ("font_sp", level.font_sp),
                                               ("weight", level.weight)) if v is not None}
-        overrides[index] = base | overrides[index]
+        values = overrides[index] = base | overrides[index]
+        if direct := getattr(block, "align", None):
+            values["align"] = direct
+        elif index not in eligible:
+            values.pop("align", None)
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
@@ -133,6 +140,7 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     box_ids = {}
     ordinals = []
     for block, values in zip(blocks, overrides, strict=True):
+        block.pop("align", None)  # The resolved value travels in overrides, including through fence layout.
         if "running_id" in values:
             block["running_id"] = values.pop("running_id")
         if values:

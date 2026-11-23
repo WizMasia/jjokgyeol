@@ -49,7 +49,7 @@ COPY proofs/reference-style/*.docx proofs/reference-style/*.hwpx proofs/referenc
 COPY proofs/running-heads/*.docx proofs/running-heads/*.hwpx proofs/running-heads/
 COPY evaluation/ evaluation/
 COPY proofs/engine-comparison/LuaLaTeX.pdf proofs/engine-comparison/
-COPY proofs/decision-model/model.pdf proofs/decision-model/
+COPY proofs/decision-model/model.pdf proofs/decision-model/rule.pdf proofs/decision-model/
 COPY proofs/running-heads/style.json proofs/running-heads/
 ENV PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
 USER editor

@@ -3,6 +3,7 @@
 \usepackage{fontspec}
 \usepackage{luatexko}
 \newattribute\BookFrameEnd
+\newcount\BookExplicitAlign
 \directlua{book = require("layout"); book.setup()}
 \pagestyle{empty}
 \tracinglostchars=3

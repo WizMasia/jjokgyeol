@@ -87,7 +87,13 @@ function book.setup()
       end
     end
   end
-  for _, v in pairs(style.text_styles or {}) do register(v) end
+  local styled_marks = false
+  for _, fields in pairs(roles) do
+    register(fields)
+    for key in pairs(fields) do
+      if key ~= "align" then styled_marks = true end
+    end
+  end
   for _, block in ipairs(data.blocks) do
     register(block.overrides)
     if block.kind == "table" and not book.tables then
@@ -119,7 +125,7 @@ function book.setup()
   end
   if next(data.footnotes) then
     emit("\\AddToHook{cmd/@makefntext/before}{\\directlua{book.note_style()}}")
-    if next(roles) or defaults.weight ~= "normal" or defaults.slant ~= "normal" or defaults.heading_weight ~= "bold" then
+    if styled_marks or defaults.weight ~= "normal" or defaults.slant ~= "normal" or defaults.heading_weight ~= "bold" then
       emit("\\AtBeginDocument{\\BookStyledMarks}")
     end
   end
@@ -162,11 +168,12 @@ local wordbreak = require("wordbreak")
 local fixed = require("fixed")
 luatexbase.add_to_callback("pre_linebreak_filter", function(head)
   local candidate = active and data.candidate
-  head = fixed.prepare(head, style, candidate)
+  local aligned = tex.count.BookExplicitAlign == 1
+  head = fixed.prepare(head, style, candidate, aligned)
   if paragraph_index and not active then
     head, skipped_first = paragraph.apply(head, style, paragraph_index, data.paragraphs, item and item.level)
   else
-    head, skipped_first = wordbreak.apply(head, false, active, item and item.level)
+    head, skipped_first = wordbreak.apply(head, aligned, active, item and item.level)
   end
   return head
 end, "jjokgyeol.wordspacing")
@@ -301,6 +308,11 @@ function book.item(index)
   if justified then paragraph_index = item and index end
 end
 
+local alignment = {left = "\\raggedright", center = "\\centering", right = "\\raggedleft"}
+local function align_paragraph(value)
+  emit(assert(alignment[value]) .. "\\BookExplicitAlign=1\\relax")
+end
+
 function book.blocks()
   lists.columns(data.blocks, width)
   if #data.blocks == 0 then emit("\\null") end
@@ -320,6 +332,7 @@ function book.blocks()
       appearance(values)
       if block.preserve_spaces then emit("\\leavevmode") end
       inlines(block.inlines, block.preserve_spaces)
+      if values.align then align_paragraph(values.align) end
       emit("}")
     elseif block.kind == "table" then
       book.tables.render(block, inlines)
@@ -333,6 +346,10 @@ function book.blocks()
       emit(string.format("\\parshape 2 %s %s %s %s\\relax", sp(first), sp(width - first),
         sp(rest), sp(width - rest)))
       emit("\\directlua{book.item(" .. index .. ")}\\BookManuscriptPar\\directlua{book.item(0)}")
+    elseif values.align then
+      inlines(block.inlines, true)
+      align_paragraph(values.align)
+      emit("\\BookManuscriptPar")
     else
       assert(block.kind == "paragraph")
       inlines(block.inlines, measured)
