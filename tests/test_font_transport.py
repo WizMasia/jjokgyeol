@@ -70,7 +70,8 @@ def test_locked_assets_and_binary_render():
     asyncio.run(run())
 
 
-def test_packaged_optional_face_renders_without_transferring_font(tmp_path):
+@pytest.mark.parametrize("native", [False, True])
+def test_packaged_optional_face_renders_without_transferring_font(tmp_path, native):
     from app.document import parse_md
     from app.style import from_editor_style, editor_bootstrap
     from app.typeset import typeset
@@ -81,6 +82,6 @@ def test_packaged_optional_face_renders_without_transferring_font(tmp_path):
     installed = editor_bootstrap()["font_assets"]["faces"]
     assert installed[digest]["fallback"] is False
     style = from_editor_style({"body_font": f"font-{digest}-none"})
-    pdf = typeset(parse_md("Code 본문"), style, tmp_path)
+    pdf = typeset(parse_md("Code 본문"), style, tmp_path, font_dir=font.parent if native else None)
     used = {char.font for page in read_pages(pdf) for row in page.lines for char in row.chars if char.text == "C"}
     assert any("NanumGothicCoding" in name for name in used), used

@@ -52,7 +52,6 @@ def prepare_fonts(style, policy, destination, installed_dir, *, copy_installed):
     families.update(dict(row.values).get("font") for row in style.section_rules or ())
     families.update(dict(fields).get("font") for _, fields in style.text_styles or ())
 
-    installed = {name for pair in policy["fonts"].values() for name in pair.values()}
     defaults = policy["fonts"][publication.DEFAULTS["body_font"]]
     assets = _assets.get() or {}
     files = {}
@@ -70,7 +69,8 @@ def prepare_fonts(style, policy, destination, installed_dir, *, copy_installed):
         destination.symlink_to(installed_dir.resolve(strict=True), target_is_directory=True)
     else:
         destination.mkdir()
-        for name in installed:
+        required = {name for pair in policy["fonts"].values() for name in pair.values()}
+        for name in required - files.keys():
             shutil.copyfile(installed_dir / name, destination / name)
         for name, data in files.items():
             (destination / name).write_bytes(data)
