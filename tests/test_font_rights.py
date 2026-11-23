@@ -151,6 +151,24 @@ def test_permissions(page, flags, options, pdf, archive):
     assert face["fsType"] == flags
 
 
+@pytest.mark.parametrize("holder", ["José García", "Jose\u0301 Garci\u0301a", "Łukasz Żółć", "Ольга Петрова", "山田太郎"])
+def test_unicode_holder_is_preserved_in_ofl_notice(page, holder):
+    copyright = "Copyright 2024 " + holder
+    face = both(page, font(license=OFL, copyright=copyright))
+    assert face["status"] == {"pdf": "allowed", "archive": "allowed", "remote": "allowed"}
+    notice = page.evaluate("async face => (await FontRights.notice(face)).text()", face)
+    assert notice.split("\n\n", 1)[0] == copyright
+
+
+@pytest.mark.parametrize("holder_and_terms", [
+    "José García may not be redistributed", "Jose\u0301 Garci\u0301a. Réservé à un usage privé.",
+    "José García\n승인 후 사용 가능", "山田太郎無断転載禁止",
+])
+def test_unicode_holder_with_extra_terms_lacks_evidence(page, holder_and_terms):
+    face = both(page, font(8, license=OFL, copyright="Copyright 2024 " + holder_and_terms))
+    assert face["status"] == {"pdf": "unknown", "archive": "unknown", "remote": "unknown"}
+
+
 def test_external_notice_is_reproducible_and_preserves_all_attributions(page):
     second = "Copyright (c) 2024 Second Studio."
     data = font(license=OFL, url=URL, extra=[

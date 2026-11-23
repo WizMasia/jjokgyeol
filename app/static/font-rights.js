@@ -15,13 +15,19 @@ globalThis.FontRights = (() => {
   const heading = "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007";
   const oflTextHash = "70006bea3c19ca31505acc2ab97296f48cccbf972825a66d81321f1474e30ebf";
   // Keep holder names, contact details and reserved names separate from legal prose.
-  const nameWord = "[A-Z][a-z]+(?:['’-][A-Z][a-z]+)*";
-  const properName = "(?:" + nameWord + "(?: " + nameWord + ")?|[가-힣]+|[A-Z]+|" +
-    "(?:[A-Z]+ |" + nameWord + " )+(?:Corporation|Inc|Studio|Project Authors))";
+  function namePattern(upper, lower) {
+    const part = upper + lower + "+";
+    const word = part + "(?:['’-]" + part + ")*";
+    return "(?:" + word + "(?: " + word + ")?|[가-힣]+|" + upper + "+|" +
+      "(?:" + upper + "+ |" + word + " )+(?:Corporation|Inc|Studio|Project Authors))";
+  }
+  const properName = namePattern("[A-Z]", "[a-z]");
+  const unicodeName = namePattern(String.raw`[\p{Lu}\p{Lt}]`, String.raw`\p{Ll}`);
+  const holderName = new RegExp("^(?:" + unicodeName + "|[\\u4e00-\\u9fff]{2,4})$", "u");
   const contact = String.raw`(?:https?://[A-Za-z0-9./_%#?=&~-]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)`;
   const fontName = new RegExp("^(?:" + properName + "|\"" + properName + "\"|'" + properName + "')$");
   const attribution = new RegExp(String.raw`^(?:[Cc]opyright(?: (?:©|ⓒ|\([cC]\)))?|©|ⓒ|\([cC]\)) ` +
-    String.raw`[0-9]{4}(?:[-–][0-9]{4})?(?:, [0-9]{4})*,? ` + properName +
+    String.raw`[0-9]{4}(?:[-–][0-9]{4})?(?:, [0-9]{4})*,? ([^ (),.]+(?: [^ (),.]+)*?)` +
     String.raw`(?: \(${contact}(?: \| ${contact})*\))?` +
     "(?:,? *with Reserved Font Names? (.+))?$");
   const designer = new RegExp("^Font designed by " + properName + "\\.?$");
@@ -146,8 +152,8 @@ globalThis.FontRights = (() => {
 
   function isAttribution(clause) {
     const match = clause.replace(/\.$/, "").match(attribution);
-    if (!match) return false;
-    return !match[1] || match[1].split(/, | and /).every(name => fontName.test(name));
+    if (!match || !holderName.test(match[1].normalize("NFC"))) return false;
+    return !match[2] || match[2].split(/, | and /).every(name => fontName.test(name));
   }
 
   async function decide(face, names, undecoded) {

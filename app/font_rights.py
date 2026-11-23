@@ -2,6 +2,7 @@
 import hashlib
 import re
 import struct
+import unicodedata
 
 from app.font_assets import FONT_ASSETS
 
@@ -22,12 +23,13 @@ _OFL_TEXT_HASH = "70006bea3c19ca31505acc2ab97296f48cccbf972825a66d81321f1474e30e
 _NAME_WORD = r"[A-Z][a-z]+(?:['’-][A-Z][a-z]+)*"
 _PROPER_NAME = (rf"(?:{_NAME_WORD}(?: {_NAME_WORD})?|[가-힣]+|[A-Z]+"
                 rf"|(?:[A-Z]+ |{_NAME_WORD} )+(?:Corporation|Inc|Studio|Project Authors))")
+_LETTER_CASE = {"Lu": "X", "Lt": "X", "Ll": "x"}
 _CONTACT = r"(?:https?://[A-Za-z0-9./_%#?=&~-]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)"
 _FONT_NAME = re.compile(rf'''(?:{_PROPER_NAME}|"{_PROPER_NAME}"|'{_PROPER_NAME}')''')
 _ATTRIBUTION = re.compile(
     r"(?:[Cc]opyright(?: (?:©|ⓒ|\([cC]\)))?|©|ⓒ|\([cC]\)) "
     r"[0-9]{4}(?:[-–][0-9]{4})?(?:, [0-9]{4})*,? "
-    + _PROPER_NAME + rf"(?: \({_CONTACT}(?: \| {_CONTACT})*\))?"
+    + rf"([^ (),.]+(?: [^ (),.]+)*?)(?: \({_CONTACT}(?: \| {_CONTACT})*\))?"
     + r"(?:,? *with Reserved Font Names? (.+))?")
 _DESIGNER = re.compile(rf"Font designed by {_PROPER_NAME}\.?")
 _TEMPLATE = re.compile(r"Copyright \(c\) <dates?>, <Copyright Holder>\.?", re.I | re.ASCII)
@@ -141,7 +143,13 @@ def _is_attribution(clause):
     match = _ATTRIBUTION.fullmatch(clause.removesuffix("."))
     if not match:
         return False
-    reserved = match[1]
+    # Apply Unicode letter classes only to the holder. Keep the original spelling for the notice.
+    holder = unicodedata.normalize("NFC", match[1])
+    shape = "".join(c if c.isascii() else _LETTER_CASE.get(unicodedata.category(c), c) for c in holder)
+    # Unspaced Han prose has no case or word boundaries. Recognize only short personal names.
+    if not re.fullmatch(_PROPER_NAME, shape) and not re.fullmatch(r"[\u4e00-\u9fff]{2,4}", holder):
+        return False
+    reserved = match[2]
     return not reserved or all(_FONT_NAME.fullmatch(name) for name in re.split(", | and ", reserved))
 
 
