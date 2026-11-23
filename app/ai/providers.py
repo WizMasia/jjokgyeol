@@ -13,7 +13,7 @@ from time import monotonic
 from urllib.parse import quote, unquote, urlsplit
 
 from app.ai.builtin import BuiltinDecision
-from app.ai.model import LIMITS, ProviderError
+from app.ai.model import LIMITS, ProviderError, SPACING_PROMPT
 from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.security import LOOPBACK_HOSTS
 
@@ -113,7 +113,7 @@ class Connection:
     api_key: str = field(repr=False)
     desktop: bool = field(repr=False)
 
-    def _request(self, options):
+    def _request(self, options, prompt):
         data = json.dumps(options, separators=(",", ":"))
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -126,22 +126,28 @@ class Connection:
         user = {"role": "user", "content": data}
         if self.provider == "responses":
             path = "/responses"
-            body = {"model": self.model, "instructions": PROMPT, "input": data, "store": False}
+            body = {"model": self.model, "instructions": prompt, "input": data, "store": False}
         elif self.provider == "gemini":
             path = f"/models/{self.model}:generateContent"
-            body = {"systemInstruction": {"parts": [{"text": PROMPT}]},
+            body = {"systemInstruction": {"parts": [{"text": prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": data}]}]}
         elif self.provider == "claude":
             headers["anthropic-version"] = "2023-06-01"
             path = "/messages"
-            body = {"model": self.model, "system": PROMPT, "messages": [user], "max_tokens": 1024}
+            body = {"model": self.model, "system": prompt, "messages": [user], "max_tokens": 1024}
         else:
             path = "/chat/completions" if self.provider == "chat" else "/api/chat"
             body = {"model": self.model, "stream": False,
-                    "messages": [{"role": "system", "content": PROMPT}, user]}
+                    "messages": [{"role": "system", "content": prompt}, user]}
         return path, headers, json.dumps(body).encode()
 
     def predict(self, options, *, timeout=None):
+        return self._predict(options, PROMPT, timeout)
+
+    def predict_spacing(self, options, *, timeout):
+        return self._predict(options, SPACING_PROMPT, timeout)
+
+    def _predict(self, options, prompt, timeout):
         seconds = LIMITS["decision_seconds"]
         if timeout is not None:
             seconds = min(seconds, timeout)
@@ -149,7 +155,7 @@ class Connection:
             raise ProviderError("timeout")
         deadline = monotonic() + seconds
         url = urlsplit(self.base_url)
-        suffix, headers, body = self._request(options)
+        suffix, headers, body = self._request(options, prompt)
         base_path = url.path.rstrip("/")
         if self.provider == "ollama":
             base_path = base_path.removesuffix("/api")

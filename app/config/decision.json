@@ -15,6 +15,7 @@
   },
   "decision_seconds": 16,
   "delivery_reserve_seconds": 1,
+  "max_spacing_calls_per_document": 8,
   "max_lines_per_candidate": 64,
   "max_response_bytes": 262144
 }
