@@ -179,6 +179,21 @@ def test_style_open_export_roundtrip_with_bom(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_native_style_spacing_round_trip(tmp_path):
+    editor = {"text_styles": {"body": {"space_after_pt": "auto"}},
+              "list_levels": [{"expr": "-", "indent_mm": 0, "gap_mm": 1, "space_before_pt": "0.0000152587890625"}]}
+    exported = style_cli(tmp_path, '--style-export', json.dumps(editor).encode())
+    assert exported.returncode == 0, exported.stderr.decode()
+    stored = json.loads(exported.stdout)
+    assert stored["text_styles"] == {"body": {"space_after_sp": "auto"}}
+    assert stored["list_levels"][0]["space_before_sp"] == 1
+    opened = style_cli(tmp_path, '--style-open', exported.stdout)
+    assert opened.returncode == 0, opened.stderr.decode()
+    fields = json.loads(opened.stdout)
+    assert fields["text_styles"] == editor["text_styles"]
+    assert fields["list_levels"][0]["space_before_pt"] == "0.0000152587890625"
+
+
 @pytest.mark.parametrize(('mode', 'raw'), [
     ('--style-open', b'[]'),
     ('--style-open', b'{"body_sp": -1}'),

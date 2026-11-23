@@ -56,6 +56,7 @@ OPTIONAL_UNITS = {
 }
 ARRAY_LENGTHS = {"page_sp": 2, "margins_sp": 4, "space_per_10000": 2, "ko_tracking_bounds_per_10000": 2}
 HEADING_ROLES = tuple(f"heading{level}" for level in range(1, len(publication.HEADINGS) + 1))
+SPACING_FIELDS = {"space_before_pt": "space_before_sp", "space_after_pt": "space_after_sp"}
 ALIGNMENT_ROLES = ("body", *HEADING_ROLES)
 TEXT_ROLES = (*ALIGNMENT_ROLES, "note", "gloss")
 
@@ -99,6 +100,20 @@ def _pt(sp):
     return format(Decimal(sp) / SP_PER_PT, "f")
 
 
+def paragraph_spacing_sp(value, *, stored=False):
+    """Validate an explicit paragraph spacing value before rounding it to TeX units."""
+    if value == "auto":
+        return value
+    with localcontext() as context:
+        context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
+        amount = _number(value, stored, context)
+        minimum, maximum = publication.PARAGRAPH_SPACING["range_pt"]
+        scale = SP_PER_PT if stored else 1
+        if not minimum * scale <= amount <= maximum * scale:
+            raise ValueError(f"문단 여백은 {minimum}~{maximum}pt 범위에서 입력하세요.")
+        return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def _map_numbers(key, value, convert):
     if key not in ARRAY_LENGTHS:
         return convert(value)
@@ -128,6 +143,8 @@ class ListLevel:
     weight: str | None = None
     mark_weight: str | None = None
     indent_origin: str | None = None
+    space_before_sp: int | str | None = None
+    space_after_sp: int | str | None = None
 
     def to_stored(self) -> dict:
         return {k: v for k, v in vars(self).items() if v is not None}
@@ -138,9 +155,7 @@ class ListLevel:
             row = self.to_stored()
             row["indent_mm"] = _mm(row.pop("indent_sp"), 0)
             row["gap_mm"] = _mm(row.pop("gap_sp"), 0)
-            if self.font_sp is not None:
-                row["font_pt"] = _pt(row.pop("font_sp"))
-            return row
+            return _editor_rule_values(row.items())
 
 
 def _list_levels(rows, *, stored, field="list_levels", base=None):
@@ -151,7 +166,8 @@ def _list_levels(rows, *, stored, field="list_levels", base=None):
     distance_keys = ("indent_sp", "gap_sp") if stored else ("indent_mm", "gap_mm")
     expected = ("expr", *distance_keys)
     size_key = "font_sp" if stored else "font_pt"
-    optional = {"font", size_key, "weight", "mark_weight", "indent_origin"}
+    spacing_keys = SPACING_FIELDS.values() if stored else SPACING_FIELDS.keys()
+    optional = {"font", size_key, "weight", "mark_weight", "indent_origin", *spacing_keys}
     maximum = _whole_mm(MAX_PAGE_MM) if stored else MAX_PAGE_MM
     levels = []
     with localcontext() as context:
@@ -193,6 +209,8 @@ def _list_levels(rows, *, stored, field="list_levels", base=None):
                         if not stored and base is not None:
                             _check_rule_fit("font_sp", amount, base, scale)
                         options["font_sp"] = _rounded(amount, scale)
+                    elif key in spacing_keys:
+                        options[SPACING_FIELDS.get(key, key)] = paragraph_spacing_sp(value, stored=stored)
                     elif key == "indent_origin":
                         if value != "margin":
                             raise ValueError("들여쓰기 기준은 margin이어야 합니다.")
@@ -225,18 +243,19 @@ _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 def _editor_rule_key(key):
-    return key[:-3] + ("_pt" if key in ("font_sp", "leading_sp") else "_mm")
+    return key[:-3] + ("_pt" if key in ("font_sp", "leading_sp", *SPACING_FIELDS.values()) else "_mm")
 
 
 def _editor_rule_values(fields):
     values = {}
     for key, value in fields:
         if key.endswith("_sp"):
-            if key in ("font_sp", "leading_sp"):
-                value = _pt(value)
-            else:
-                value = _mm(value, 0 if key == "offset_sp" else 6)
+            minimum_places = 0 if key == "offset_sp" else 6
             key = _editor_rule_key(key)
+            if key.endswith("_mm"):
+                value = _mm(value, minimum_places)
+            elif value != "auto":
+                value = _pt(value)
         values[key] = value
     return values
 
@@ -392,6 +411,7 @@ def _text_styles(current, patch, stored, context, scale, errors):
         errors["text_styles"] = "글자 모양은 역할별 속성 객체여야 합니다."
         return styles
     size_key = "font_sp" if stored else "font_pt"
+    spacing_keys = SPACING_FIELDS.values() if stored else SPACING_FIELDS.keys()
     for role, row in patch.items():
         path = _field_path("text_styles", role)
         if role not in TEXT_ROLES or not isinstance(row, dict):
@@ -402,6 +422,9 @@ def _text_styles(current, patch, stored, context, scale, errors):
                 if role != "body" and key == size_key:
                     value = _point_size(key, value, stored, context)
                     key = "font_sp"
+                elif key in spacing_keys and role in ALIGNMENT_ROLES:
+                    value = paragraph_spacing_sp(value, stored=stored)
+                    key = SPACING_FIELDS.get(key, key)
                 elif key == "align" and role in ALIGNMENT_ROLES:
                     if value not in ("left", "center", "right"):
                         raise ValueError("정렬은 left, center, right 중 하나여야 합니다.")
@@ -845,6 +868,7 @@ def editor_bootstrap() -> dict:
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,
                         "sp_per_mm_denominator": DENOMINATOR},
+        "paragraph_spacing": publication.paragraph_spacing_settings(),
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],
         "new_spacing": {key: new[key] for key in publication.NEW_SPACING},

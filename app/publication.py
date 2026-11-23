@@ -74,9 +74,21 @@ def _space_limits(bounds):
     return tuple(limits)
 
 
+def _paragraph_spacing(fields):
+    if not isinstance(fields, dict) or fields.keys() != {"range_pt", "default_pt", "candidate_body_ratios"}:
+        raise ValueError("publication.json paragraph_spacing requires range_pt, default_pt and candidate_body_ratios")
+    bounds, default, ratios = fields["range_pt"], fields["default_pt"], fields["candidate_body_ratios"]
+    if (not isinstance(bounds, list) or len(bounds) != 2 or not isinstance(ratios, list) or not ratios
+            or any(type(n) not in (int, Decimal) or not 0 <= n <= MAX_SAFE_INTEGER
+                   for n in (*bounds, default, *ratios))
+            or not bounds[0] <= default <= bounds[1] or min(ratios) <= 0):
+        raise ValueError("publication.json paragraph_spacing requires an in-range default and positive body ratios")
+    return fields
+
+
 _policy = read_config(CONFIG_DIR / "publication.json", parse_float=Decimal)
 _keys = {"defaults", "page_presets_mm", "fonts", "space_pct_range", "heading_per_10000", "heading_leading_per_10000",
-         "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
+         "paragraph_spacing", "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
 if not isinstance(_policy, dict) or _policy.keys() != _keys:
     difference = sorted(_policy.keys() ^ _keys) if isinstance(_policy, dict) else sorted(_keys)
     raise ValueError(f"publication.json fields: {difference}")
@@ -89,6 +101,7 @@ JUSTIFIED_SPACING = _policy["justified_spacing"]
 if not isinstance(JUSTIFIED_SPACING, dict) or JUSTIFIED_SPACING.keys() != {"ko_tracking_bounds_pct", "space_pct"}:
     raise ValueError("publication.json justified_spacing requires ko_tracking_bounds_pct and space_pct")
 NEW_SPACING = JUSTIFIED_SPACING if NEW_PARAGRAPH_LAYOUT == "justified" else {}
+PARAGRAPH_SPACING = _paragraph_spacing(_policy["paragraph_spacing"])
 DEFAULTS = _policy["defaults"]
 PAGE_PRESETS_MM = _policy["page_presets_mm"]
 RUNNING_DEFAULTS = _policy["running_defaults"]
@@ -122,8 +135,19 @@ HEADINGS = tuple(_positive_ratio(n, "heading_per_10000") for n in _headings)
 HEADING_LEADING = _positive_ratio(_policy["heading_leading_per_10000"], "heading_leading_per_10000")
 
 
+def paragraph_spacing_settings() -> dict:
+    # The installation is parsed with Decimal; the editor and TeX consume JSON numbers.
+    def number(value):
+        return float(value) if isinstance(value, Decimal) else value
+
+    return {"range_pt": list(map(number, PARAGRAPH_SPACING["range_pt"])),
+            "default_pt": number(PARAGRAPH_SPACING["default_pt"]),
+            "candidate_body_ratios": list(map(number, PARAGRAPH_SPACING["candidate_body_ratios"]))}
+
+
 def engine_policy() -> dict:
     return {
+        "paragraph_spacing": paragraph_spacing_settings(),
         "font_order": list(_FACES),
         "fonts": {key: dict(faces) for key, faces in _FACES.items()},
         "heading_per_10000": list(HEADINGS),

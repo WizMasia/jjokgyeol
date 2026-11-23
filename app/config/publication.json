@@ -19,6 +19,7 @@
     "사륙판": [128, 188],
     "사륙배판": [188, 257]
   },
+  "paragraph_spacing": {"range_pt": [0, 72], "default_pt": 4, "candidate_body_ratios": [0.5, 1]},
   "new_paragraph_layout": "justified",
   "justified_spacing": {"ko_tracking_bounds_pct": [-15, 15], "space_pct": [70, 130]},
   "fonts": [

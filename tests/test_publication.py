@@ -27,6 +27,7 @@ def test_public_interfaces_use_locked_fonts_and_round_trip():
         },
         "heading_per_10000": [16000, 15000, 14000, 13000, 12000, 11000],
         "heading_leading_per_10000": 12500,
+        "paragraph_spacing": {"range_pt": [0, 72], "default_pt": 4, "candidate_body_ratios": [0.5, 1]},
     }
     assert engine_policy() == expected
     engine_policy()["fonts"]["nanum-gothic"].clear()
@@ -34,6 +35,7 @@ def test_public_interfaces_use_locked_fonts_and_round_trip():
     style = Style()
     boot = editor_bootstrap()
     assert boot["defaults"] == style.to_editor() and boot["fonts"] == FONTS
+    assert json.loads(json.dumps(boot))["paragraph_spacing"] == expected["paragraph_spacing"]
     assert style.to_editor()["body_pt"] == "11"
     assert editor_values(style) == style.to_editor()
     stored = json.loads(json.dumps(style.to_stored()))
@@ -289,6 +291,7 @@ def test_changed_install_controls_defaults_limits_and_existing_files(install):
         config["new_paragraph_layout"] = None
         config["fonts"][0]["label"] = "책 본문"
         config["space_pct_range"] = [75, 120]
+        config["paragraph_spacing"] = {"range_pt": [0, 48], "default_pt": 3.5, "candidate_body_ratios": [0.75]}
         config["heading_per_10000"][1] = 20000
         config["text_defaults"].update(note_pt=9.25, gloss_per_10000=7500, color="#123456")
     rewrite(install, CONFIG, edit)
@@ -303,6 +306,8 @@ assert boot["defaults"]["body_pt"] == "13"
 assert boot["page_presets_mm"] == {"교정판": ["124.5", "192"]}
 assert boot["new_paragraph_layout"] is None and "paragraph_layout" not in boot["defaults"]
 assert boot["new_text_styles"]["heading2"] == {"font_pt": "26"}
+assert boot["paragraph_spacing"] == engine_policy()["paragraph_spacing"] == {
+    "range_pt": [0, 48], "default_pt": 3.5, "candidate_body_ratios": [0.75]}
 assert boot["heading_per_10000"][1] == 20000
 assert boot["heading_leading_per_10000"] == 12500
 assert boot["text_defaults"] == {"color": "#123456", "weight": "normal", "heading_weight": "bold",
@@ -311,7 +316,8 @@ assert editor_bootstrap()["fonts"][0]["label"] == "책 본문"
 assert engine_policy()["heading_per_10000"][1] == 20000
 old = dict(s.to_stored(), body_sp=720896, body_font="nanum-myeongjo")
 assert from_stored_style(old).to_stored() == old
-for patch, field in [({"space_pct": [75, 121]}, "space_pct"), ({"body_pt": 1024}, "body_pt"),
+for patch, field in [({"text_styles": {"body": {"space_after_pt": 49}}}, "text_styles.body.space_after_pt"),
+                     ({"space_pct": [75, 121]}, "space_pct"), ({"body_pt": 1024}, "body_pt"),
                      ({"body_pt": 100, "ko_tracking_pct": 9000}, "ko_tracking_pct")]:
     try:
         apply_style(s, patch)
@@ -331,6 +337,9 @@ for patch, field in [({"space_pct": [75, 121]}, "space_pct"), ({"body_pt": 1024}
     (CONFIG, lambda c: c["defaults"].update(body_font="missing"), "body_font"),
     (CONFIG, lambda c: c.update(page_presets_mm={"교정판": [210, 148]}), "page_presets_mm"),
     (CONFIG, lambda c: c.update(page_presets_mm={"교정판": [True, 192]}), "page_presets_mm"),
+    (CONFIG, lambda c: c["paragraph_spacing"].update(range_pt=[72, 0]), "paragraph_spacing"),
+    (CONFIG, lambda c: c["paragraph_spacing"].update(default_pt=73), "paragraph_spacing"),
+    (CONFIG, lambda c: c["paragraph_spacing"].update(candidate_body_ratios=[False]), "paragraph_spacing"),
     (CONFIG, lambda c: c.update(space_pct_range=[100, 99]), "space_pct_range"),
     (CONFIG, lambda c: c.update(new_paragraph_layout="unknown"), "new_paragraph_layout"),
     (CONFIG, lambda c: c.update(space_pct_range=[70.001, 130]), "space_pct_range"),
