@@ -108,7 +108,7 @@ end
 
 function tables.collect(r, c)
   -- Even a completely empty row occupies one line of the table.
-  local row = rows[r] or {lines = {{}}, notes = {}}
+  local row = rows[r] or {lines = {{}}, notes = {}, line_notes = {}, note_height = 0}
   rows[r] = row
   local i, colors = 0, {}
   for n in node.traverse(tex.box.BookTableCell.head) do
@@ -119,8 +119,11 @@ function tables.collect(r, c)
     elseif n.id == insert then
       -- TeX migrates a footnote insertion just below the broken line that
       -- owns its mark. Return it to the page builder with that line's row.
-      row.notes[i] = row.notes[i] or {}
-      table.insert(row.notes[i], node.copy(n))
+      local note = node.copy(n)
+      row.notes[#row.notes + 1] = note
+      row.line_notes[i] = row.line_notes[i] or {}
+      table.insert(row.line_notes[i], note)
+      row.note_height = row.note_height + note.height
     end
   end
 end
@@ -172,27 +175,26 @@ end
 -- insertion can split naturally even when the first note fills an entire page.
 local function row_notes(r, first, last)
   local combined, tail
-  local function collect(row, start, finish)
-    for i = start, finish do
-      for _, note in ipairs(row.notes[i] or {}) do
-        if not combined then
-          combined = note
-        else
-          local boundary = node.new("penalty")
-          tail.next, boundary.prev = boundary, tail
-          boundary.next, note.head.prev = note.head, boundary
-          combined.height = combined.height + note.height
-        end
-        tail = node.tail(note.head)
-        if note ~= combined then
-          note.head = nil
-          node.free(note)
-        end
+  local function collect(notes)
+    for _, note in ipairs(notes) do
+      if not combined then
+        combined = note
+      else
+        local boundary = node.new("penalty")
+        tail.next, boundary.prev = boundary, tail
+        boundary.next, note.head.prev = note.head, boundary
+        combined.height = combined.height + note.height
+      end
+      tail = node.tail(note.head)
+      if note ~= combined then
+        note.head = nil
+        node.free(note)
       end
     end
   end
-  if r == 2 and first == 1 then collect(rows[1], 1, #rows[1].lines) end
-  collect(rows[r], first, last)
+  if r == 2 and first == 1 then collect(rows[1].notes) end
+  local row = rows[r]
+  if first == last then collect(row.line_notes[first] or {}) else collect(row.notes) end
   if combined then node.write(combined) end
 end
 
@@ -221,14 +223,16 @@ end
 function tables.paginate(note_gap)
   local height = tex.dimen.textheight
   for _, row in ipairs(rows) do
-    row.height, row.note_height = 0, 0
+    row.height = 0
     for i, line in ipairs(row.lines) do
       local box = strip(line)
       row.lines[i] = box
       row.height = row.height + box.height + box.depth
-      for _, n in ipairs(row.notes[i] or {}) do row.note_height = row.note_height + n.height end
     end
   end
+  -- A very tall header can overflow TeX's packed box dimension.
+  local room = height - rows[1].height - tex.dimen.arrayrulewidth
+  if room < 0 then book.layout_error("table_height") end
   local head, tail
   for _, line in ipairs(rows[1].lines) do head, tail = append(head, tail, line) end
   local rule = node.new("rule")
@@ -236,8 +240,6 @@ function tables.paginate(note_gap)
   head, tail = append(head, tail, rule)
   local header = node.vpack(head)
   headers[#headers + 1] = header
-  local room = height - header.height
-  if room < 0 then book.layout_error("table_height") end
   emit("\\par\\ifdim\\pagetotal>0pt\\vskip\\parskip\\fi\\nointerlineskip")
   local function entry(r, first, last)
     if r > 2 or first > 1 then

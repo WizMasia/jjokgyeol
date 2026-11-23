@@ -1,10 +1,11 @@
 """Exercise the Lua renderer directly with the table block supplied by the parser."""
 import pytest
 
-from app.document import Block, Document, Inline, InputError, Table
+from app.document import Block, Document, Inline, InputError, Table, parse_md
 from app.style import Style, apply_style
 from app.typeset import typeset
 from pdf_metrics import read_pages
+from test_reference_typeset import color, glyphs
 
 
 def cell(text, note=None):
@@ -51,9 +52,6 @@ def test_unplaceable_table_reports_layout_error(tmp_path, header, columns, marke
 
 
 def test_wrapped_gloss_color_stays_in_its_cell(tmp_path):
-    from app.document import parse_md
-    from test_reference_typeset import color, glyphs
-
     source = "| 해설 | 내용 |\n| --- | --- |\n| [말]{풀이=" + "봄" * 60 + "} | " + "눈" * 50 + " |"
     style = apply_style(Style(), {"page_mm": [85, 80], "margins_mm": [10] * 4,
                                   "text_styles": {"gloss": {"color": "#FF0000"}}})
@@ -63,8 +61,6 @@ def test_wrapped_gloss_color_stays_in_its_cell(tmp_path):
 
 
 def test_row_notes_follow_their_marks_across_page_breaks(tmp_path):
-    from app.document import parse_md
-
     rows = [f"| R{i} | Data[^f{i}] |" for i in range(9)]
     notes = [f"[^f{i}]: Note{i}" for i in range(9)]
     doc = parse_md("\n".join(["| Alpha | Beta |", "| --- | --- |", *rows, "", *notes]))
@@ -79,8 +75,6 @@ def test_row_notes_follow_their_marks_across_page_breaks(tmp_path):
 
 
 def test_long_footnotes_start_on_header_and_reference_page(tmp_path):
-    from app.document import parse_md
-
     rows = [f"| D{i} | Z{i} |" for i in range(1, 24)]
     doc = parse_md("\n".join(["| A[^f] | B |", "| --- | --- |", "| 1 | hi[^x] |", *rows, "",
                               "[^f]: " + "Headnote " * 30, "[^x]: " + "Bodynote " * 25]))
@@ -98,8 +92,6 @@ def test_long_footnotes_start_on_header_and_reference_page(tmp_path):
 
 @pytest.mark.parametrize("with_note", [False, True])
 def test_near_page_height_row_has_no_empty_or_header_only_page(tmp_path, with_note):
-    from app.document import parse_md
-
     if with_note:
         source = "| A |\n| --- |\n| " + "봄" * 73 + "[^s] |\n\n후속\n\n[^s]: 본문각주"
         page, margins = [75, 65], [10] * 4
@@ -112,3 +104,20 @@ def test_near_page_height_row_has_no_empty_or_header_only_page(tmp_path, with_no
         text = "".join(line.text for line in p.lines)
         assert p.lines and text.count("A") == int(any(s in text for s in ("봄", "X", "Done")))
         assert min(c.baseline for l in p.lines for c in l.chars) >= margins[2] * 72 / 25.4 - .1
+
+
+def test_intact_row_footnotes_print_in_cell_order(tmp_path):
+    source = ("| Left | Right |\n| -- | -- |\n| " + "한글 " * 7
+              + "기록[^one] | 값[^two] |\n\n[^one]: Firstnote\n[^two]: Secondnote")
+    style = apply_style(Style(), {"page_mm": [74, 70], "margins_mm": [12, 10, 12, 10]})
+    page, = read_pages(typeset(parse_md(source), style, tmp_path))
+    notes = [line for line in page.lines if "note" in line.text]
+    assert [line.text.replace(" ", "") for line in notes] == ["1Firstnote", "2Secondnote"]
+
+
+def test_oversized_header_is_rejected_before_tex_box_height_wraps(tmp_path):
+    table = Table("table", [], alignments=["left"], rows=[[cell("가" * 18000)], [cell("끝")]])
+    style = apply_style(Style(), {"page_mm": [42, 65], "margins_mm": [10] * 4})
+    with pytest.raises(InputError):
+        typeset(Document([table], {}), style, tmp_path)
+    assert (tmp_path / "layout-error.txt").read_text() == "table_height"
