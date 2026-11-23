@@ -1122,6 +1122,12 @@ mod font_tests {
     fn builtin_only_returns_locked_contents() {
         let notice = "1c09d5a13702fa8ee5cd5fa160f26ef72ec1168997673230050f9c0801da5017";
         let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("fonts")).unwrap();
+        fs::write(
+            root.path().join("runtime.json"),
+            r#"{"engine":"bin/lualatex","font_dir":"fonts"}"#,
+        )
+        .unwrap();
         let dir = root.path().join("licenses/debian");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("fonts-nanum.copyright"), b"modified").unwrap();
@@ -1135,16 +1141,23 @@ mod font_tests {
         if let Some(runtime) = std::env::var_os("JJOKGYEOL_NATIVE_RUNTIME") {
             let lock: serde_json::Value =
                 serde_json::from_str(include_str!("../../../runtime.lock")).unwrap();
-            for family in lock["fonts"].as_object().unwrap().values() {
-                for face in family.as_object().unwrap().values() {
-                    assert!(!fonts::builtin(
-                        Path::new(&runtime),
-                        face["sha256"].as_str().unwrap(),
-                        16777216
-                    )
-                    .unwrap()
-                    .is_empty());
-                }
+            let faces = lock["fonts"]
+                .as_object()
+                .unwrap()
+                .values()
+                .flat_map(|family| family.as_object().unwrap().values());
+            let extras = lock["document_font_files"]
+                .as_object()
+                .into_iter()
+                .flat_map(|files| files.values());
+            for face in faces.chain(extras) {
+                assert!(!fonts::builtin(
+                    Path::new(&runtime),
+                    face["sha256"].as_str().unwrap(),
+                    16777216
+                )
+                .unwrap()
+                .is_empty());
             }
             assert!(String::from_utf8(
                 fonts::builtin(Path::new(&runtime), notice, 16777216).unwrap()
