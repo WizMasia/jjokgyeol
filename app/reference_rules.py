@@ -25,7 +25,7 @@ def _outline(blocks, fenced_blocks):
             stack.append((level, section_title(fields["inlines"])))
             path = tuple(title for _, title in stack)
             yield path, "heading"
-        elif kind == "paragraph":
+        elif kind in ("paragraph", "table"):
             yield path, "body"
         elif kind == "list_item":
             yield path, "list"

@@ -170,3 +170,30 @@ def test_only_selected_setext_heading_separates_from_its_fence(tmp_path):
     assert_appearance([selected], 24, "NanumGothicBold", (0, 0, 1))
     assert color(matching(chars, "달")[0]) == (1, 0, 0)
     assert color(matching(chars, "쌀")[0]) == (0, 0, 0)
+
+
+def test_table_with_editor_memo_prints_only_public_cells(tmp_path):
+    doc = parse_md("| 구분 | 내용 |\n| --- | --- |\n| 10.16. | 공개**항목[^m]** |\n\n[^m]{메모}: 내부검토")
+    style = apply_style(Style(), {"section_rules": [{"path": [], "role": "body",
+                                                     "values": {"font": "nanum-gothic", "font_pt": 14}}]})
+    chars = glyphs(typeset(doc, style, tmp_path))
+    visible = "".join(c.get_text() for c in chars)
+    assert "공개항목" in visible
+    assert "|" not in visible and "내부검토" not in visible
+    assert_appearance(matching(chars, "개"), 14, "NanumGothic", (0, 0, 0))
+    assert_appearance(matching(chars, "항"), 14, "NanumGothicBold", (0, 0, 0))
+
+
+@pytest.mark.parametrize(("header", "message"), [
+    (["칸"] * 40, "폭"),
+    (["제목 " * 400, "구분"], "높이"),
+])
+def test_impossible_table_reports_which_dimension_to_adjust(tmp_path, header, message):
+    from app.document import InputError
+
+    rows = [header, ["---"] * len(header), ["글"] * len(header)]
+    source = "\n".join("| " + " | ".join(row) + " |" for row in rows)
+    style = apply_style(Style(), {"page_mm": [70, 70], "margins_mm": [9] * 4})
+    with pytest.raises(InputError, match=message) as error:
+        typeset(parse_md(source), style, tmp_path)
+    assert error.value.field == "style"

@@ -164,6 +164,10 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     if doc.memos:
         printable = False
         for block in blocks:
+            if block["kind"] == "table":
+                block["rows"] = [[_omit_memos(cell) for cell in row] for row in block["rows"]]
+                printable = True
+                continue
             spans = _omit_memos(block["inlines"])
             block["inlines"] = spans
             # Inter-reference spaces do not start a TeX paragraph. An empty list item has a label.
@@ -226,6 +230,10 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             level = reason.removeprefix(b"list_width:")
             if level.isdigit() and len(level) <= 6:
                 raise InputError({"list_levels": f"{int(level)}단계 목록 본문을 놓을 폭이 부족합니다."})
+        if reason == b"table_width":
+            raise InputError({"style": "표의 열을 놓을 폭이 부족합니다. 열 수를 줄이거나 판형을 넓혀 주세요."})
+        if reason == b"table_height":
+            raise InputError({"style": "표의 제목과 본문을 놓을 높이가 부족합니다. 제목을 줄이거나 판형을 키워 주세요."})
         if reason == b"frame_height":
             raise InputError({"text_styles.heading1.frame": "제목 틀이 한 쪽의 본문 높이를 넘습니다. 제목 글자 크기를 줄이거나 판형을 키워 주세요."})
         if reason == b"gloss_size":

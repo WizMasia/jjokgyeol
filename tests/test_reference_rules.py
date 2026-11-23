@@ -199,3 +199,11 @@ def test_absolute_heading_size_respects_installed_leading_unless_overridden(monk
     assert error.value.field == "section_rules[0].values.font_pt"
     style = apply_style(Style(), {"section_rules": [heading, rule([], "heading", leading_pt=220)]})
     assert resolved("# 제목", style) == [{"font_sp": 13107200, "leading_sp": 14417920}]
+
+
+def test_table_inherits_the_body_rule_for_its_heading():
+    from app.reference_rules import block_values
+
+    style = apply_style(Style(), {"section_rules": [rule(["현황"], "body", font_pt=15)]})
+    heading = parse_md("# 현황").blocks[0]
+    assert block_values([heading, {"kind": "table"}], style) == [{}, {"font_sp": 15 * 65536}]

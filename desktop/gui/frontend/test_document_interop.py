@@ -49,7 +49,7 @@ class DocumentInteropTest(unittest.TestCase):
             web = browser.new_page()
             web.goto(os.environ["JJOKGYEOL_REFERENCE_URL"])
             expect(web.locator("#status")).to_have_text("최신 버전", timeout=45000)
-            line = "Abel 첫 문단" if external else "첫 문단"
+            line = "| 구분 | 주요 내용 |\n| --- | --- |\n| 10.16. | Abel 첫 문단 |\n" if external else "첫 문단"
             source = b"\xef\xbb\xbf# " + f"원고\r\n\r\n{line}\n끝\r".encode()
             expected = f"# 원고\n\n{line}\n끝\n"
             web.locator("#file").set_input_files({"name": "초고.md", "mimeType": "text/markdown", "buffer": source})
@@ -79,12 +79,22 @@ class DocumentInteropTest(unittest.TestCase):
                 confirmed_pdf = document.read("proof.pdf")
                 if external:
                     from desktop.qa.compare_pdfs import compare, read_pages
-                    latin_fonts = {char.font for page in read_pages(confirmed_pdf) for row in page.lines
-                                   for char in row.chars if char.text == "A"}
+                    glyphs = [char for page in read_pages(confirmed_pdf) for row in page.lines for char in row.chars]
+                    self.assertFalse(any(char.text == "|" for char in glyphs))
+                    date = next(char for char in glyphs if char.text == "1")
+                    cell = next(char for char in glyphs if char.text == "A")
+                    self.assertAlmostEqual(date.baseline, cell.baseline, delta=.05)
+                    self.assertGreater(cell.x0, date.x1)
+                    latin_fonts = {char.font for char in glyphs if char.text == "A"}
                     self.assertTrue(latin_fonts)
                     self.assertEqual(any("Abel" in name for name in latin_fonts), consent, latin_fonts)
                     font = (ROOT / "tests/fixtures/fonts/abel/Abel-Regular.ttf").read_bytes()
                     self.assertTrue(any(document.read(i) == font for i in document.infolist() if i.file_size == len(font)))
+
+            if external:
+                with web.expect_download() as exported:
+                    web.locator("#export").click()
+                self.assertEqual(exported.value.path().read_bytes(), confirmed_pdf)
 
             native = browser.new_page()
             native.expose_function("convertStyle", convert_style)
