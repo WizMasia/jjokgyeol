@@ -95,7 +95,7 @@ bindFilePicker("open-document", "document-file", async file => {
       if (pages) preview.parentNode.append(pages);
       const resolution = documentFonts.updateFallback(values);
       const changedFaces = proof.appliedFonts === undefined ? resolution.missing :
-        settingsJson(proof.appliedFonts) !== settingsJson(resolution.appliedFonts);
+        settingsJson(proof.appliedFonts) !== settingsJson(resolution.appliedFonts ?? {});
       const state = changedFaces ? "stale" : proof.state;
       showProof(restored, state === "current" ? values : null, state);
     }

@@ -308,8 +308,13 @@ globalThis.JjokArchive = (() => {
           notices.set(notice, supplied);
         }
         const blob = await entries.get(file).getData(new zip.BlobWriter());
-        const face = await FontRights.inspect(blob, known ?? {});
-        const verified = await verifiedNotice(ref.hash, face, notices.get(notice), known, limits);
+        const supplied = notices.get(notice);
+        // Earlier v2 writers treated these additional bundled faces as external OFL fonts.
+        const oldNotice = known?.faces?.[ref.hash]?.fallback === false && supplied.hash !== known.notice;
+        const catalog = oldNotice ? {} : known;
+        const face = await FontRights.inspect(blob, catalog ?? {});
+        const verified = await verifiedNotice(ref.hash, face, supplied, catalog, limits);
+        requireValue(!oldNotice || verified, noticeError);
         if (verified) Object.assign(ref, {file: blob, notice: verified.blob});
       }
       fonts.push(ref);
@@ -351,6 +356,9 @@ globalThis.JjokArchive = (() => {
       const style = JSON.parse(await readText(entries.get("style.json")), storedNumber);
       requireValue(isObject(style), "문서의 양식은 JSON 객체여야 합니다.");
       const records = declaredFonts(manifest, style, entries, limits);
+      if (manifest.version === 2 && info && info.appliedFonts === undefined && documentFontIds(style).length) {
+        info.state = "stale";
+      }
       const source = await readText(entries.get("manuscript.md"), true);
       const fonts = await unpackFonts(records, entries, known, limits);
       let proof = null;

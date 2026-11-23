@@ -338,7 +338,11 @@ function documentFontEditor(settings) {
       if (face.file) {
         const inspected = await inspectFile(face.file);
         if (inspected.hash !== face.hash) throw new Error("글꼴 파일의 해시가 다릅니다.");
-        result.set(face.hash, {...inspected, notice: face.notice});
+        // Keep a bundled notice for offline resaving only when it matches the current distribution.
+        if (builtins[face.hash] && face.notice && await FontRights.sha256(await face.notice.arrayBuffer()) === known.notice) {
+          inspected.notice = face.notice;
+        }
+        result.set(face.hash, inspected);
       } else result.set(face.hash, face);
     }
     return result;

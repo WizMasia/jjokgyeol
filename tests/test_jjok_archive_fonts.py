@@ -80,8 +80,9 @@ def test_open_rechecks_permission_and_resave_keeps_only_original_reference(codec
             assert json.loads(zipped.read("manifest.json"))["fonts"] == [ref(RESTRICTED)]
 
 
-def test_bundled_notice_is_checked_against_the_injected_catalog(codec):
-    known = {"faces": {digest(RESTRICTED): ref(RESTRICTED)}, "notice": digest(LOCKED)}
+@pytest.mark.parametrize("catalog_flags", [{}, {"fallback": False}])
+def test_bundled_notice_is_checked_against_the_injected_catalog(codec, catalog_flags):
+    known = {"faces": {digest(RESTRICTED): {**ref(RESTRICTED), **catalog_flags}}, "notice": digest(LOCKED)}
     original = included(RESTRICTED, LOCKED)
     data = pack(codec, fonts=[original], limits=FONT_LIMITS, known=known)
     assert unpack(codec, data, FONT_LIMITS, known)["fonts"] == [original]

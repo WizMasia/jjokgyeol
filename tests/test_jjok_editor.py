@@ -1,5 +1,6 @@
 """Save and reopen the displayed proof through the shared document controls."""
 import base64
+import hashlib
 import io
 import json
 import re
@@ -9,8 +10,10 @@ import pytest
 from playwright.sync_api import expect
 from pypdf import PdfWriter
 
+from app.font_assets import FONT_ASSETS, LOCKED_ASSET_PATHS
 from settings_ui import close_settings, open_settings
 from test_editor import ROOT, browser
+from test_jjok_archive import STATIC, archive, entries as members, manifest
 from test_reference_editor import review as editor
 from test_slice import server_url
 
@@ -190,8 +193,6 @@ def test_resaving_a_fallback_proof_keeps_its_displayed_faces_across_edits_and_la
 
 
 def test_undeclared_style_font_is_rejected_before_replacement(editor):
-    from test_jjok_archive import archive, entries as members, manifest
-
     p = editor.page
     editor.source.fill("unsaved manuscript")
     shown = editor.frame.get_attribute("src")
@@ -206,6 +207,56 @@ def test_undeclared_style_font_is_rejected_before_replacement(editor):
     expect(editor.source).to_have_value("unsaved manuscript")
     assert editor.frame.get_attribute("src") == shown
     assert not confirmations
+
+
+def test_explicit_empty_face_snapshot_matches_a_style_without_document_fonts(editor):
+    proof = {"state": "current", "mode": "rule", "appliedFonts": {}}
+    doc = members({**manifest(proof=proof), "version": 2, "fonts": []}, editor.pdf)
+    upload(editor.page, "#document-file", "empty-faces.jjok", archive(doc))
+    expect(editor.page.locator("#proof-choice")).to_be_disabled()
+    expect(editor.page.locator("#status")).to_have_text("최신 버전")
+
+
+@pytest.mark.parametrize("version,dynamic,stale", [(1, True, False), (2, True, True), (2, False, False)])
+def test_earlier_proof_without_face_snapshot(editor, version, dynamic, stale):
+    locked = json.loads((ROOT / "runtime.lock").read_text())["fonts"]["nanum-gothic"]["regular"]
+    record = {"hash": locked["sha256"], "version": locked["version"], "name": "Gothic", "weight": "regular"}
+    metadata = {**manifest(proof={"state": "current", "mode": "rule"}), "version": version}
+    if version == 2:
+        metadata["fonts"] = [record]
+    doc = members(metadata, editor.pdf)
+    if dynamic:
+        doc["style.json"] = json.dumps({**json.loads(doc["style.json"]), "body_font": f"font-{record['hash']}-none"})
+    upload(editor.page, "#document-file", "early.jjok", archive(doc))
+    expect(editor.page.locator("#proof-choice")).to_be_disabled()
+    expect(editor.page.locator("#status")).to_have_text("수정 전 교정본 · 갱신 필요" if stale else "최신 버전")
+
+
+def test_previous_external_coding_face_opens_and_resaves_with_shipped_notice(editor):
+    digest = "787effd7efed2abca88ade231faa8191f4e9fcf85b1805a13ee1dc3724b72089"
+    source = LOCKED_ASSET_PATHS[digest]
+    if not source.is_file():
+        pytest.skip("requires locked NanumGothicCoding.ttf")
+    font = source.read_bytes()
+    holder = "Copyright © 2009 NHN Corporation. All rights reserved. Font designed by Sandoll Communications Inc."
+    old_notice = holder.encode() + b"\n\n" + (STATIC / "ofl-1.1.txt").read_bytes()
+    p = editor.page
+    for notice in (b"Another author\n" + old_notice, old_notice):
+        record = {"hash": digest, "name": "NanumGothicCoding", "weight": "regular", "version": "2.000",
+                  "file": "fonts/" + digest, "notice": f"notices/{hashlib.sha256(notice).hexdigest()}.txt"}
+        doc = members({**manifest(), "version": 2, "fonts": [record]})
+        doc.update({"style.json": json.dumps({**json.loads(doc["style.json"]), "body_font": f"font-{digest}-none"}),
+                    record["file"]: font, record["notice"]: notice})
+        upload(p, "#document-file", "early-coding.jjok", archive(doc))
+        if notice != old_notice:
+            expect(p.locator("#error")).to_contain_text("고지")
+            assert p.locator("#body_font").input_value() != f"font-{digest}-none"
+    expect(p.locator("#body_font")).to_have_value(f"font-{digest}-none")
+    saved = entries(save_document(p))
+    face = next(row for row in json.loads(saved["manifest.json"])["fonts"] if row["hash"] == digest)
+    assert saved[face["file"]] == font
+    assert face["notice"] == f"notices/{FONT_ASSETS['notice']}.txt"
+    assert saved[face["notice"]] == LOCKED_ASSET_PATHS[FONT_ASSETS["notice"]].read_bytes()
 
 
 def test_failed_document_and_cancel_keep_every_edit_and_current_proof(editor):
