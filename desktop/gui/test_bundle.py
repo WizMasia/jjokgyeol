@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 
@@ -21,6 +22,19 @@ class BundleTest(unittest.TestCase):
 
     def test_valid_runtime_maps_to_runtime_resource(self):
         self.assertEqual(bundle.resource_config(self.root)['bundle']['resources'], {str(self.root.resolve()): 'runtime'})
+
+    def test_bundled_icons_cover_desktop_and_high_resolution_displays(self):
+        config = json.loads((bundle.GUI / 'tauri.conf.json').read_text())
+        icons = {Path(name).suffix: bundle.GUI / name for name in config['bundle']['icon']}
+        self.assertTrue({'.icns', '.ico', '.png'} <= icons.keys())
+        installer_icon = config['bundle']['windows']['nsis']['installerIcon']
+        self.assertEqual(bundle.GUI / installer_icon, icons['.ico'])
+        self.assertIn(b'ic10', icons['.icns'].read_bytes())  # 1024 px Retina
+        ico = icons['.ico'].read_bytes()
+        count = int.from_bytes(ico[4:6], 'little')
+        sizes = {ico[6 + 16 * i] or 256 for i in range(count)}
+        self.assertTrue({16, 32, 48, 256} <= sizes)
+        self.assertEqual(struct.unpack('>II', icons['.png'].read_bytes()[16:24]), (256, 256))
 
     def test_windows_includes_offline_webview_installer(self):
         config = bundle.resource_config(self.root, platform='win32')['bundle']

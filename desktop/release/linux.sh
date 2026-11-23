@@ -79,12 +79,13 @@ cp -a "$work/dist/jjokgyeol-worker/." "$runtime/worker/"
 package="$work/package"
 app_dir="$package/usr/lib/$product_name"
 mkdir -p "$app_dir" "$package/usr/bin" \
-  "$package/usr/share/applications" "$package/usr/share/icons/hicolor/32x32/apps" \
+  "$package/usr/share/applications" \
   "$package/DEBIAN"
 install -m 0755 "$gui" "$app_dir/jjokgyeol-desktop"
 cp -a "$runtime" "$app_dir/runtime"
 ln -s "../lib/$product_name/jjokgyeol-desktop" "$package/usr/bin/jjokgyeol"
-install -m 0644 desktop/gui/icons/icon.png "$package/usr/share/icons/hicolor/32x32/apps/jjokgyeol.png"
+install -Dm 0644 app/static/favicon.png "$package/usr/share/icons/hicolor/32x32/apps/jjokgyeol.png"
+install -Dm 0644 desktop/gui/icons/icon.png "$package/usr/share/icons/hicolor/256x256/apps/jjokgyeol.png"
 cat > "$package/usr/share/applications/jjokgyeol.desktop" <<'DESKTOP'
 [Desktop Entry]
 Name=쪽결

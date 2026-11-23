@@ -35,6 +35,8 @@ ditto "$mount/$app" "$installed"
 hdiutil detach "$mount"
 codesign --verify --deep --strict "$installed"
 plist="$installed/Contents/Info.plist"
+icon=$(plutil -extract CFBundleIconFile raw "$plist")
+cmp "desktop/gui/icons/icon.icns" "$installed/Contents/Resources/${icon%.icns}.icns"
 version=${JJOKGYEOL_RELEASE_TAG#v}
 [[ $(plutil -extract CFBundleIdentifier raw "$plist") == kr.jjokgyeol.app ]]
 [[ $(plutil -extract CFBundleShortVersionString raw "$plist") == "${version%-preview.*}" ]]
