@@ -32,7 +32,11 @@ else
   export CARGO_TARGET_DIR
 fi
 version=$(python -c 'import json; print(json.load(open("desktop/gui/tauri.conf.json"))["version"])')
-product_name=$(python -c 'import json; print(json.load(open("desktop/gui/tauri.conf.json"))["productName"])')
+export TAURI_CONFIG
+TAURI_CONFIG=$(cat desktop/gui/release.conf.json)
+product_name=$(python -c 'import json, os; print(json.loads(os.environ["TAURI_CONFIG"])["productName"])')
+[[ ${JJOKGYEOL_RELEASE_TAG:?expected release tag} == "v$version" ]]
+version=${version/-preview./~preview.}
 artifact="$output/jjokgyeol-linux-x86_64.deb"
 work=$(mktemp -d)
 install_started=0
@@ -137,6 +141,7 @@ if [[ $EUID -eq 0 ]]; then
 else
   sudo apt-get install -y "$work/jjokgyeol-linux-x86_64.deb"
 fi
+[[ $(dpkg-query -W -f='${Version}' jjokgyeol) == "$version" ]]
 [[ -x /usr/bin/jjokgyeol && -f "/usr/lib/$product_name/runtime/runtime.json" ]]
 smoke="$work/smoke"
 mkdir -p "$smoke"

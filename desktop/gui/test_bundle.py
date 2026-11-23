@@ -27,6 +27,21 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(config['windows']['webviewInstallMode'], {'type': 'offlineInstaller'})
         self.assertNotIn('windows', bundle.resource_config(self.root, platform='darwin')['bundle'])
 
+    def test_mac_release_is_distinct_from_new_and_legacy_development_apps(self):
+        base = json.loads((bundle.GUI / 'tauri.conf.json').read_text())
+        tag = 'v' + base['version']
+        self.assertRegex(tag, r'^v[0-9.]+-preview\.[1-9][0-9]*$')
+        release = bundle.resource_config(self.root, platform='darwin', release_tag=tag)
+        self.assertEqual(release['productName'], '쪽결')
+        self.assertEqual(base['productName'], '쪽결 개발판')
+        self.assertEqual(len({release['identifier'], base['identifier'], 'kr.jjokgyeol.desktop'}), 3)
+        self.assertEqual(release['bundle']['macOS']['bundleVersion'], tag.rsplit('.', 1)[1])
+        windows = bundle.resource_config(self.root, platform='win32', release_tag=tag)
+        self.assertEqual(windows['identifier'], 'kr.jjokgyeol.desktop')
+        self.assertEqual(windows['productName'], '쪽결')
+        with self.assertRaises(ValueError):
+            bundle.resource_config(self.root, platform='darwin', release_tag='v0.1.0-preview.4')
+
     def test_rejects_missing_worker_invalid_manifest_and_path_escape(self):
         (self.root / 'worker' / bundle.worker_name()).unlink()
         with self.assertRaises(ValueError):

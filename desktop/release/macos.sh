@@ -19,6 +19,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$work/target}"
 python desktop/release/stage_unix.py "$resources" "$work/runtime"
 python -m PyInstaller --clean --noconfirm --distpath "$work/dist" --workpath "$work/build" desktop/worker/worker.spec
 ditto "$work/dist/jjokgyeol-worker" "$work/runtime/worker"
+: "${JJOKGYEOL_RELEASE_TAG:?expected release tag}"
 python desktop/gui/bundle.py "$work/runtime"
 
 mkdir -p "$work/image" "$mount" "$work/installed"
@@ -33,6 +34,11 @@ installed="$work/installed/$app"
 ditto "$mount/$app" "$installed"
 hdiutil detach "$mount"
 codesign --verify --deep --strict "$installed"
+plist="$installed/Contents/Info.plist"
+version=${JJOKGYEOL_RELEASE_TAG#v}
+[[ $(plutil -extract CFBundleIdentifier raw "$plist") == kr.jjokgyeol.app ]]
+[[ $(plutil -extract CFBundleShortVersionString raw "$plist") == "${version%-preview.*}" ]]
+[[ $(plutil -extract CFBundleVersion raw "$plist") == "${version##*.}" ]]
 unset JJOKGYEOL_NATIVE_RUNTIME
 "$installed/Contents/MacOS/jjokgyeol-desktop" &
 pid=$!

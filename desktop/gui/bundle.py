@@ -14,7 +14,7 @@ def worker_name():
     return 'jjokgyeol-worker.exe' if os.name == 'nt' else 'jjokgyeol-worker'
 
 
-def resource_config(runtime, platform=sys.platform):
+def resource_config(runtime, platform=sys.platform, *, release_tag=None):
     if not runtime.is_absolute() or not runtime.is_dir():
         raise ValueError('runtime must be an existing absolute directory')
     runtime = runtime.resolve()
@@ -36,10 +36,22 @@ def resource_config(runtime, platform=sys.platform):
     options = {'active': True, 'resources': {str(runtime): 'runtime'}}
     if platform == 'win32':
         options['windows'] = {'webviewInstallMode': {'type': 'offlineInstaller'}}
-    return {'bundle': options}
+    config = {'bundle': options}
+    if release_tag is not None:
+        base = json.loads((GUI / 'tauri.conf.json').read_text(encoding='utf-8'))
+        if release_tag != 'v' + base['version']:
+            raise ValueError('release tag must match the configured application version')
+        config.update(json.loads((GUI / 'release.conf.json').read_text(encoding='utf-8')))
+        if platform == 'darwin':
+            # Previous development copies share the original desktop identifier.
+            config['identifier'] = 'kr.jjokgyeol.app'
+            version, ordinal = base['version'].split('-preview.')
+            config['version'] = version
+            options['macOS'] = {'bundleVersion': ordinal}
+    return config
 
 
-def validate_frontend(dist):
+def validate_frontend(dist, release_tag=None):
     for name in ('index.html', 'sample.md', 'static/desktop.js', 'static/editor.js',
                  'static/zip.min.js', 'static/zip.LICENSE.txt', 'static/jjok-archive.js', 'static/jjok-document.js',
                  'static/document-fonts.js', 'static/font-rights.js', 'static/ofl-1.1.txt',
@@ -51,6 +63,10 @@ def validate_frontend(dist):
         directory = dist / name
         if not directory.is_dir() or not any(p.is_file() for p in directory.iterdir()):
             raise ValueError(f'missing frontend assets: {name}; build frontend first')
+
+    label = '원고 편집기 · ' + (release_tag or '개발판')
+    if f'<span class="product">{label}</span>' not in (dist / 'index.html').read_text(encoding='utf-8'):
+        raise ValueError('frontend version mismatch; rebuild the frontend for this package')
 
 
 def tauri_command(gui_dir: Path = GUI) -> list[str]:
@@ -72,8 +88,9 @@ def main() -> None:
         raise ValueError('usage: python bundle.py ABSOLUTE_RUNTIME_DIRECTORY')
     if sys.platform not in ('darwin', 'win32'):
         raise ValueError('run this build on macOS or Windows')
-    config = resource_config(Path(sys.argv[1]))
-    validate_frontend(GUI / 'frontend' / 'dist')
+    tag = os.environ.get('JJOKGYEOL_RELEASE_TAG')
+    config = resource_config(Path(sys.argv[1]), release_tag=tag)
+    validate_frontend(GUI / 'frontend' / 'dist', tag)
     cmd = tauri_command(GUI)
     with tempfile.TemporaryDirectory() as directory:
         override = Path(directory) / 'release.conf.json'

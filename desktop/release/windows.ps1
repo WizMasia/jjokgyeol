@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputDir
 )
 $ErrorActionPreference = 'Stop'
+if (-not $env:JJOKGYEOL_RELEASE_TAG) { throw 'Expected release tag' }
 Set-StrictMode -Version Latest
 if (-not $IsWindows -or -not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
     throw 'This release must be built on Windows x64 with 64-bit PowerShell.'
@@ -80,6 +81,9 @@ try {
         -not (Test-Path -LiteralPath (Join-Path $installedRuntime 'licenses') -PathType Container)) {
         throw "Installed files are missing from $install"
     }
+    $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\쪽결'
+    $version = (Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion
+    if ("v$version" -ne $env:JJOKGYEOL_RELEASE_TAG) { throw "Unexpected installed version $version" }
     $inventory = Join-Path $work 'installed-files.json'
     Invoke-Checked 'python' @('desktop/release/verify_uninstall.py', 'snapshot', $install, $inventory)
     $pdf = Join-Path $work 'proof.pdf'

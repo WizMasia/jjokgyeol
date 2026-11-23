@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "쪽결",
-  "version": "0.1.0",
-  "identifier": "kr.jjokgyeol.desktop",
+  "productName": "쪽결 개발판",
+  "version": "0.1.1-preview.1",
+  "identifier": "kr.jjokgyeol.desktop.dev",
   "build": {
     "frontendDist": "frontend/dist"
   },

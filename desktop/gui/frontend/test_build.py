@@ -1,5 +1,6 @@
 import filecmp
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -11,6 +12,8 @@ DIST = Path(__file__).parent / 'dist'
 class BuildTest(unittest.TestCase):
     def test_desktop_bundle_contains_offline_editor(self):
         html = (DIST / 'index.html').read_text()
+        label = os.getenv('JJOKGYEOL_RELEASE_TAG', '개발판')
+        self.assertIn(f'<span class="product">원고 편집기 · {label}</span>', html)
         self.assertIn('id="editor-settings"', html)
         for marker in (
             'id="open-settings"',

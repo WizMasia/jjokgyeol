@@ -1,5 +1,6 @@
 """Build the offline desktop editor without importing the web server."""
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -16,6 +17,11 @@ shutil.copy(ROOT / 'proofs/engine-comparison/manuscript.md', out / 'sample.md')
 shutil.copy(HERE / 'desktop.js', out / 'static/desktop.js')
 shutil.copy(HERE / 'desktop.css', out / 'static/desktop.css')
 html = (ROOT / 'app/static/index.html').read_text(encoding='utf-8')
+tag = os.environ.get('JJOKGYEOL_RELEASE_TAG')
+version = json.loads((HERE.parent / 'tauri.conf.json').read_text(encoding='utf-8'))['version']
+if tag is not None and tag != 'v' + version:
+    raise ValueError('release tag must match the configured application version')
+html = html.replace('<!--APP_VERSION-->', ' · ' + (tag or '개발판'))
 marker = '<!--EDITOR_SETTINGS-->'
 if html.count(marker) != 1:
     raise ValueError('editor settings marker must appear exactly once')

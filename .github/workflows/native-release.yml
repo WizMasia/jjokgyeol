@@ -22,10 +22,12 @@ jobs:
         run: |
           tag=${GITHUB_REF_NAME#release-batch/}
           version=$(jq -r .version desktop/gui/tauri.conf.json)
-          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && ${tag%-preview.*} == "v$version" ]] || {
-            echo "Expected v$version-preview.<positive integer>, got $tag" >&2
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && $tag == "v$version" ]] || {
+            echo "Expected v$version, got $tag" >&2
             exit 1
           }
+          main_sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
+          [[ $main_sha == "$GITHUB_SHA" ]] || { echo "Candidate must match published main" >&2; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Export TeX resources and notices
         run: desktop/qa/runtime/export-resources.sh "$RUNNER_TEMP/resources.tar"
@@ -54,6 +56,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
+      JJOKGYEOL_RELEASE_TAG: ${{ needs.resources.outputs.tag }}
       PYTHONUTF8: '1'
       CARGO_INCREMENTAL: '0'
     steps:

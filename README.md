@@ -8,7 +8,7 @@
 
 ## 배포 상태
 
-네이티브 시험판과 파일별 SHA-256은 공개 GitHub Releases에서 받을 수 있습니다. 배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
+네이티브 시험판과 파일별 SHA-256은 공개 GitHub Releases에서 받을 수 있습니다. v0.1.1-preview.1부터 설치 후 편집기 상단에서 다운로드한 릴리즈와 같은 버전을 확인할 수 있습니다. 배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
 
 ### 네이티브 개발판과 웹판 비교
 
