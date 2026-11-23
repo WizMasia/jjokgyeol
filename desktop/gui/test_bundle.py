@@ -29,6 +29,8 @@ class BundleTest(unittest.TestCase):
 
     def test_mac_release_is_distinct_from_new_and_legacy_development_apps(self):
         base = json.loads((bundle.GUI / 'tauri.conf.json').read_text())
+        dev = bundle.resource_config(self.root, platform='darwin')
+        self.assertRegex(dev['version'], r'^[0-9]+\.[0-9]+\.[0-9]+$')
         tag = 'v' + base['version']
         self.assertRegex(tag, r'^v[0-9.]+-preview\.[1-9][0-9]*$')
         release = bundle.resource_config(self.root, platform='darwin', release_tag=tag)

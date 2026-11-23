@@ -37,16 +37,18 @@ def resource_config(runtime, platform=sys.platform, *, release_tag=None):
     if platform == 'win32':
         options['windows'] = {'webviewInstallMode': {'type': 'offlineInstaller'}}
     config = {'bundle': options}
+    base = json.loads((GUI / 'tauri.conf.json').read_text(encoding='utf-8'))
     if release_tag is not None:
-        base = json.loads((GUI / 'tauri.conf.json').read_text(encoding='utf-8'))
         if release_tag != 'v' + base['version']:
             raise ValueError('release tag must match the configured application version')
         config.update(json.loads((GUI / 'release.conf.json').read_text(encoding='utf-8')))
         if platform == 'darwin':
             # Previous development copies share the original desktop identifier.
             config['identifier'] = 'kr.jjokgyeol.app'
-            version, ordinal = base['version'].split('-preview.')
-            config['version'] = version
+    if platform == 'darwin':
+        version, _, ordinal = base['version'].partition('-preview.')
+        config['version'] = version
+        if ordinal:
             options['macOS'] = {'bundleVersion': ordinal}
     return config
 

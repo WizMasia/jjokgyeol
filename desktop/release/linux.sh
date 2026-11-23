@@ -19,10 +19,12 @@ cd "$root"
 for command in cargo python dpkg-deb dpkg-shlibdeps readelf apt-get dpkg-query xvfb-run dbus-run-session; do
   command -v "$command" >/dev/null || { echo "required command is missing: $command" >&2; exit 1; }
 done
-[[ -f desktop/gui/frontend/dist/index.html ]] || {
-  echo 'build desktop/gui/frontend/dist before packaging.' >&2
-  exit 1
-}
+PYTHONPATH=desktop/gui python - <<'PYTHON'
+from pathlib import Path
+import os
+from bundle import validate_frontend
+validate_frontend(Path('desktop/gui/frontend/dist'), os.environ['JJOKGYEOL_RELEASE_TAG'])
+PYTHON
 
 if [[ -z ${CARGO_TARGET_DIR:-} ]]; then
   export CARGO_TARGET_DIR="$root/desktop/gui/target"
