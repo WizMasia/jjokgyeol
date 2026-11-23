@@ -25,6 +25,7 @@ try {
     Run-Check 'setup-tests' { python -m unittest discover -s desktop/qa/runtime -p 'test_*.py' }
     Run-Check 'comparator-tests' { python -m unittest discover -s desktop/qa -p 'test_*.py' }
     Run-Check 'runtime' { python desktop/qa/runtime/setup.py $extracted (Join-Path $Work 'runtime') }
+    Copy-Item -LiteralPath (Join-Path $extracted 'licenses') -Destination (Join-Path $Work 'runtime/licenses') -Recurse
     Run-Check 'worker-build' { python -m PyInstaller --clean --noconfirm desktop/worker/worker.spec }
     Copy-Item -Recurse dist/jjokgyeol-worker (Join-Path $Work 'runtime/worker')
     # Ensure LuaTeX cannot read caches from a user's TeX installation.
