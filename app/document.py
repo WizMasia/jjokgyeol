@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from app.manuscript_markup import read_escape
 
 from markdown_it import MarkdownIt
-from markdown_it.rules_block import fence
+from markdown_it.rules_block import fence, lheading, paragraph
 from markdown_it.token import Token
 
 from app.annotations import DEFINITION, NoteDefinitions, read_annotation
@@ -147,6 +147,23 @@ _MD.inline.ruler.before("text", "annotation", read_annotation)
 # Read fence boundaries separately so those examples never enter article numbering.
 _FENCES = MarkdownIt("zero").enable(["fence", "list", "heading", "lheading"])
 _MD.inline.ruler.before("text", "manuscript_escape", read_escape)
+
+
+# A dotted Korean byline can otherwise become three nested ordered lists.
+_REPORT_DATE = re.compile(r"[0-9]{4}\.[ \t]*(?:0?[1-9]|1[0-2])\.[ \t]*(?:0?[1-9]|[12][0-9]|3[01])\.?(?=[ \t(]|$)")
+
+
+def _date_paragraph(state, start, end, silent):
+    pos = state.bMarks[start] + state.tShift[start]
+    if not _REPORT_DATE.match(state.src, pos, state.eMarks[start]):
+        return False
+    if silent:
+        return state.level > 0 and state.sCount[start] <= state.blkIndent
+    return lheading(state, start, end, False) or paragraph(state, start, end, False)
+
+
+for parser in (_MD, _FENCES):
+    parser.block.ruler.before("list", "report_date", _date_paragraph, {"alt": ["list", "paragraph"]})
 
 
 def _list_fence(state, start, end, silent):
