@@ -9,7 +9,7 @@ npm run build
 npm test
 ```
 
-The build creates `dist/index.html`, editor assets, the sample manuscript, and the locked PDF.js, worker, character maps and standard fonts. Tauri must expose `window.__TAURI__.core.invoke`; its runtime supplies style conversion, rule rendering and save dialogs. The app serves its own assets and performs rule rendering locally. External model checks and model proofs use native IPC. The preview.4 worktree also uses IPC to retrieve model IDs. **새 문서 기본값으로 저장** saves the draft style and public connection settings in the WebView profile. The API key stays in session memory. Natural-language style suggestions are available in the Docker web editor.
+The build creates `dist/index.html`, editor assets, the sample manuscript, and the locked PDF.js, worker, character maps and standard fonts. Tauri must expose `window.__TAURI__.core.invoke`; its runtime supplies style conversion, rule rendering and save dialogs. The app serves its own assets and performs rule rendering locally. The frontend uses native IPC to retrieve model IDs, check external connections and generate model proofs. **새 문서 기본값으로 저장** saves the draft style and public connection settings in the WebView profile. The API key stays in session memory. Natural-language style suggestions are available in the Docker web editor.
 
 For browser integration tests, install Python Playwright and its Chromium browser, then run `python -m unittest test_desktop test_settings test_decision_settings_native`. These exercise the editor, defaults across WebView-profile restarts and the native model-selection controls. Set `CHROME_PATH` to use an existing Chromium executable instead. The test serves the static files locally only for browser automation and supplies a mock Tauri bridge.
 

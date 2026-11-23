@@ -8,7 +8,7 @@
 
 ## 배포 상태
 
-2026-11-24 기준 공개 설치판은 **v0.1.1-preview.3**입니다. 보고서형 목록 기본값과 쪽결 아이콘이 이 설치판에 들어 있습니다. 이 문서의 **새 문서 기본값으로 저장**, **LM Studio** 공급자 항목, **모델 목록 조회**는 **v0.1.1-preview.4 작업판**을 기준으로 설명합니다. 설치 후 편집기 상단에서 실행 중인 버전을 확인하세요. [공개 설치판과 SHA-256](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.1-preview.3)
+**v0.1.1-preview.4**에서는 웹판과 데스크톱 앱 모두 출판 양식과 AI 모델을 새 문서의 기본값으로 저장할 수 있습니다. **설정 → AI 모델 설정 → 외부 API**에서 Ollama 다음의 **LM Studio**를 선택하고, 모델 ID를 직접 입력하거나 서버 목록에서 고르세요. 설치 후 편집기 상단의 버전이 릴리즈 태그와 일치하는지 확인할 수 있습니다. [운영체제별 설치 파일과 SHA-256](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.1-preview.4)
 
 배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
 
@@ -22,7 +22,7 @@ python desktop/qa/compare_pdfs.py 네이티브.pdf 웹판.pdf
 
 Mac 개발 앱에서 원고를 열고 편집한 뒤 PDF를 미리보고 저장했습니다. 원고만 고치거나 양식만 고친 경우 각각 창 닫기를 취소하면 수정값이 보존됩니다. 양면 줄 번호, 9단계 목록, 일반 보고서, 주석의 본문 크기 변경(11pt·16pt), 양끝맞춤 예제와 새 원고의 지면이 웹판과 일치했습니다. Mac 앱을 다른 폴더로 복사하고 네트워크와 개발 저장소 읽기를 차단한 상태에서도 같은 양면 PDF가 생성됐습니다. [네이티브 앱 빌드](desktop/gui/README.md) · [조판 작업자 준비](desktop/worker/README.md) · [Windows 검증](desktop/qa/runtime/README.md) · [Linux 검증](desktop/qa/linux/README.md)
 
-Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서는 쪽결의 설정 버튼으로 별도 창을 열고, 설정창을 닫은 뒤에도 원고 창이 열려 있음을 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324666) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/44744324648)
+Windows x64와 Debian x86_64에서 Rust 실행기가 생성한 양면 줄 번호 PDF도 같은 비교를 통과했습니다. Windows x64와 Ubuntu 24.04에서는 쪽결의 설정 버튼으로 별도 창을 열고, 설정창을 닫은 뒤에도 원고 창이 열려 있음을 확인했습니다. [Windows 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/45203054324) · [Linux 조판·창 검사](https://github.com/WizMasia/jjokgyeol/actions/runs/45203054383)
 
 ## 내 컴퓨터에서 실행하기
 
