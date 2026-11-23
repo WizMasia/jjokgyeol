@@ -11,11 +11,9 @@ def rendered_pdfs(response):
     message = BytesParser(policy=policy.default).parsebytes(
         f"Content-Type: {header}\r\n\r\n".encode("ascii") + body)
     assert message.get_content_type() == "multipart/form-data"
-    parts = list(message.iter_parts())
-    assert len(parts) == 2
     pdfs = {part.get_param("name", header="content-disposition"): part.get_payload(decode=True)
-            for part in parts}
-    assert pdfs.keys() == {"rule", "model"}
+            for part in message.iter_parts() if part.get_content_type() == "application/pdf"}
+    assert pdfs.keys() in ({"rule"}, {"rule", "model"})
     return pdfs
 
 

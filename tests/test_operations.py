@@ -103,7 +103,7 @@ async def check_live_limits():
             "defaults", "fonts", "list_presets", "default_list_preset", "default_article_expr", "running_defaults",
             "new_text_styles", "text_defaults", "heading_per_10000", "heading_leading_per_10000",
             "new_paragraph_layout", "new_spacing", "justified_spacing", "page_presets_mm", "indent_units",
-            "document_limits", "font_assets",
+            "document_limits", "font_assets", "paragraph_spacing",
         }
         assert bootstrap["document_limits"]["request"] == 128
         assert bootstrap["document_limits"]["pdf"] == 4096

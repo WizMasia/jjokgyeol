@@ -56,7 +56,7 @@ def test_literal_pdf(tmp_path):
     for phrase in ("표제", "예약%&#$^~{문자}^^41--", r"\relax", "굵게", "강조", r"원문\relax{기호}17%"):
         assert phrase in text
     assert {p.name for p in tmp_path.iterdir()} <= {
-        "input.json", "book.pdf", "book.log", "book.aux", "fonts", "texcache"
+        "input.json", "book.pdf", "book.log", "book.aux", "fonts", "texcache", "spacing.json"
     }
 
 
@@ -329,6 +329,7 @@ def test_publication_policy_sets_heading_metrics_and_font_faces(tmp_path, monkey
 
     # Distinct regular and bold mappings catch deriving one filename from the other.
     policy = {
+        **engine.engine_policy(),
         "font_order": ["nanum-myeongjo", "nanum-gothic"],
         "fonts": {
             "nanum-myeongjo": {"regular": "NanumGothic.ttf", "bold": "NanumMyeongjoBold.ttf"},
