@@ -20,6 +20,7 @@ def test_public_interfaces_use_locked_fonts_and_round_trip():
 
     assert FONT_DIR == Path("/usr/share/fonts/truetype/nanum")
     expected = {
+        "font_order": ["nanum-myeongjo", "nanum-gothic"],
         "fonts": {
             "nanum-myeongjo": {"regular": "NanumMyeongjo.ttf", "bold": "NanumMyeongjoBold.ttf"},
             "nanum-gothic": {"regular": "NanumGothic.ttf", "bold": "NanumGothicBold.ttf"},

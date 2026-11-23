@@ -124,6 +124,7 @@ HEADING_LEADING = _positive_ratio(_policy["heading_leading_per_10000"], "heading
 
 def engine_policy() -> dict:
     return {
+        "font_order": list(_FACES),
         "fonts": {key: dict(faces) for key, faces in _FACES.items()},
         "heading_per_10000": list(HEADINGS),
         "heading_leading_per_10000": HEADING_LEADING,

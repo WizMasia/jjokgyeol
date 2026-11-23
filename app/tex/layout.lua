@@ -59,12 +59,15 @@ function book.setup()
   local m, p = style.margins_sp, style.page_sp
   emit(string.format("\\geometry{%spaperwidth=%s,paperheight=%s,top=%s,right=%s,bottom=%s,left=%s,noheadfoot}",
     mirrored and "twoside," or "", sp(p[1]), sp(p[2]), sp(m[1]), sp(outer), sp(m[3]), sp(inner)))
+  require("font_fallback")(policy, font_basename)
+  luatexbase.add_to_callback("pre_shipout_filter", require("font_text"), "jjokgyeol.font_text")
   local function font_pair(latin, hangul, name)
     local face = assert(policy.fonts[name])
     local regular, bold = font_basename(face.regular), font_basename(face.bold)
     local options = "[Path=fonts/,BoldFont=" .. bold .. ",ItalicFont=" .. regular ..
-      ",ItalicFeatures={FakeSlant=0.2},BoldItalicFont=" .. bold ..
-      ",BoldItalicFeatures={FakeSlant=0.2},RawFeature=-tlig,Ligatures=NoCommon,InterCharStretch=0pt,InterLatinCJK=0pt,InterHangul=0pt]{" .. regular .. "}"
+      ",UprightFeatures={RawFeature={fallback=bookregular}},BoldFeatures={RawFeature={fallback=bookbold}}" ..
+      ",ItalicFeatures={FakeSlant=0.2,RawFeature={fallback=bookitalic}},BoldItalicFont=" .. bold ..
+      ",BoldItalicFeatures={FakeSlant=0.2,RawFeature={fallback=bookbolditalic}},RawFeature={-tlig;-notdef},Ligatures=NoCommon,InterCharStretch=0pt,InterLatinCJK=0pt,InterHangul=0pt]{" .. regular .. "}"
     emit(latin .. options .. hangul .. options)
   end
   font_pair("\\setmainfont", "\\setmainhangulfont", style.body_font)

@@ -329,6 +329,7 @@ def test_publication_policy_sets_heading_metrics_and_font_faces(tmp_path, monkey
 
     # Distinct regular and bold mappings catch deriving one filename from the other.
     policy = {
+        "font_order": ["nanum-myeongjo", "nanum-gothic"],
         "fonts": {
             "nanum-myeongjo": {"regular": "NanumGothic.ttf", "bold": "NanumMyeongjoBold.ttf"},
             "nanum-gothic": {"regular": "NanumGothic.ttf", "bold": "NanumMyeongjo.ttf"},
@@ -363,3 +364,30 @@ def test_engine_font_policy_requires_literal_basenames(tmp_path, monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):
         engine.typeset(parse_md("글"), Style(), tmp_path)
     assert "invalid font basename" in (tmp_path / "book.log").read_text()
+
+
+def test_missing_glyphs_use_bundled_faces_without_changing_surrounding_text(tmp_path):
+    from app.document import parse_md
+    from app.style import NEW_DOCUMENT_STYLE
+    from app.typeset import typeset
+
+    doc = parse_md("한最 **굵古** 끝")
+    pdf = typeset(doc, NEW_DOCUMENT_STYLE, tmp_path, collect_candidates=True)
+    chars = [c for _, line in rows(pdf) for c in line.chars if not c.text.isspace()]
+    assert "".join(c.text for c in chars) == "한最굵古끝"
+    assert [c.font.split("+")[-1] for c in chars] == [
+        "NanumMyeongjo", "NanumGothic", "NanumMyeongjoBold", "NanumGothicBold", "NanumMyeongjo",
+    ]
+    assert "Missing character:" not in (tmp_path / "book.log").read_text()
+
+
+@pytest.mark.parametrize("character", ["🧪", chr(0xF0010)])
+def test_uncovered_printable_character_has_visible_codepoint_in_proof(tmp_path, character):
+    from app.document import parse_md
+    from app.style import NEW_DOCUMENT_STYLE
+    from app.typeset import typeset
+
+    pdf = typeset(parse_md("앞" + character + "뒤"), NEW_DOCUMENT_STYLE, tmp_path)
+    text = "".join(c.text for _, line in rows(pdf) for c in line.chars)
+    assert text == f"앞[U+{ord(character):04X}]뒤"
+    assert "Missing character:" not in (tmp_path / "book.log").read_text()
