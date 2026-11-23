@@ -45,4 +45,5 @@ cargo run --locked --release --manifest-path desktop/Cargo.toml -- \
   --runtime "$installed/Contents/Resources/runtime" --source proofs/numbering/manuscript.md \
   --style proofs/numbering/odd-even.json --output "$work/odd-even.pdf"
 python desktop/qa/compare_pdfs.py "$work/odd-even.pdf" proofs/numbering/odd-even.pdf
+python desktop/qa/verify_paragraph_spacing.py "$installed/Contents/Resources/runtime"
 mv "$work/$dmg" "$out/$dmg"

@@ -85,6 +85,7 @@ try {
     $pdf = Join-Path $work 'proof.pdf'
     Invoke-Checked $cli @('--runtime', $installedRuntime, '--source', 'proofs/numbering/manuscript.md', '--style', 'proofs/numbering/odd-even.json', '--output', $pdf)
     Invoke-Checked 'python' @('desktop/qa/compare_pdfs.py', $pdf, 'proofs/numbering/odd-even.pdf')
+    Invoke-Checked 'python' @('desktop/qa/verify_paragraph_spacing.py', $installedRuntime)
     $status = Join-Path $work 'gui-smoke-status.txt'
     Invoke-Checked 'pwsh' @('-NoProfile', '-File', (Join-Path $root 'desktop/qa/runtime/gui-smoke.ps1'), '-Executable', $gui, '-StatusFile', $status)
     $smoke = (Get-Content -LiteralPath $status -Raw).Trim()

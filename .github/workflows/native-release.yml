@@ -1,7 +1,7 @@
 name: Native distribution batch
 on:
   push:
-    branches: ['release-batch/**']
+    branches: ['release-batch/v*-preview.*']
 permissions:
   contents: read
 concurrency:
@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   resources:
-    if: github.event.repository.private
+    if: github.repository == 'WizMasia/jjokgyeol' && !github.event.deleted && !github.event.forced
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -22,7 +22,10 @@ jobs:
         run: |
           tag=${GITHUB_REF_NAME#release-batch/}
           version=$(jq -r .version desktop/gui/tauri.conf.json)
-          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && ${tag%-preview.*} == "v$version" ]]
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && ${tag%-preview.*} == "v$version" ]] || {
+            echo "Expected v$version-preview.<positive integer>, got $tag" >&2
+            exit 1
+          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Export TeX resources and notices
         run: desktop/qa/runtime/export-resources.sh "$RUNNER_TEMP/resources.tar"
@@ -125,7 +128,7 @@ jobs:
           pattern: package-*
           merge-multiple: true
           path: assets
-      - name: Create internal release candidate
+      - name: Create and verify draft prerelease
         working-directory: assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -138,18 +141,18 @@ jobs:
           sha256sum "${files[@]}" > SHA256SUMS
           sha256sum -c SHA256SUMS
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          한글 출판 조판기 쪽결의 내부 시험판입니다. 네이티브 앱은 규칙 조판을 지원합니다.
+          한글 출판 조판기 쪽결의 시험판입니다. 네이티브 앱은 규칙 조판을 지원합니다.
 
           - Windows x64 — setup.exe 실행. WebView2 오프라인 설치 프로그램 포함, 게시자 서명 전.
           - Apple Silicon Mac — DMG를 열어 쪽결을 응용 프로그램으로 복사. 임시 서명, Apple 공증 전.
           - Ubuntu 24.04 x86_64 — sudo apt install ./jjokgyeol-linux-x86_64.deb
 
-          세 환경에서 설치물의 앱 실행과 동봉 조판기의 양면 줄 번호 PDF를 확인했습니다. 파일별 SHA-256은 SHA256SUMS에서 확인할 수 있습니다.
+          세 환경에서 설치한 앱을 실행하고 동봉 조판기로 만든 PDF의 양면 줄 번호와 문단 여백을 확인했습니다. 파일별 SHA-256은 SHA256SUMS에서 확인할 수 있습니다.
           NOTES
           # Resume an interrupted upload only for this exact commit and draft.
           drafts=$(gh release list --limit 1000 --json tagName)
           if jq -e --arg tag "$TAG" 'any(.[]; .tagName == $tag)' <<< "$drafts" >/dev/null; then
-            gh release view "$TAG" --json isDraft,targetCommitish | jq -e --arg sha "$GITHUB_SHA" '.isDraft and .targetCommitish == $sha'
+            gh release view "$TAG" --json isDraft,isPrerelease,targetCommitish | jq -e --arg sha "$GITHUB_SHA" '.isDraft and .isPrerelease and .targetCommitish == $sha'
           else
             gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "쪽결 $TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi
@@ -163,4 +166,10 @@ jobs:
               [[ $digest == "sha256:$hash" ]]
             fi
           done
-          gh release view "$TAG" --json url,assets --jq '{url, files: [.assets[].name]}'
+          { cat SHA256SUMS; sha256sum SHA256SUMS; } | LC_ALL=C sort > "$RUNNER_TEMP/expected.sha256"
+          gh release view "$TAG" --json assets,isDraft,isPrerelease,targetCommitish |
+            jq -er --arg sha "$GITHUB_SHA" '
+              select(.isDraft and .isPrerelease and .targetCommitish == $sha)
+              | .assets[] | (.digest | ltrimstr("sha256:")) + "  " + .name' |
+            LC_ALL=C sort | diff -u "$RUNNER_TEMP/expected.sha256" -
+          gh release view "$TAG" --json url --jq .url

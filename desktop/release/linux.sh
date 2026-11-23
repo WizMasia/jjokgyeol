@@ -146,6 +146,7 @@ xvfb-run -a dbus-run-session -- python desktop/qa/linux/smoke.py /usr/bin/jjokgy
   --source proofs/numbering/manuscript.md --style proofs/numbering/odd-even.json \
   --output "$work/odd-even.pdf"
 python desktop/qa/compare_pdfs.py "$work/odd-even.pdf" proofs/numbering/odd-even.pdf
+python desktop/qa/verify_paragraph_spacing.py "/usr/lib/$product_name/runtime"
 if [[ $EUID -eq 0 ]]; then
   apt-get purge -y jjokgyeol >/dev/null
 else
