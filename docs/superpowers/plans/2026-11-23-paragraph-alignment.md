@@ -41,3 +41,9 @@
 - [ ] 웹 API와 로컬 워커의 조회/변경/잘못된 입력 테스트가 먼저 실패하는지 확인한다.
 - [ ] app/server.py와 desktop/worker, desktop/src, desktop/gui/src 및 desktop/gui/frontend/desktop.js에 같은 원고 편집 작업을 연결한다. 네이티브 명령 이름은 paragraph_align, JS 공개 함수는 paragraphAlign이다.
 - [ ] HTTP 및 오프라인 호출, 저장·재열기, 규칙·모델 PDF, 기존 기준 PDF를 확인한다. 통과한 변경을 main 및 네이티브 브랜치에 통합하고 로컬 웹·Mac 시험판을 제작한다.
+
+### 5. 목록 단계별 글자 크기
+
+- [ ] tests/test_list_size_editor.py에서 소수 크기 및 생략 왕복과 0단계 바로 가기를 확인한다.
+- [ ] app/static/list-style.js와 목록 행에 기존 font_pt 선택 속성을 연결한다.
+- [ ] 해제와 단계 전환, 기존 목록 양식 테스트, 실제 목록 PDF 글자 크기를 대조한다.

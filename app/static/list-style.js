@@ -17,7 +17,9 @@ function listLevelEditor(settings, onEdit) {
   function readRow(row) {
     const level = {...loadedRows.get(row)};
     for (const control of row.elements) {
-      if (control.name) level[control.name] = control.value;
+      if (!control.name) continue;
+      if (control.name === "font_pt" && control.value === "") delete level.font_pt;
+      else level[control.name] = control.value;
     }
     return level;
   }
@@ -32,7 +34,7 @@ function listLevelEditor(settings, onEdit) {
   function appendRow(level) {
     const row = template.content.firstElementChild.cloneNode(true);
     loadedRows.set(row, level);
-    for (const control of row.querySelectorAll("input")) control.value = level[control.name];
+    for (const control of row.querySelectorAll("input")) control.value = level[control.name] ?? "";
     rows.append(row);
     return row;
   }
@@ -44,6 +46,12 @@ function listLevelEditor(settings, onEdit) {
     panel.hidden = levels.length === 0;
   }
 
+  document.getElementById("list-body-settings").addEventListener("click", () => {
+    const role = document.getElementById("text-role");
+    role.value = "body";
+    role.dispatchEvent(new Event("input"));
+    role.focus();
+  });
   preset.addEventListener("input", () => {
     if (preset.value !== "custom") replaceRows(presets[preset.value || defaultPreset] || []);
   });
