@@ -45,4 +45,6 @@
 ### 5. 배포
 
 - [x] 규칙/모델 PDF 좌표와 교환 문서를 검증하고 회귀 검사, 독립 검토를 수행한다.
-- [ ] main 및 feature/native-desktop에 통합해 origin으로 일반 푸시한다. 기존 3개 플랫폼의 빌드·설치 검사를 통과한 다음 다음 preview 순번의 GitHub 시험판과 SHA256SUMS를 공개하고 릴리즈와 파일을 조회한다.
+- [x] main 및 feature/native-desktop에 통합해 origin으로 일반 푸시한다. 기존 3개 플랫폼의 빌드·설치 검사를 통과한 다음 다음 preview 순번의 GitHub 시험판과 SHA256SUMS를 공개하고 릴리즈와 파일을 조회한다.
+
+공개 시험판은 [v0.1.0-preview.4](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.0-preview.4)이다. [세 운영체제의 설치본 검증](https://github.com/WizMasia/jjokgyeol/actions/runs/45119862372)을 통과했고, 세 파일의 SHA-256을 공개본과 대조했다.
