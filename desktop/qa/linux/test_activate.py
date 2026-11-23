@@ -19,6 +19,13 @@ class Node:
 
 
 class AccessibilityTest(unittest.TestCase):
+    def test_tolerates_missing_children_during_startup(self):
+        button = Node('설정', 'button')
+        frame = Node('쪽결', 'frame', [None, button])
+        for children in ([frame], [None, frame]):
+            with self.subTest(children=children):
+                self.assertIs(activate.find_control(children, '쪽결', '설정', 'frame', 'button'), button)
+
     def test_only_finds_button_in_named_window(self):
         wrong = Node('설정', 'button')
         correct = Node('설정', 'button')

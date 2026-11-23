@@ -7,10 +7,11 @@ def find_control(app, window, name, frame_role, button_role):
     def descend(node):
         yield node
         for child in node:
-            yield from descend(child)
+            if child is not None:
+                yield from descend(child)
 
     for frame in app:
-        if frame.getRole() == frame_role and frame.name == window:
+        if frame is not None and frame.getRole() == frame_role and frame.name == window:
             for node in descend(frame):
                 if node.getRole() == button_role and node.name == name:
                     return node
@@ -25,7 +26,7 @@ def main():
     while time.monotonic() < deadline:
         try:
             for app in pyatspi.Registry.getDesktop(0):
-                if app.get_process_id() == pid:
+                if app is not None and app.get_process_id() == pid:
                     control = find_control(app, window, name, pyatspi.ROLE_FRAME, pyatspi.ROLE_PUSH_BUTTON)
                     if control:
                         action = control.queryAction()
