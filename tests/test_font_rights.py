@@ -117,6 +117,23 @@ def both(page, data, known=None):
     (0, {"license": "Licensed under the SIL Open Font License, v1.1."}, "allowed", "allowed"),
     (0, {"license": OFL, "copyright": "Copyright (c) <dates>, <Copyright Holder>."}, "allowed", "unknown"),
     (0, {"license": OFL, "copyright": HOLDER + " For personal use only."}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": "Redistribution is prohibited"}, "unknown", "unknown"),
+    (8, {"license": OFL, "copyright": HOLDER + " This font may not be redistributed."}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": "Copyright 2025 Paper Studio for licensed desks only"}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": "Copyright 2025 Paper Studio COPIES REQUIRE CONSENT"}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": "Copyright © 2025 가람 별도 계약 필요"}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": HOLDER + "\nCopies require the designer’s consent."}, "unknown", "unknown"),
+    (8, {"copyright": "Embedding requires approval."}, "unknown", "unknown"),
+    (0, {"license": OFL, "extra": [(b"\xff\xfe", 0, 1, 7, 0)]}, "unknown", "unknown"),
+    (0, {"license": OFL, "copyright": OFL}, "allowed", "unknown"),
+    (0, {"license": OFL, "copyright": "All rights reserved."}, "allowed", "unknown"),
+    (0, {"license": OFL, "copyright": HOLDER + " " + OFL}, "allowed", "allowed"),
+    (0, {"license": OFL, "copyright": HOLDER + "\n" + OFL + " This license is available with a FAQ at: " + URL},
+     "allowed", "allowed"),
+    (0, {"license": OFL, "copyright":
+         'Copyright 2022-2025 The Paper Project Authors (https://example.org/paper), with Reserved Font Names "Paper" and "Ink".'},
+     "allowed", "allowed"),
+    (0, {"license": OFL, "copyright": HOLDER + "\n" + OFL + " Subject to custom terms."}, "unknown", "unknown"),
     (0, {"license": OFL, "extra": [("재배포 금지", 0, 3, 1, 0x412)]}, "unknown", "unknown"),
     (0, {"license": OFL, "url": "https://openfontlicense.org.example/eula"}, "unknown", "unknown"),
     (8, {"license": "Not licensed under the SIL Open Font License, Version 1.1."}, "unknown", "unknown"),
@@ -238,8 +255,27 @@ def test_external_nanum_gothic_coding(page):
     path = Path(LOCK["fonts"]["nanum-gothic"]["regular"]["path"]).with_name("NanumGothicCoding.ttf")
     if not path.is_file():
         pytest.skip("requires NanumGothicCoding in the runtime image")
-    face = both(page, path.read_bytes())
+    # Exercise the embedded license on a file outside the installed hash catalog.
+    face = both(page, path.read_bytes() + b"\0")
     assert face["pdf"] and face["archive"] and face["remote"] and not face["known"]
+
+
+def test_external_nanum_gothic_coding_bold(page):
+    path = Path(LOCK["fonts"]["nanum-gothic"]["bold"]["path"]).with_name("NanumGothicCodingBold.ttf")
+    if not path.is_file():
+        pytest.skip("requires NanumGothicCodingBold in the runtime image")
+    face = both(page, path.read_bytes() + b"\0")
+    assert face["pdf"] and face["archive"] and face["remote"] and not face["known"]
+    assert face["weight"] == "bold"
+
+
+def test_external_abel_notice_includes_author_contact_and_reserved_name(page):
+    face = both(page, (ROOT / "tests/fixtures/fonts/abel/Abel-Regular.ttf").read_bytes())
+    assert face["pdf"] and face["archive"] and face["remote"] and not face["known"]
+    notice = page.evaluate("async face => (await FontRights.notice(face)).text()", face)
+    assert notice.split("\n\n", 1)[0] == (
+        "Copyright (c) 2011, Matthew Desmond (http://www.madtype.com | mattdesmond@gmail.com), "
+        "with Reserved Font Name Abel.")
 
 
 def test_notice_rejects_an_incomplete_bundled_license(page):

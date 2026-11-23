@@ -7,11 +7,26 @@ globalThis.FontRights = (() => {
     String.raw`|(?:www\.)?spdx\.org/licenses/OFL-1\.1\.html|opensource\.org/licenses?/OFL-1\.1` +
     String.raw`|dev\.naver\.com/wiki/nanumfont/index\.php/OpenFontLicense)/?`;
   const oflUrl = new RegExp("^" + officialUrl + "$", "i");
+  const faqText = "This license is (?:copied below,? and is also )?available with a FAQ at:? " + officialUrl + "\\.?";
+  const faq = new RegExp("^" + faqText + "$", "i");
   const ofl = new RegExp("(?:(?:this font(?: software)? is )?licen[sc]ed under (?:the )?)?" +
     "(?:SIL Open Font License,? (?:Version |v)?1\\.1|(?:SPDX-License-Identifier:\\s*)?OFL-1\\.1)\\.?" +
-    "(?: This license is (?:copied below,? and is also )?available with a FAQ at:? " + officialUrl + "\\.?)?$", "i");
+    "(?: " + faqText + ")?$", "i");
   const heading = "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007";
   const oflTextHash = "70006bea3c19ca31505acc2ab97296f48cccbf972825a66d81321f1474e30ebf";
+  // Keep holder names, contact details and reserved names separate from legal prose.
+  const nameWord = "[A-Z][a-z]+(?:['’-][A-Z][a-z]+)*";
+  const properName = "(?:" + nameWord + "(?: " + nameWord + ")?|[가-힣]+|[A-Z]+|" +
+    "(?:[A-Z]+ |" + nameWord + " )+(?:Corporation|Inc|Studio|Project Authors))";
+  const contact = String.raw`(?:https?://[A-Za-z0-9./_%#?=&~-]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)`;
+  const fontName = new RegExp("^(?:" + properName + "|\"" + properName + "\"|'" + properName + "')$");
+  const attribution = new RegExp(String.raw`^(?:[Cc]opyright(?: (?:©|ⓒ|\([cC]\)))?|©|ⓒ|\([cC]\)) ` +
+    String.raw`[0-9]{4}(?:[-–][0-9]{4})?(?:, [0-9]{4})*,? ` + properName +
+    String.raw`(?: \(${contact}(?: \| ${contact})*\))?` +
+    "(?:,? *with Reserved Font Names? (.+))?$");
+  const designer = new RegExp("^Font designed by " + properName + "\\.?$");
+  const template = /^Copyright \(c\) <dates?>, <Copyright Holder>\.?$/i;
+  const conflict = /personal use only|non[- ]commercial use only|no redistribution|재배포\s*금지|상업적?\s*이용\s*금지/i;
   const scriptUrl = globalThis.document?.currentScript?.src;
   const noticeUrl = scriptUrl ? new URL("ofl-1.1.txt", scriptUrl) : "ofl-1.1.txt";
   const nameIds = [0, 1, 4, 5, 13, 14, 16];
@@ -129,6 +144,12 @@ globalThis.FontRights = (() => {
     return grant && (grant.index === 0 || holders.has(prefix.slice(0, grant.index).trim()));
   }
 
+  function isAttribution(clause) {
+    const match = clause.replace(/\.$/, "").match(attribution);
+    if (!match) return false;
+    return !match[1] || match[1].split(/, | and /).every(name => fontName.test(name));
+  }
+
   async function decide(face, names, undecoded) {
     const flags = face.os2Version < 2 ? face.fsType & 15 : face.fsType;
     let mode = flags & 14;
@@ -142,10 +163,20 @@ globalThis.FontRights = (() => {
     const holders = new Set(names[0].map(normalized));
     const checks = await Promise.all(names[13].map(s => isOfl(s, holders)));
     const licensed = checks.length > 0 && checks.every(Boolean);
-    if (licensed && [...holders].some(s => /personal use only|non[- ]commercial use only|no redistribution|재배포\s*금지|상업적?\s*이용\s*금지/i.test(s))) {
-      return ["unknown", "unknown", "저작권 표기에 OFL 허용 범위와 충돌하는 제한이 있습니다."];
+    let attributed = false, placeholder = false;
+    for (const record of names[0]) {
+      if (conflict.test(record)) return ["unknown", "unknown", "저작권 표기에 명시된 사용 제한이 있습니다."];
+      for (const part of record.split(/(?<=\.)[ \t]+|[\r\n]+/)) {
+        const clause = part.replace(/^[ \t]+|[ \t]+$/g, "");
+        if (isAttribution(clause)) attributed = true;
+        else if (template.test(clause)) placeholder = true;
+        else if (clause && clause.toLowerCase() !== "all rights reserved." && !designer.test(clause) &&
+                 clause.match(ofl)?.index !== 0 && !faq.test(clause)) {
+          return ["unknown", "unknown", "저작권 표기에 있는 약관의 적용 범위를 확인할 수 없습니다."];
+        }
+      }
     }
-    if (undecoded.has(13) || undecoded.has(14) || (names[13].length && !licensed) ||
+    if (undecoded.has(0) || undecoded.has(13) || undecoded.has(14) || (names[13].length && !licensed) ||
         (names[14].length && (!licensed || !names[14].every(s => oflUrl.test(s))))) {
       return ["unknown", "unknown", "파일에 표시된 약관 전체의 적용 범위를 확인할 수 없습니다."];
     }
@@ -155,8 +186,7 @@ globalThis.FontRights = (() => {
     if (flags & 0x200) return ["restricted", "restricted", "비트맵만 내장할 수 있어 윤곽선 글꼴을 사용할 수 없습니다."];
     if (mode === 2) return ["restricted", "restricted", "OS/2에 내장 제한이 명시되어 있습니다."];
     if (mode === 4) return ["restricted", "restricted", "미리보기·인쇄 전용입니다. 현재 PDF는 읽기 전용을 보장하지 않습니다."];
-    const attributed = holders.size > 0 && [...holders].every(s => !/<(?:dates?|copyright holder)>/i.test(s));
-    const archive = licensed && attributed && !undecoded.has(0) ? "allowed" : "unknown";
+    const archive = licensed && attributed && !placeholder ? "allowed" : "unknown";
     if (flags & 0x100) {
       return ["restricted", archive, "부분 내장이 금지되어 있습니다. 현재 PDF 조판은 전체 내장을 보장하지 않습니다."];
     }

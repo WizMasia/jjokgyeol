@@ -9,14 +9,29 @@ _OFL_URL = (r"https?://(?:(?:www\.)?openfontlicense\.org(?:/open-font-license-of
             r"|scripts\.sil\.org/(?:OFL|cms/scripts/page\.php\?item_id=OFL_web)"
             r"|(?:www\.)?spdx\.org/licenses/OFL-1\.1\.html|opensource\.org/licenses?/OFL-1\.1"
             r"|dev\.naver\.com/wiki/nanumfont/index\.php/OpenFontLicense)/?")
+_FAQ = r"This license is (?:copied below,? and is also )?available with a FAQ at:? " + _OFL_URL + r"\.?"
 _OFL = re.compile(
     r"(?:(?:this font(?: software)? is )?licen[sc]ed under (?:the )?)?"
     r"(?:SIL Open Font License,? (?:Version |v)?1\.1|(?:SPDX-License-Identifier:\s*)?OFL-1\.1)\.?"
-    r"(?: This license is (?:copied below,? and is also )?available with a FAQ at:? " + _OFL_URL + r"\.?)?",
+    r"(?: " + _FAQ + r")?",
     re.IGNORECASE | re.ASCII)
 _OFL_HEADING = "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007"
 # SHA-256 of the bundled official text after dropping decorative rules and folding whitespace.
 _OFL_TEXT_HASH = "70006bea3c19ca31505acc2ab97296f48cccbf972825a66d81321f1474e30ebf"
+# Keep holder names, contact details and reserved names separate from legal prose.
+_NAME_WORD = r"[A-Z][a-z]+(?:['’-][A-Z][a-z]+)*"
+_PROPER_NAME = (rf"(?:{_NAME_WORD}(?: {_NAME_WORD})?|[가-힣]+|[A-Z]+"
+                rf"|(?:[A-Z]+ |{_NAME_WORD} )+(?:Corporation|Inc|Studio|Project Authors))")
+_CONTACT = r"(?:https?://[A-Za-z0-9./_%#?=&~-]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)"
+_FONT_NAME = re.compile(rf'''(?:{_PROPER_NAME}|"{_PROPER_NAME}"|'{_PROPER_NAME}')''')
+_ATTRIBUTION = re.compile(
+    r"(?:[Cc]opyright(?: (?:©|ⓒ|\([cC]\)))?|©|ⓒ|\([cC]\)) "
+    r"[0-9]{4}(?:[-–][0-9]{4})?(?:, [0-9]{4})*,? "
+    + _PROPER_NAME + rf"(?: \({_CONTACT}(?: \| {_CONTACT})*\))?"
+    + r"(?:,? *with Reserved Font Names? (.+))?")
+_DESIGNER = re.compile(rf"Font designed by {_PROPER_NAME}\.?")
+_TEMPLATE = re.compile(r"Copyright \(c\) <dates?>, <Copyright Holder>\.?", re.I | re.ASCII)
+_CONFLICT = re.compile(r"personal use only|non[- ]commercial use only|no redistribution|재배포\s*금지|상업적?\s*이용\s*금지", re.I)
 _NAME_IDS = {0, 1, 4, 5, 13, 14, 16}
 # Name records may point to the same bytes repeatedly. Bound decoded work as well as file ranges.
 _MAX_NAME_BYTES = 1 << 20
@@ -122,6 +137,14 @@ def _is_ofl(text, holders):
     return bool(grant and grant.end() == len(prefix) and prefix[:grant.start()].strip() in holders | {""})
 
 
+def _is_attribution(clause):
+    match = _ATTRIBUTION.fullmatch(clause.removesuffix("."))
+    if not match:
+        return False
+    reserved = match[1]
+    return not reserved or all(_FONT_NAME.fullmatch(name) for name in re.split(", | and ", reserved))
+
+
 def _decide(face, names, undecoded):
     flags, version = face["fsType"], face["os2Version"]
     effective = flags & 15 if version < 2 else flags
@@ -134,9 +157,20 @@ def _decide(face, names, undecoded):
         return "allowed", "allowed", "설치된 배포본의 SHA-256과 일치합니다. 원본에는 해당 배포본의 OFL 고지를 첨부합니다."
     holders = {_normalized(s) for s in names[0]}
     ofl = bool(names[13]) and all(_is_ofl(s, holders) for s in names[13])
-    if ofl and any(re.search(r"personal use only|non[- ]commercial use only|no redistribution|재배포\s*금지|상업적?\s*이용\s*금지", s, re.I) for s in holders):
-        return "unknown", "unknown", "저작권 표기에 OFL 허용 범위와 충돌하는 제한이 있습니다."
-    if (undecoded & {13, 14} or (names[13] and not ofl)
+    attributed = placeholder = False
+    for record in names[0]:
+        if _CONFLICT.search(record):
+            return "unknown", "unknown", "저작권 표기에 명시된 사용 제한이 있습니다."
+        for clause in re.split(r"(?<=\.)[ \t]+|[\r\n]+", record):
+            clause = clause.strip(" \t")
+            if _is_attribution(clause):
+                attributed = True
+            elif _TEMPLATE.fullmatch(clause):
+                placeholder = True
+            elif (clause and clause.lower() != "all rights reserved." and not _DESIGNER.fullmatch(clause)
+                  and not _OFL.fullmatch(clause) and not re.fullmatch(_FAQ, clause, re.I | re.ASCII)):
+                return "unknown", "unknown", "저작권 표기에 있는 약관의 적용 범위를 확인할 수 없습니다."
+    if (undecoded & {0, 13, 14} or (names[13] and not ofl)
             or (names[14] and (not ofl or not all(re.fullmatch(_OFL_URL, s, re.I | re.ASCII) for s in names[14])))):
         return "unknown", "unknown", "파일에 표시된 약관 전체의 적용 범위를 확인할 수 없습니다."
     if ofl and (mode in (2, 4) or effective & 0x200):
@@ -147,8 +181,7 @@ def _decide(face, names, undecoded):
         return "restricted", "restricted", "OS/2에 내장 제한이 명시되어 있습니다."
     if mode == 4:
         return "restricted", "restricted", "미리보기·인쇄 전용입니다. 현재 PDF는 읽기 전용을 보장하지 않습니다."
-    attributed = bool(holders) and all(not re.search(r"<(?:dates?|copyright holder)>", s, re.I) for s in holders)
-    archive = "allowed" if ofl and attributed and 0 not in undecoded else "unknown"
+    archive = "allowed" if ofl and attributed and not placeholder else "unknown"
     if effective & 0x100:
         return "restricted", archive, "부분 내장이 금지되어 있습니다. 현재 PDF 조판은 전체 내장을 보장하지 않습니다."
     if ofl:
