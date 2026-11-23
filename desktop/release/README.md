@@ -1,5 +1,9 @@
 # 네이티브 시험판 배포
 
+설치할 때는 공개 릴리즈의 태그를 고르고 해당 페이지의 **Assets**에서 운영체제에 맞는 파일을 받습니다. 설치 파일 이름은 여러 시험판에서 같으므로 실행 후 편집기 상단의 버전을 태그와 대조하세요. 기존 원고는 **쪽결 문서 저장**으로 보관한 뒤 새 앱에서 **쪽결 문서 열기**로 다시 열 수 있습니다. [공개 시험판 목록](https://github.com/WizMasia/jjokgyeol/releases)
+
+## 배포자용 빌드
+
 원본 저장소 `WizMasia/jjokgyeol`에 푸시할 권한이 있는 배포자가 `main`과 `feature/native-desktop`에 통합된 커밋에서 배치를 시작합니다. `desktop/gui/tauri.conf.json`의 전체 버전에 v를 붙여 태그를 정합니다. CI는 공개된 main의 커밋과 태그를 확인합니다.
 
 ```sh

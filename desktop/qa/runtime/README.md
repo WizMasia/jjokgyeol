@@ -9,8 +9,7 @@ desktop/qa/runtime/export-resources.sh /tmp/jjokgyeol-resources.tar
 Copy that tar to a Windows x64 machine with Python 3.12, Node.js 22/npm, PowerShell 7, Rust stable/MSVC, and tar on PATH. In PowerShell from the repository root:
 
 ```powershell
-python -m pip install markdown-it-py==4.3.0 mdurl==0.1.2 pdfminer.six==20260107 pypdf==7.1.1
-python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/build-requirements.lock
+python -m pip install --require-hashes --only-binary=:all: -r desktop/worker/requirements.lock -r desktop/worker/build-requirements.lock -r desktop/qa/requirements-compare.lock
 ./desktop/qa/runtime/verify.ps1 C:\path\resources.tar "$env:TEMP\jjokgyeol-native-proof"
 ```
 
