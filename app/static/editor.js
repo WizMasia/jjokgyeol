@@ -44,6 +44,9 @@ let originalView = "";
 let withBom = false;
 let newline = "\n";
 let mixedEndings = false;
+// Textarea undo retains LF text only. Keep the raw changes for mixed-ending alignment edits.
+const alignmentUndo = [];
+const alignmentRedo = [];
 let editStart = Infinity;
 let manuscriptDirty = false;
 let styleDirty = false;
@@ -151,8 +154,26 @@ function manuscriptFileText() {
   return (withBom ? "\uFEFF" : "") + sourceText();
 }
 
-function editManuscript() {
-  if (mixedEndings) {
+function restoreAlignmentEndings(history, next) {
+  const undo = history === alignmentUndo;
+  const patch = history.at(-1);
+  if (!patch) return false;
+  const from = undo ? patch.after : patch.before;
+  const to = undo ? patch.before : patch.after;
+  if (!original.startsWith(from, patch.start)) return false;
+  const restored = original.slice(0, patch.start) + to + original.slice(patch.start + from.length);
+  if (restored.replace(/\r\n?/g, "\n") !== source.value) return false;
+  rememberSource(restored);
+  next.push(history.pop());
+  return true;
+}
+
+function editManuscript(event) {
+  let restored = false;
+  if (event.inputType === "historyUndo") restored = restoreAlignmentEndings(alignmentUndo, alignmentRedo);
+  else if (event.inputType === "historyRedo") restored = restoreAlignmentEndings(alignmentRedo, alignmentUndo);
+  else alignmentRedo.length = 0;
+  if (!restored && (mixedEndings || alignmentUndo.length || alignmentRedo.length)) {
     const view = source.value;
     const {start, end, nextEnd} = editedRange(originalView, view, Math.min(editStart, source.selectionStart));
     // Only CRLF occupies a second code unit in the file at a textarea newline.
@@ -733,7 +754,8 @@ async function render(job) {
   }
 }
 
-function requestPdf(exporting) {
+async function requestPdf(exporting) {
+  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
   if (fileLoads.source || fileLoads.style) return;
   if (pending?.version === version) {
     pending.exporting ||= exporting;
@@ -759,6 +781,7 @@ function updateFileActions() {
   byId("export").disabled = busy || choosing;
   byId("save").disabled = Boolean(fileLoads.source);
   pinButton.disabled = Boolean(fileLoads.source);
+  scheduleAlignmentQuery();
   byId("save-style").disabled = Boolean(fileLoads.style);
   if (busy) statusText.textContent = fileLoads.document ? "쪽결 문서 불러오는 중" :
     fileLoads.style ? "양식 불러오는 중" : "원고 처리 중";
@@ -831,6 +854,7 @@ function applyManuscript(text, name, warnings = []) {
   markDirty("document", false);
   withBom = text.startsWith("\uFEFF");
   const manuscript = withBom ? text.slice(1) : text;
+  alignmentUndo.length = alignmentRedo.length = 0;
   source.value = manuscript;
   rememberSource(manuscript);
   manuscriptRevision++;
@@ -900,13 +924,15 @@ function edited(kind) {
   updateFileActions();
 }
 
-async function requestPin() {
-  const start = source.selectionStart;
-  const end = source.selectionEnd;
+function selectedLines(start, end) {
   const lineAt = index => source.value.slice(0, index).split("\n").length - 1;
+  return {first_line: lineAt(start), last_line: lineAt(Math.max(start, end - 1))};
+}
+
+async function requestPin() {
   const response = await fetch("/api/article/pin", {
     method: "POST", redirect: "error", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({source: sourceText(), first_line: lineAt(start), last_line: lineAt(Math.max(start, end - 1))}),
+    body: JSON.stringify({source: sourceText(), ...selectedLines(source.selectionStart, source.selectionEnd)}),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || typeof data?.source !== "string") {
@@ -925,6 +951,159 @@ function applyPinnedSource(text) {
   markDirty("source", true);
   if (document.activeElement === document.body || document.activeElement === pinButton) source.focus({preventScroll: true});
 }
+
+const paragraphAlign = byId("paragraph-align");
+paragraphAlign.add(new Option("양식 따르기", ""));
+for (const [label, value] of alignmentChoices) paragraphAlign.add(new Option(label, value));
+const alignmentMessage = byId("paragraph-align-message");
+let alignmentTimer;
+let alignmentTarget;
+let lastAlignmentQuery;
+let alignmentQueue = Promise.resolve();
+let pendingAlignmentEdit = null;
+
+function queueAlignment(target, align) {
+  // One worker per editor. Stale cursor lookups skip their turn before reading the manuscript.
+  alignmentQueue = alignmentQueue.then(() => updateAlignment(target, align));
+  return alignmentQueue;
+}
+
+
+function currentTarget(target) {
+  return target && !fileLoads.source && target.revision === manuscriptRevision &&
+    target.start === source.selectionStart && target.end === source.selectionEnd &&
+    target.direction === source.selectionDirection;
+}
+
+function alignmentSelection() {
+  return {revision: manuscriptRevision, start: source.selectionStart, end: source.selectionEnd,
+    direction: source.selectionDirection};
+}
+
+async function requestAlignment(payload) {
+  if (nativeDesktop) return desktop.paragraphAlign(payload);
+  const response = await fetch("/api/paragraph/align", {
+    method: "POST", redirect: "error", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || typeof data?.source !== "string") {
+    throw new Error(data?.message || httpMessages[response.status] || "문단 정렬을 확인하지 못했습니다.");
+  }
+  return data;
+}
+
+function closeWebKitUndoGroup() {
+  if (navigator.vendor !== "Apple Computer, Inc." || !document.queryCommandEnabled("undo")) return;
+  // WebKit groups native edits across script calls. Cycle its undo group while cancelling
+  // both beforeinput events so no text, selection or application state is replayed.
+  const cancelHistory = event => {
+    if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  window.addEventListener("beforeinput", cancelHistory, true);
+  try {
+    if (document.execCommand("undo")) document.execCommand("redo");
+  } finally {
+    window.removeEventListener("beforeinput", cancelHistory, true);
+  }
+}
+
+function applyAlignedSource(text, selection) {
+  const before = source.value;
+  const rawBefore = sourceText();
+  const after = text.replace(/\r\n?/g, "\n");
+  if (before !== after) {
+    // Anchor the difference at a line boundary, even when the target starts with "<".
+    const prefix = editedRange(before, after).start;
+    const lineStart = before.slice(0, prefix).lastIndexOf("\n") + 1;
+    const {start, end, nextEnd} = editedRange(before, after, lineStart);
+    const offset = index => index < start ? index : index >= end ? index + nextEnd - end : Math.min(index, nextEnd);
+    source.focus({preventScroll: true});
+    closeWebKitUndoGroup();
+    source.setSelectionRange(start, end);
+    const replacement = after.slice(start, nextEnd);
+    // Native editing commands include this replacement in the textarea's undo history.
+    if (!document.execCommand(replacement ? "insertText" : "delete", false, replacement)) {
+      source.setSelectionRange(selection.start, selection.end, selection.direction);
+      throw new Error("문단 정렬을 적용하지 못했습니다.");
+    }
+    closeWebKitUndoGroup();
+    if (mixedEndings) {
+      const raw = editedRange(rawBefore, text);
+      alignmentUndo.push({start: raw.start, before: rawBefore.slice(raw.start, raw.end), after: text.slice(raw.start, raw.nextEnd)});
+    }
+    rememberSource(text);
+    source.setSelectionRange(offset(selection.start), offset(selection.end), selection.direction);
+  } else {
+    source.focus({preventScroll: true});
+  }
+}
+
+async function updateAlignment(target, align) {
+  if (target !== alignmentTarget || !currentTarget(target)) return;
+  const lines = selectedLines(target.start, target.end);
+  const query = align === undefined;
+  const sameLines = lastAlignmentQuery?.revision === target.revision &&
+    lastAlignmentQuery.first_line === lines.first_line && lastAlignmentQuery.last_line === lines.last_line;
+  try {
+    const data = query && sameLines ? lastAlignmentQuery.result :
+      await requestAlignment(query ? {source: sourceText(), ...lines} : {source: sourceText(), ...lines, align});
+    if (target !== alignmentTarget || !currentTarget(target)) return;
+    const focus = document.activeElement;
+    const output = ["save", "save-document", "refresh", "export"].includes(focus?.id);
+    if (!query && !output && ![source, paragraphAlign, document.body].includes(focus)) {
+      alignmentTarget = null;
+      scheduleAlignmentQuery();
+      return;
+    }
+    if (!query && data.supported) {
+      applyAlignedSource(data.source, target);
+      if (output) focus.focus({preventScroll: true});
+    }
+    paragraphAlign.value = data.align ?? "";
+    alignmentMessage.textContent = data.message;
+    if (query) lastAlignmentQuery = {...lines, revision: target.revision,
+      result: {align: data.align, message: data.message}};
+    return data.supported;
+  } catch (error) {
+    if (target !== alignmentTarget || !currentTarget(target)) return;
+    paragraphAlign.selectedIndex = -1;
+    alignmentMessage.textContent = error.message || "문단 정렬을 확인하지 못했습니다.";
+    alignmentTarget = null; // Retry a failed lookup on the next interaction.
+  }
+}
+
+function scheduleAlignmentQuery() {
+  if (settingsView) return;
+  paragraphAlign.disabled = Boolean(fileLoads.source);
+  if (currentTarget(alignmentTarget)) return;
+  clearTimeout(alignmentTimer);
+  paragraphAlign.selectedIndex = -1;
+  alignmentMessage.textContent = "";
+  if (paragraphAlign.disabled) {
+    alignmentTarget = null;
+    return;
+  }
+  const target = alignmentTarget = alignmentSelection();
+  alignmentTimer = setTimeout(() => queueAlignment(target), 250);
+}
+
+paragraphAlign.addEventListener("change", () => {
+  clearTimeout(alignmentTimer);
+  const target = alignmentTarget = alignmentSelection();
+  const edit = pendingAlignmentEdit = queueAlignment(target, paragraphAlign.value || null);
+  edit.finally(() => {
+    if (pendingAlignmentEdit === edit) pendingAlignmentEdit = null;
+  });
+});
+paragraphAlign.addEventListener("focus", scheduleAlignmentQuery);
+source.addEventListener("select", scheduleAlignmentQuery);
+source.addEventListener("selectionchange", scheduleAlignmentQuery);
+document.addEventListener("selectionchange", () => {
+  if (document.activeElement === source) scheduleAlignmentQuery();
+});
 
 source.addEventListener("beforeinput", () => { editStart = source.selectionStart; });
 source.addEventListener("input", editManuscript);
@@ -1007,6 +1186,7 @@ bindFilePicker("import-source", "import-file", importManuscript);
 byId("refresh").addEventListener("click", () => requestPdf(false));
 byId("export").addEventListener("click", () => requestPdf(true));
 byId("save").addEventListener("click", async () => {
+  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
   const revision = manuscriptRevision;
   const blob = new Blob([manuscriptFileText()], {type: "text/markdown;charset=utf-8"});
   if (await saveBlob(blob, byId("filename").textContent) && revision === manuscriptRevision) {

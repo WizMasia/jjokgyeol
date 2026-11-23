@@ -1,5 +1,7 @@
 "use strict";
 
+const alignmentChoices = [["왼쪽", "left"], ["가운데", "center"], ["오른쪽", "right"]];
+
 function typographyEditor(settings) {
   const fieldset = document.getElementById("text-roles");
   const role = document.getElementById("text-role");
@@ -19,11 +21,14 @@ function typographyEditor(settings) {
   let styles = {};
   fieldset.hidden = document.getElementById("tracking-limits").hidden = !defaults;
 
-  role.add(new Option("본문", "body"));
+  role.add(new Option("0단계 본문", "body"));
   for (let level = 1; level <= 6; level++) role.add(new Option(level + "단계 제목", "heading" + level));
   role.add(new Option("주", "note"));
   role.add(new Option("단어 풀이", "gloss"));
+  const bodyFields = {font: document.getElementById("body_font"), font_pt: document.getElementById("body_pt")};
   const options = {
+    align: alignmentChoices,
+    frame: [["테두리", "box"]],
     font: settings.fonts.map(font => [font.label, font.id]),
     weight: [["보통", "normal"], ["굵게", "bold"]],
     slant: [["바로", "normal"], ["기울임", "italic"]],
@@ -43,7 +48,7 @@ function typographyEditor(settings) {
     if (!defaults) return;
     const active = role.value;
     const heading = active.startsWith("heading");
-    const body = document.getElementById("body_pt").value;
+    const body = bodyFields.font_pt.value;
     const defaultSize = heading ? Number(body) * settings.heading_per_10000[Number(active.slice(7)) - 1] / 10000
       : active === "note" ? defaults.note_pt : Number(body) * defaults.gloss_per_10000 / 10000;
     const fallback = {
@@ -53,14 +58,17 @@ function typographyEditor(settings) {
     };
     for (const control of controls) {
       const key = control.dataset.text;
-      control.closest("label").hidden = active === "body" && (key === "font" || key === "font_pt");
+      const bodyField = active === "body" && bodyFields[key];
+      control.closest("label").hidden = (key === "align" && active !== "body" && !heading) ||
+        (key === "frame" && active !== "heading1");
       if (control.tagName === "SELECT") {
-        const label = options[key].find(pair => pair[1] === fallback[key])?.[0];
-        control.options[0].textContent = label ? "기본 · " + label : "기본";
+        const label = [...control.options].slice(1).find(option => option.value === fallback[key])?.textContent;
+        control.options[0].hidden = control.options[0].disabled = Boolean(bodyField);
+        control.options[0].textContent = !bodyField && label ? "기본 · " + label : "기본";
       } else {
-        control.placeholder = String(fallback[key]);
+        control.placeholder = bodyField ? "" : key === "font_pt" ? "기본 · " + fallback[key] : String(fallback[key]);
       }
-      control.value = styles[active]?.[key] ?? "";
+      control.value = bodyField ? bodyField.value : styles[active]?.[key] ?? "";
     }
   }
 
@@ -70,12 +78,21 @@ function typographyEditor(settings) {
       control.add(new Option("기본", ""));
       for (const [label, value] of options[key]) control.add(new Option(label, value));
     }
-    control.addEventListener("input", () => {
+    function editControl(event) {
+      if (role.value === "body" && bodyFields[key]) {
+        event.stopPropagation();
+        bodyFields[key].value = control.value;
+        bodyFields[key].dispatchEvent(new Event(event.type, {bubbles: true}));
+        return;
+      }
+      if (event.type !== "input") return;
       const row = styles[role.value] ??= {};
       if (control.value) row[key] = control.value;
       else delete row[key];
       if (!Object.keys(row).length) delete styles[role.value];
-    });
+    }
+    control.addEventListener("input", editControl);
+    if (bodyFields[key]) control.addEventListener("change", editControl);
   }
 
   role.addEventListener("input", event => {

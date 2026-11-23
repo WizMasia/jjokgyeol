@@ -39,7 +39,7 @@ class EditorLayoutTest(unittest.TestCase):
                     self.assertTrue(
                         font_size.evaluate(
                             "control => { const label = control.closest('label'); "
-                            "return label.hidden && label.getClientRects().length === 0; }"
+                            "return !label.hidden && label.getClientRects().length > 0; }"
                         )
                     )
                     page.locator("#text-role").select_option("heading1")
