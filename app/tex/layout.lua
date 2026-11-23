@@ -88,7 +88,13 @@ function book.setup()
     end
   end
   for _, v in pairs(style.text_styles or {}) do register(v) end
-  for _, block in ipairs(data.blocks) do register(block.overrides) end
+  for _, block in ipairs(data.blocks) do
+    register(block.overrides)
+    if block.kind == "table" and not book.tables then
+      book.tables = require("table_layout")
+      emit("\\newbox\\BookTableCell\\AddToHook{shipout/before}{\\directlua{book.tables.headers(tex.box.ShipoutBox)}}")
+    end
+  end
   register(note)
   if data.running_sections then
     register(data.running_sections.defaults)
@@ -315,6 +321,8 @@ function book.blocks()
       if block.preserve_spaces then emit("\\leavevmode") end
       inlines(block.inlines, block.preserve_spaces)
       emit("}")
+    elseif block.kind == "table" then
+      book.tables.render(block, inlines)
     elseif block.kind == "list_item" then
       if #block.inlines == 0 then emit("\\noindent\\strut") end
       inlines(block.inlines, justified)
