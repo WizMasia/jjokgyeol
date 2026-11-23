@@ -15,7 +15,9 @@ function listLevelEditor(settings, onEdit) {
   preset.add(new Option("사용자 지정", "custom"));
 
   function readRow(row) {
-    const level = {...loadedRows.get(row)};
+    const {level: loaded, spacing} = loadedRows.get(row);
+    const level = {...loaded};
+    for (const field of spacing) field.writeTo(level);
     for (const control of row.elements) {
       if (!control.name) continue;
       if (control.name === "font_pt" && control.value === "") delete level.font_pt;
@@ -33,8 +35,10 @@ function listLevelEditor(settings, onEdit) {
 
   function appendRow(level) {
     const row = template.content.firstElementChild.cloneNode(true);
-    loadedRows.set(row, level);
-    for (const control of row.querySelectorAll("input")) control.value = level[control.name] ?? "";
+    const spacing = paragraphSpacingFields(row.querySelector(".spacing-fields"), "기본");
+    for (const field of spacing) field.set(level[field.key]);
+    loadedRows.set(row, {level, spacing});
+    for (const control of row.querySelectorAll("input[name]")) control.value = level[control.name] ?? "";
     rows.append(row);
     return row;
   }

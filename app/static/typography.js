@@ -6,6 +6,8 @@ function typographyEditor(settings) {
   const fieldset = document.getElementById("text-roles");
   const role = document.getElementById("text-role");
   const controls = [...fieldset.querySelectorAll("[data-text]")];
+  const spacingPanel = fieldset.querySelector(".spacing-fields");
+  const spacingFields = paragraphSpacingFields(spacingPanel, "기본");
   const enabled = document.getElementById("tracking-enabled");
   const layout = document.getElementById("paragraph-layout");
   layout.add(new Option("이전 양식", ""));
@@ -35,7 +37,7 @@ function typographyEditor(settings) {
   };
 
   function clearError() {
-    for (const control of [...controls, ...bounds, base, layout]) {
+    for (const control of [...controls, ...spacingFields.map(field => field.input), ...bounds, base, layout]) {
       if (control.getAttribute("aria-describedby") === errorText.id) {
         control.removeAttribute("aria-invalid");
         control.removeAttribute("aria-describedby");
@@ -48,6 +50,8 @@ function typographyEditor(settings) {
     if (!defaults) return;
     const active = role.value;
     const heading = active.startsWith("heading");
+    spacingPanel.hidden = active !== "body" && !heading;
+    for (const field of spacingFields) field.set(styles[active]?.[field.key]);
     const body = bodyFields.font_pt.value;
     const defaultSize = heading ? Number(body) * settings.heading_per_10000[Number(active.slice(7)) - 1] / 10000
       : active === "note" ? defaults.note_pt : Number(body) * defaults.gloss_per_10000 / 10000;
@@ -94,6 +98,13 @@ function typographyEditor(settings) {
     control.addEventListener("input", editControl);
     if (bodyFields[key]) control.addEventListener("change", editControl);
   }
+
+  spacingPanel.addEventListener("input", event => {
+    const field = spacingFields.find(field => field.mode === event.target || field.input === event.target);
+    const row = styles[role.value] ??= {};
+    field.writeTo(row);
+    if (!Object.keys(row).length) delete styles[role.value];
+  });
 
   role.addEventListener("input", event => {
     event.stopPropagation();
@@ -169,6 +180,8 @@ function typographyEditor(settings) {
         role.value = target;
         show();
         invalid = controls.filter(control => control.dataset.text === key);
+        const field = spacingFields.find(field => field.key === key);
+        if (field) invalid.push(field.input);
       }
       if (invalid.length) errorText.textContent = message;
       for (const control of invalid) {

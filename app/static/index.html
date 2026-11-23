@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/editor.css">
   <!--EDITOR_SETTINGS-->
   <script src="/static/decimal.js" defer></script>
+  <script src="/static/paragraph-spacing.js" defer></script>
   <script src="/static/list-style.js" defer></script>
   <script src="/static/indent-units.js" defer></script>
   <script src="/static/typography.js" defer></script>
@@ -64,6 +65,12 @@
       </div>
       <div id="font-evidence" aria-live="polite"></div>
     </dialog>
+    <template id="spacing-field">
+      <div class="spacing-field">
+        <label><select></select></label>
+        <label hidden><input type="text" inputmode="decimal" spellcheck="false"> pt</label>
+      </div>
+    </template>
     <div class="spread">
       <section class="manuscript" aria-labelledby="manuscript-title">
         <header class="panel-head">
@@ -82,6 +89,7 @@
           <label class="sr-only" for="source">마크다운 원고</label>
           <textarea id="source" spellcheck="false" autocomplete="off" placeholder="원고를 입력하세요."></textarea>
         </div>
+        <fieldset id="paragraph-spacing" disabled><legend>선택한 문단 여백</legend></fieldset>
         <p id="paragraph-align-message" aria-live="polite"></p>
         <section id="import-notice" aria-labelledby="import-warnings-title" hidden>
           <h3 id="import-warnings-title">원고 가져오기 경고</h3>
@@ -100,6 +108,7 @@
           <p id="viewer-fallback" hidden>이 브라우저에서는 PDF 다운로드로 지면을 확인하세요.</p>
           <iframe id="preview" title="조판된 PDF 미리보기" hidden></iframe>
         </div>
+        <p id="paragraph-spacing-applied" aria-live="polite"></p>
         <footer class="folio"><span id="proof-size">PDF</span><span id="proof-decision" aria-live="polite"></span></footer>
       </section>
     </div>
@@ -191,6 +200,7 @@
             <label>대상 글꼴 <select data-text="font" aria-label="대상 글꼴"></select></label>
             <label>대상 글자 크기 <span class="measure"><input data-text="font_pt" aria-label="대상 글자 크기" type="text" inputmode="decimal"><span>pt</span></span></label>
             <label>대상 정렬 <select data-text="align"></select></label>
+            <div class="spacing-fields"></div>
             <label>제목 틀 <select data-text="frame" aria-label="제목 틀"></select></label>
             <label>대상 글자 색 <input data-text="color" type="text" spellcheck="false"></label>
             <label>대상 굵기 <select data-text="weight" aria-label="대상 굵기"></select></label>
@@ -224,6 +234,7 @@
               <label>들여쓰기 (mm) <input name="indent_mm" type="text" inputmode="decimal"></label>
               <label>표지 뒤 간격 (mm) <input name="gap_mm" type="text" inputmode="decimal"></label>
               <label>글자 크기 (pt) <input name="font_pt" type="text" inputmode="decimal" placeholder="본문 크기"></label>
+              <div class="spacing-fields"></div>
               <button type="button">단계 삭제</button>
             </fieldset>
           </template>

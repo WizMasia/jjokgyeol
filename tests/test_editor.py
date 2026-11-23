@@ -800,7 +800,8 @@ def test_manual_mode_choice_uses_installed_justified_preset(desk):
     assert page.evaluate("styleForm.get().space_pct") == ["91", "112"]
 
 
-def test_pin_uses_the_inherited_alignment_heading_boundary(desk, toggle_heading):
+@pytest.mark.parametrize("setting", ["align", "space_after_pt"])
+def test_pin_uses_the_inherited_heading_boundary(desk, toggle_heading, setting):
     page = desk.page
     source = "    example\n제8조 목적\n---"
     desk.source.fill(source)
@@ -809,7 +810,12 @@ def test_pin_uses_the_inherited_alignment_heading_boundary(desk, toggle_heading)
     open_settings(page)
     page.locator("#style summary").click()
     page.locator("#text-role").select_option("heading2")
-    page.locator('[data-text="align"]').select_option("center")
+    if setting == "align":
+        page.locator('[data-text="align"]').select_option("center")
+    else:
+        panel = page.locator("#text-roles")
+        panel.locator('[data-spacing-mode="space_after_pt"]').select_option("manual")
+        panel.locator('[data-spacing-value="space_after_pt"]').fill("0")
     close_settings(page)
     toggle_heading("제8조")
     expect(desk.source).to_have_value(source.replace("목적", "목적 {번호고정}"))

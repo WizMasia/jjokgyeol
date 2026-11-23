@@ -481,6 +481,7 @@ function changed() {
 
 function invalidatePreview() {
   version++;
+  showAppliedSpacing();
   documentFonts.updateFallback(styleForm.get());
   referenceStateChanged();
   statusText.textContent = proofStatus();
@@ -555,18 +556,22 @@ async function fetchProof(style, signal) {
     if (files.size) {
       const stored = await desktop.style("export", JSON.stringify(style));
       const frame = documentFonts.frame({source, style: stored, connection: connection ?? {provider: "rule"}}, files);
-      proof = await desktop.fontProof(new Uint8Array(await frame.arrayBuffer()));
+      proof = await desktop.fontProof(new Uint8Array(await frame.arrayBuffer()), true);
     } else if (!connection || connection.provider === "rule") {
-      proof = {rule: await desktop.proof(source, style)};
+      const result = await desktop.proof(source, style, true);
+      proof = result instanceof Blob ? {rule: result} : result;
     } else {
-      proof = await desktop.modelProof(source, style, connection);
+      proof = await desktop.modelProof(source, style, connection, true);
     }
     return {...proof, appliedFonts};
   }
   const request = {source, style, connection};
   const body = files.size ? documentFonts.frame(request, files) : JSON.stringify(request);
   const response = await fetch("/api/render", {
-    method: "POST", headers: {"Content-Type": files.size ? body.type : "application/json", Accept: "multipart/form-data"},
+    method: "POST", headers: {
+      "Content-Type": files.size ? body.type : "application/json",
+      Accept: "multipart/form-data", "X-Jjokgyeol-Spacing": "1",
+    },
     signal, body, redirect: "error",
   });
   if (!response.ok) {
@@ -584,24 +589,28 @@ async function fetchProof(style, signal) {
     const rule = await response.blob();
     if (validPdf(rule)) return {rule, reason, legacy, appliedFonts};
   }
-  if (type === "multipart/form-data" && (decision === "model" || decision === "mixed")) {
+  if (type === "multipart/form-data" && ["rule", "model", "mixed"].includes(decision)) {
     const parts = await response.formData().catch(() => null);
     const rule = parts?.get("rule");
     const model = parts?.get("model");
-    if (validPdf(rule) && validPdf(model)) return {rule, model, decision, reason, appliedFonts};
+    if (validPdf(rule) && (decision === "rule" ? model === null : validPdf(model))) {
+      let spacing;
+      try { spacing = JSON.parse(parts.get("spacing")); } catch { /* Receipts are optional. */ }
+      return {rule, model, spacing, decision, reason, legacy, appliedFonts};
+    }
   }
   throw new Error("서버에서 올바른 조판 PDF를 받지 못했습니다. 다시 갱신하세요.");
 }
 
 // Only current responses acquire URLs. A reference trial transfers these URLs on apply.
 class ProofUrls {
-  constructor({rule, model, decision, saved, reason, legacy, appliedFonts}) {
+  constructor({rule, model, spacing, decision, saved, reason, legacy, appliedFonts}) {
     this.appliedFonts = saved ? saved.appliedFonts : appliedFonts;
     this.reason = decisionMessage(reason);
     this.legacy = legacy;
-    const file = (blob, mode) => ({blob, mode, url: URL.createObjectURL(blob)});
-    this.rule = rule && file(rule, "rule");
-    this.model = model && file(model, decision);
+    const file = (blob, mode, rows) => ({blob, mode, rows, url: URL.createObjectURL(blob)});
+    this.rule = rule && file(rule, "rule", spacing?.rule);
+    this.model = model && file(model, decision, spacing?.model);
     this.saved = saved && file(saved.blob, saved.mode);
   }
 
@@ -639,6 +648,7 @@ function displaySelectedProof() {
   const {href, label} = displayedProof.selected;
   if (!nativeDesktop && preview.src !== href) preview.src = href;
   byId("proof-decision").textContent = "표시 중 · " + label;
+  showAppliedSpacing();
 }
 
 function editedDocumentOption() {
@@ -702,6 +712,8 @@ function showProof(proof, style, state = "current") {
     documentRevision++;
     markDirty("document", true);
   }
+  proof.manuscriptRevision = manuscriptRevision;
+  displayedVersion = state === "current" ? version : -1;
   displayedDocument = documentIdentity;
   const previous = displayedProof;
   displayedProof = proof;
@@ -714,7 +726,6 @@ function showProof(proof, style, state = "current") {
   preview.hidden = nativeDesktop || !inlinePdf;
   byId("viewer-fallback").hidden = nativeDesktop || inlinePdf;
   byId("placeholder").hidden = true;
-  displayedVersion = state === "current" ? version : -1;
   byId("proof-size").textContent = style ? `${style.page_mm.join(" × ")} mm · 본문 ${style.body_pt} pt` : "PDF";
   byId("applied-ratios").textContent = style ? spacingCaption(style) : "";
   statusText.textContent = proofStatus();
@@ -755,7 +766,7 @@ async function render(job) {
 }
 
 async function requestPdf(exporting) {
-  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
+  if (!paragraphDraftValid() || (pendingAlignmentEdit && !await pendingAlignmentEdit)) return;
   if (fileLoads.source || fileLoads.style) return;
   if (pending?.version === version) {
     pending.exporting ||= exporting;
@@ -931,7 +942,8 @@ function selectedLines(start, end) {
 
 async function requestPin() {
   const payload = {source: sourceText(), ...selectedLines(source.selectionStart, source.selectionEnd)};
-  const roles = Object.entries(typography.get().text_styles ?? {}).filter(([, fields]) => fields.align);
+  const roles = Object.entries(typography.get().text_styles ?? {}).filter(([, fields]) =>
+    fields.align || fields.space_before_pt != null || fields.space_after_pt != null);
   if (roles.length) payload.aligned_roles = roles.map(([role]) => role);
   const response = await fetch("/api/article/pin", {
     method: "POST", redirect: "error", headers: {"Content-Type": "application/json"},
@@ -958,6 +970,34 @@ function applyPinnedSource(text) {
 const paragraphAlign = byId("paragraph-align");
 paragraphAlign.add(new Option("양식 따르기", ""));
 for (const [label, value] of alignmentChoices) paragraphAlign.add(new Option(label, value));
+const paragraphSpacing = byId("paragraph-spacing");
+const individualSpacing = paragraphSpacingFields(paragraphSpacing, "양식 따르기");
+const spacingSources = {manual: "직접", style: "양식", ai: "AI", rule: "규칙 대체", default: "기본"};
+const spPerPt = settings.indent_units?.sp_per_pt;
+paragraphSpacing.hidden = !(spPerPt && settings.paragraph_spacing);
+let selectedParagraphLine = null;
+
+function showAppliedSpacing() {
+  const caption = byId("paragraph-spacing-applied");
+  if (paragraphSpacing.hidden) return;
+  const rows = displayedProof?.selected.rows;
+  if (!Array.isArray(rows) || displayedDocument !== documentIdentity ||
+      displayedProof.manuscriptRevision !== manuscriptRevision || !Number.isInteger(selectedParagraphLine)) {
+    caption.textContent = displayedProof ? "선택 문단 여백 · 미리보기 갱신 후 확인" : "";
+    return;
+  }
+  const boundary = (label, lineKey) => {
+    const row = rows.find(record => record?.[lineKey] === selectedParagraphLine);
+    if (!row) return label + " 경계 없음";
+    if (!Number.isSafeInteger(row.gap_sp) || row.gap_sp < 0 || !Object.hasOwn(spacingSources, row.source)) {
+      return label + " 확인 불가";
+    }
+    return label + " " + row.gap_sp / spPerPt + " pt · " + spacingSources[row.source];
+  };
+  const prefix = displayedVersion === version ? "선택 문단 적용 여백" : "이전 교정본의 선택 문단 여백";
+  caption.textContent = [prefix, boundary("위", "after_line"), boundary("아래", "before_line")].join(" / ");
+}
+
 const alignmentMessage = byId("paragraph-align-message");
 let alignmentTimer;
 let alignmentTarget;
@@ -965,9 +1005,9 @@ let lastAlignmentQuery;
 let alignmentQueue = Promise.resolve();
 let pendingAlignmentEdit = null;
 
-function queueAlignment(target, align) {
+function queueAlignment(target, patch) {
   // One worker per editor. Stale cursor lookups skip their turn before reading the manuscript.
-  alignmentQueue = alignmentQueue.then(() => updateAlignment(target, align));
+  alignmentQueue = alignmentQueue.then(() => updateAlignment(target, patch));
   return alignmentQueue;
 }
 
@@ -1044,19 +1084,19 @@ function applyAlignedSource(text, selection) {
   }
 }
 
-async function updateAlignment(target, align) {
+async function updateAlignment(target, patch) {
   if (target !== alignmentTarget || !currentTarget(target)) return;
   const lines = selectedLines(target.start, target.end);
-  const query = align === undefined;
+  const query = patch === undefined;
   const sameLines = lastAlignmentQuery?.revision === target.revision &&
     lastAlignmentQuery.first_line === lines.first_line && lastAlignmentQuery.last_line === lines.last_line;
   try {
     const data = query && sameLines ? lastAlignmentQuery.result :
-      await requestAlignment(query ? {source: sourceText(), ...lines} : {source: sourceText(), ...lines, align});
+      await requestAlignment({source: sourceText(), ...lines, ...(patch ?? (paragraphSpacing.hidden ? {} : {spacing: true}))});
     if (target !== alignmentTarget || !currentTarget(target)) return;
     const focus = document.activeElement;
     const output = ["save", "save-document", "refresh", "export"].includes(focus?.id);
-    if (!query && !output && ![source, paragraphAlign, document.body].includes(focus)) {
+    if (!query && !output && ![source, paragraphAlign, document.body].includes(focus) && !paragraphSpacing.contains(focus)) {
       alignmentTarget = null;
       scheduleAlignmentQuery();
       return;
@@ -1065,25 +1105,45 @@ async function updateAlignment(target, align) {
       applyAlignedSource(data.source, target);
       if (output) focus.focus({preventScroll: true});
     }
+    paragraphAlign.disabled = false;
     paragraphAlign.value = data.align ?? "";
     alignmentMessage.textContent = data.message;
-    if (query) lastAlignmentQuery = {...lines, revision: target.revision,
-      result: {align: data.align, message: data.message}};
+    if (!query && !Object.hasOwn(data, "start_line")) {
+      // Alignment-only replies use the legacy shape. Look up spacing at the restored selection.
+      alignmentTarget = null;
+      scheduleAlignmentQuery();
+    } else {
+      clearTimeout(alignmentTimer);
+      alignmentTarget = alignmentSelection();
+      selectedParagraphLine = data.start_line;
+      paragraphSpacing.disabled = !data.supported || !Number.isInteger(data.start_line);
+      for (const field of individualSpacing) field.set(data[field.key]);
+      const {source: updatedSource, ...result} = data;
+      lastAlignmentQuery = {...selectedLines(alignmentTarget.start, alignmentTarget.end), revision: manuscriptRevision,
+        result};
+      showAppliedSpacing();
+    }
     return data.supported;
   } catch (error) {
     if (target !== alignmentTarget || !currentTarget(target)) return;
     paragraphAlign.selectedIndex = -1;
-    alignmentMessage.textContent = error.message || "문단 정렬을 확인하지 못했습니다.";
+    paragraphAlign.disabled = false;
+    paragraphSpacing.disabled = !Number.isInteger(selectedParagraphLine);
+    alignmentMessage.textContent = error.message || "문단 설정을 확인하지 못했습니다.";
     alignmentTarget = null; // Retry a failed lookup on the next interaction.
   }
 }
 
 function scheduleAlignmentQuery() {
   if (settingsView) return;
-  paragraphAlign.disabled = Boolean(fileLoads.source);
   if (currentTarget(alignmentTarget)) return;
+  paragraphAlign.disabled = Boolean(fileLoads.source);
   clearTimeout(alignmentTimer);
   paragraphAlign.selectedIndex = -1;
+  paragraphSpacing.disabled = true;
+  for (const field of individualSpacing) field.set(null);
+  selectedParagraphLine = null;
+  showAppliedSpacing();
   alignmentMessage.textContent = "";
   if (paragraphAlign.disabled) {
     alignmentTarget = null;
@@ -1093,14 +1153,61 @@ function scheduleAlignmentQuery() {
   alignmentTimer = setTimeout(() => queueAlignment(target), 250);
 }
 
-paragraphAlign.addEventListener("change", () => {
+function editParagraph(patch) {
   clearTimeout(alignmentTimer);
   const target = alignmentTarget = alignmentSelection();
-  const edit = pendingAlignmentEdit = queueAlignment(target, paragraphAlign.value || null);
+  paragraphAlign.disabled = paragraphSpacing.disabled = true;
+  const edit = pendingAlignmentEdit = queueAlignment(target, patch);
   edit.finally(() => {
     if (pendingAlignmentEdit === edit) pendingAlignmentEdit = null;
   });
-});
+}
+paragraphAlign.addEventListener("change", () => editParagraph({align: paragraphAlign.value || null}));
+
+function validParagraphAmount(field) {
+  const [min, max] = settings.paragraph_spacing.range_pt;
+  const raw = field.input.value;
+  if (compareDecimal(raw, min) >= 0 && compareDecimal(raw, max) <= 0) return true;
+  field.input.setAttribute("aria-invalid", "true");
+  alignmentMessage.textContent = `문단 여백은 ${min}~${max} pt 범위의 수로 입력하세요.`;
+  return false;
+}
+
+function paragraphAmount(raw) {
+  const pt = Number(raw);
+  const scaled = pt * spPerPt;
+  const lower = Math.floor(scaled);
+  if (scaled - lower !== 0.5) return pt;
+  // A half-sp has at most 17 decimal places. JSON's shortest float can cross that boundary.
+  const roundUp = compareDecimal(raw, pt.toFixed(17)) >= 0;
+  return (lower + Number(roundUp)) / spPerPt;
+}
+
+function paragraphDraftValid() {
+  return paragraphSpacing.disabled || individualSpacing.every(field => field.mode.value !== "manual" || validParagraphAmount(field));
+}
+
+for (const field of individualSpacing) {
+  field.input.setAttribute("aria-describedby", alignmentMessage.id);
+  field.mode.addEventListener("change", () => {
+    alignmentMessage.textContent = "";
+    if (field.mode.value === "manual") field.input.focus();
+    else editParagraph({[field.key]: field.mode.value || null});
+  });
+  field.input.addEventListener("input", () => {
+    field.input.removeAttribute("aria-invalid");
+    alignmentMessage.textContent = "";
+  });
+  field.input.addEventListener("change", () => {
+    if (field.mode.value === "manual" && validParagraphAmount(field)) editParagraph({[field.key]: paragraphAmount(field.input.value)});
+  });
+  field.input.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (validParagraphAmount(field)) field.input.blur();
+    }
+  });
+}
 paragraphAlign.addEventListener("focus", scheduleAlignmentQuery);
 source.addEventListener("select", scheduleAlignmentQuery);
 source.addEventListener("selectionchange", scheduleAlignmentQuery);
@@ -1189,7 +1296,7 @@ bindFilePicker("import-source", "import-file", importManuscript);
 byId("refresh").addEventListener("click", () => requestPdf(false));
 byId("export").addEventListener("click", () => requestPdf(true));
 byId("save").addEventListener("click", async () => {
-  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
+  if (!paragraphDraftValid() || (pendingAlignmentEdit && !await pendingAlignmentEdit)) return;
   const revision = manuscriptRevision;
   const blob = new Blob([manuscriptFileText()], {type: "text/markdown;charset=utf-8"});
   if (await saveBlob(blob, byId("filename").textContent) && revision === manuscriptRevision) {

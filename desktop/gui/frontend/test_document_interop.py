@@ -40,7 +40,7 @@ class DocumentInteropTest(unittest.TestCase):
         self.exchange(external=True, consent=False)
 
     @unittest.skipUnless(os.getenv("JJOKGYEOL_NATIVE_RUNTIME"), "requires the packaged native typesetter")
-    def test_alignment_and_sizes_survive_web_native_exchange(self):
+    def test_paragraph_formatting_survives_web_native_exchange(self):
         self.exchange(external=True, aligned=True)
 
     def exchange(self, external=False, consent=True, aligned=False):
@@ -56,6 +56,14 @@ class DocumentInteropTest(unittest.TestCase):
             line = "| 구분 | 주요 내용 |\n| --- | --- |\n| 10.16. | Abel 첫 문단 |\n" if external else "첫 문단"
             if aligned:
                 line += "\n<!-- 쪽결 정렬=오른쪽 -->\n작성일과 작성자\n"
+                row = line[:line.index("작성일과 작성자")].count("\n")
+                edit = web.request.post(os.environ["JJOKGYEOL_REFERENCE_URL"].rstrip("/") + "/api/paragraph/align",
+                                        data={"source": line, "first_line": row, "last_line": row,
+                                              "space_after_pt": 7.25})
+                self.assertTrue(edit.ok, edit.text())
+                self.assertEqual(edit.json()["space_after_pt"], 7.25)
+                self.assertEqual(edit.json()["align"], "right")
+                line = edit.json()["source"]
             source = b"\xef\xbb\xbf# " + f"원고\r\n\r\n{line}\n끝\r".encode()
             expected = f"# 원고\n\n{line}\n끝\n"
             web.locator("#file").set_input_files({"name": "초고.md", "mimeType": "text/markdown", "buffer": source})
@@ -72,6 +80,9 @@ class DocumentInteropTest(unittest.TestCase):
                 roles.select_option("heading1")
                 size.fill("18.5")
                 align.select_option("center")
+                settings = web.locator("#text-roles")
+                settings.locator('[data-spacing-mode="space_after_pt"]').select_option("manual")
+                settings.locator('[data-spacing-value="space_after_pt"]').fill("10.5")
                 web.locator("#close-settings").click()
             if external:
                 web.locator("#open-fonts").click()
@@ -94,6 +105,7 @@ class DocumentInteropTest(unittest.TestCase):
                     self.assertEqual(stored["text_styles"]["body"]["align"], "left")
                     self.assertEqual(stored["text_styles"]["heading1"]["align"], "center")
                     self.assertEqual(stored["text_styles"]["heading1"]["font_sp"], 1212416)
+                    self.assertEqual(stored["text_styles"]["heading1"]["space_after_sp"], 688128)
                 manifest = json.loads(document.read("manifest.json"))
                 lock = json.loads((ROOT / "runtime.lock").read_text())
                 default_hashes = {row["sha256"] for family in lock["fonts"].values() for row in family.values()}

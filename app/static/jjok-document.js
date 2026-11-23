@@ -8,7 +8,7 @@ function documentError(error, message) {
 }
 
 byId("save-document").addEventListener("click", async () => {
-  if (pendingAlignmentEdit && !await pendingAlignmentEdit) return;
+  if (!paragraphDraftValid() || (pendingAlignmentEdit && !await pendingAlignmentEdit)) return;
   if (savingDocument !== null || fileLoads.source || fileLoads.style) return;
   const identity = documentIdentity;
   const revision = documentRevision;
@@ -63,6 +63,7 @@ function clearDocumentProof() {
   displayedProof?.release();
   displayedProof = null;
   displayedVersion = displayedDocument = -1;
+  showAppliedSpacing();
   clearSavedChoice();
 }
 

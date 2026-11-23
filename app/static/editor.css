@@ -175,3 +175,10 @@ legend { font-weight: 650; color: var(--muted); font-size: .8rem; }
 #font-message:not(:empty), #font-fallback:not(:empty) { margin-bottom: .65rem; color: var(--accent); }
 #font-evidence section { border-top: 1px solid var(--line); margin-top: .75rem; }
 #font-evidence p { white-space: pre-wrap; }
+
+#paragraph-spacing { margin-block: .5rem; }
+.spacing-fields:not([hidden]), .spacing-field { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; }
+.settings-grid .spacing-fields:not([hidden]) { display: grid; }
+.settings-grid .spacing-field { display: grid; }
+.spacing-field label[hidden] { display: none; }
+#paragraph-spacing-applied { margin-top: .55rem; font-size: .85rem; color: var(--muted); }
