@@ -52,15 +52,15 @@
 
 ## 작업 3. AI 줄 간격 후보와 교정본 전달
 
-**Files** app/ai/decision.py, app/ai/model.py, app/ai/providers.py, app/config/publication.json, app/publication.py, app/jobs.py, desktop/worker/worker.py, desktop/src/decision.rs, tests/test_spacing_decision.py, tests/test_spacing_transport.py, desktop/tests/runner.rs.
+**Files** app/ai/decision.py, app/ai/model.py, app/ai/providers.py, app/config/decision.json, app/jobs.py, desktop/worker/worker.py, desktop/worker/tests/test_worker.py, desktop/src/decision.rs, tests/test_spacing_decision.py, tests/test_spacing_transport.py, desktop/tests/runner.rs.
 
 **Interfaces** 줄 간격 지원 모델에 predict_leading(options, *, timeout)을 추가한다. 검증 후 기존 간격 응답 객체에 선택 필드 leading을 붙이고, 그 안의 rule/model 목록에는 해당 PDF의 line, leading_sp, source를 담는다. 기존 spacing.rule과 spacing.model 목록은 유지한다. 웹 multipart와 데스크톱 바이너리 헤더 모두 기존 간격 요청 플래그를 사용한다.
 
-- [ ] **RED.** 두 줄 이상으로 인쇄되는 자동 문단에서 고정 시험 모델이 선택한 합법 후보의 기준선 거리와 leading_sp가 일치하는지 검사한다. 다른 후보 ID, 모델 미지원, 타임아웃, 모델 결과로 쪽 경계가 달라지는 지면의 측정값, 이전 교정본을 돌려주는 데스크톱 러너의 메타데이터도 검사한다.
-- [ ] **실패 확인.** pytest -q tests/test_spacing_decision.py tests/test_spacing_transport.py와 cargo test --locked --manifest-path desktop/Cargo.toml에서 모델 호출 또는 전달 누락으로 새 케이스가 실패하는지 확인한다.
-- [ ] **구현.** 규칙 줄 간격 및 그 95%, 105%에 해당하는 안전 후보를 공유 출판 정책으로 읽고 중복을 제거한다. 전체 간격 요청에 기존 문서별 호출 한도와 기한을 적용한다. 기존 측정과 비교해 확정된 줄바꿈과 수평 배치를 보존한 경우에만 새 지면을 채택한다. 수직 재조판에서 후보 ID가 바뀌면 현재 문단 카탈로그에서 동일한 줄과 수평 배치를 찾아 검증한다. 선택값과 실제 비교 가능한 기준선 거리가 모두 일치해야 적용값을 공개한다. 검증 실패나 기한 초과에는 마지막으로 확정한 PDF와 그 측정 파일을 함께 반환한다.
-- [ ] **GREEN.** 같은 Python 및 Cargo 명령에 더해 tests/test_provider_render.py와 desktop/worker/tests/test_worker.py를 실행한다.
-- [ ] 작업 단위로 커밋한다.
+- [x] **RED.** 두 줄 이상으로 인쇄되는 자동 문단에서 고정 시험 모델이 선택한 합법 후보의 기준선 거리와 leading_sp가 일치하는지 검사한다. 다른 후보 ID, 모델 미지원, 타임아웃, 모델 결과로 쪽 경계가 달라지는 지면의 측정값, 이전 교정본을 돌려주는 데스크톱 러너의 메타데이터도 검사한다. 웹 plain/paired 및 Rust 바이너리 헤더의 줄 간격 수신과 이전 클라이언트 응답 형태를 포함한다.
+- [x] **실패 확인.** pytest -q tests/test_spacing_decision.py tests/test_spacing_transport.py와 cargo test --locked --manifest-path desktop/Cargo.toml에서 모델 호출 또는 전달 누락으로 새 케이스가 실패하는지 확인한다.
+- [x] **구현.** 규칙 줄 간격 및 그 95%, 105%에 해당하는 안전 후보를 공유 출판 정책에서 읽고 중복을 제거한다. 전체 간격 요청에 기존 문서별 호출 한도와 기한을 적용한다. 기존 측정과 비교해 확정된 줄바꿈과 수평 배치를 보존한 경우에만 새 지면을 채택한다. 선택값과 실제 비교 가능한 기준선 거리가 모두 일치해야 적용값을 공개한다. 검증 실패나 기한 초과에는 마지막으로 확정한 PDF와 그 측정 파일을 함께 반환한다. 웹과 데스크톱은 검증된 간격·줄 간격 측정만 전달하며 이전 설정 파일도 읽는다.
+- [x] **GREEN.** tests/test_spacing_decision.py, tests/test_spacing_transport.py, tests/test_provider_render.py, desktop/worker/tests/test_worker.py와 cargo test --locked --manifest-path desktop/Cargo.toml을 실행한다.
+- [x] 작업 단위로 커밋한다.
 
 ## 작업 4. 하단 패널, 편집 메뉴와 진행 상태
 

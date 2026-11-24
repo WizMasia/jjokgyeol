@@ -475,15 +475,24 @@ fn optional_spacing_matches_rule_and_selected_pdfs_and_excludes_private_fields()
         .unwrap();
         let end = 4 + u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
         let header: serde_json::Value = serde_json::from_slice(&frame[4..end]).unwrap();
-        let rule = serde_json::json!([{"before_line":0,"after_line":2,"gap_sp":0,"source":"rule"}]);
+        let rule = serde_json::json!([{"before_line":0,"after_line":2,"gap_sp":0,"source":"rule","page_break":true}]);
         let selected =
             serde_json::json!([{"before_line":0,"after_line":2,"gap_sp":360448,"source":"ai"}]);
+        let rule_leading = serde_json::json!([
+            {"line":7,"leading_sp":1179648,"source":"manual","variable":false},
+            {"line":8,"leading_sp":null,"source":"manual","variable":true}
+        ]);
+        let model_leading = serde_json::json!([
+            {"line":7,"leading_sp":1245184,"source":"ai","variable":false},
+            {"line":8,"leading_sp":null,"source":"ai","variable":true}
+        ]);
         assert_eq!(
             header["spacing"],
             if source == "mixed" {
-                serde_json::json!({"rule":rule,"model":selected})
+                serde_json::json!({"rule":rule,"model":selected,
+                    "leading":{"rule":rule_leading,"model":model_leading}})
             } else {
-                serde_json::json!({"rule":rule})
+                serde_json::json!({"rule":rule,"leading":{"rule":rule_leading}})
             }
         );
         assert!(frame[end..].starts_with(b"%PDF-1.4\nrule\n%%EOF\n"));
@@ -507,5 +516,33 @@ fn failed_spacing_worker_returns_committed_line_replay_with_its_receipt() {
     assert_eq!(header["decision"], "mixed");
     assert_eq!(header["reason"], "invalid_response");
     assert_eq!(header["spacing"]["model"][0]["gap_sp"], 0);
+    assert_eq!(header["spacing"]["leading"]["rule"][0]["source"], "manual");
+    assert_eq!(header["spacing"]["leading"]["model"][0]["line"], 9);
+    assert_eq!(
+        header["spacing"]["leading"]["model"][0]["leading_sp"],
+        1310720
+    );
     assert!(frame[end..].ends_with(b"%PDF-line\n%%EOF"));
+}
+
+#[test]
+fn spacing_receipt_without_leading_file_keeps_legacy_shape() {
+    let (runtime, _root) = setup();
+    let request = br#"{"source":"no-leading","key":"test-only-secret"}"#.to_vec();
+    let frame = jjokgyeol_proof::render_preview(
+        &runtime,
+        request,
+        std::time::Duration::from_secs(5),
+        false,
+        true,
+    )
+    .unwrap();
+    let end = 4 + u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+    let header: serde_json::Value = serde_json::from_slice(&frame[4..end]).unwrap();
+    assert_eq!(
+        header["spacing"],
+        serde_json::json!({"rule":[
+        {"before_line":0,"after_line":2,"gap_sp":0,"source":"rule","page_break":true}
+    ],"model":[{"before_line":0,"after_line":2,"gap_sp":360448,"source":"ai"}]})
+    );
 }

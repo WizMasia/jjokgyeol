@@ -202,6 +202,7 @@ def test_failed_or_unsupported_leading_keeps_last_verified_pdf_and_receipt(tmp_p
     doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n자동 줄 간격 본문")
     pdf, status, reason = render(tmp_path, model, engine, doc)
     assert pdf == b"%PDF-replay\n%%EOF"
+    assert status == "mixed"
     assert report(tmp_path) == report(tmp_path / "measure")
     assert json.loads((tmp_path / "leading.json").read_text()) == engine.leading_rows
     assert reason == ("unavailable" if fault == "unsupported" else
@@ -318,7 +319,7 @@ def test_failed_spacing_returns_accepted_line_pdf_and_its_own_report(tmp_path, f
         model.predict_spacing = expire
     engine = Engine([boundary(2, source="style"), boundary(3)], damage=damage)
     pdf, status, reason = render(tmp_path, model, engine)
-    assert (pdf, status, reason) == (b"%PDF-replay\n%%EOF", "model",
+    assert (pdf, status, reason) == (b"%PDF-replay\n%%EOF", "mixed",
                                      "timeout" if fault == "timeout" else "invalid_response")
     assert report(tmp_path) == report(tmp_path / "replay")
 
@@ -329,7 +330,7 @@ def test_legacy_line_only_selector_preserves_lines_and_rule_spacing(tmp_path):
             return "other"
 
     engine = Engine([boundary(2)])
-    assert render(tmp_path, Lines(), engine) == (b"%PDF-replay\n%%EOF", "model", "unavailable")
+    assert render(tmp_path, Lines(), engine) == (b"%PDF-replay\n%%EOF", "mixed", "unavailable")
     assert len(engine.calls) == 2 and report(tmp_path) == report(tmp_path / "replay")
 
 
@@ -344,7 +345,7 @@ def test_late_spacing_result_cannot_replace_validated_lines(tmp_path, monkeypatc
         return pdf
 
     assert render(tmp_path, Selector(), Engine([boundary(2)], damage=late)) == (
-        b"%PDF-replay\n%%EOF", "model", "timeout")
+        b"%PDF-replay\n%%EOF", "mixed", "timeout")
     assert report(tmp_path) == report(tmp_path / "replay")
 
 

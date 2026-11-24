@@ -360,6 +360,8 @@ def render_provider_choice(doc, style, workdir, deadline, connection, *, typeset
                 reason = error.code
             except (*MODEL_ERRORS, subprocess.CalledProcessError, InputError):
                 reason = "invalid_response"
+            if reason and status == "model":
+                status = "mixed"
         if (folder / "spacing.json").is_file():
             copyfile(folder / "spacing.json", workdir / "spacing.json")
         if (folder / "leading.json").is_file():

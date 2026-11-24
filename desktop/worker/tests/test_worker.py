@@ -556,13 +556,16 @@ def test_native_plain_receipt_renders_with_plain_typesetting_options(tmp_path, m
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(worker, "limit_worker_files", lambda size: None)
     monkeypatch.setattr(sys, "argv", ["worker", "--plain-proof", str(tmp_path), "--spacing-receipt"])
-    payload = json.dumps({"source": "test", "style": Style().to_stored()}).encode()
+    payload = json.dumps({"source": "<!-- 쪽결 leading_sp=1179648 -->\nmanual", "style": Style().to_stored()}).encode()
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(payload)))
 
-    def typesetter(doc, style, folder, *, collect_candidates=False, collect_spacing=False):
-        assert collect_spacing and not collect_candidates
+    def typesetter(doc, style, folder, *, collect_candidates=False, collect_spacing=False, collect_leading=False):
+        assert collect_spacing and collect_leading and not collect_candidates
         (folder / "book.pdf").write_bytes(pdf)
         (folder / "spacing.json").write_text(json.dumps([row]))
+        (folder / "leading.json").write_text(json.dumps([{
+            "line": 1, "leading_sp": 1179648, "source": "manual", "variable": False
+        }]))
         return pdf
 
     monkeypatch.setattr(worker, "bundled_typesetter", lambda runtime: typesetter)
@@ -570,3 +573,4 @@ def test_native_plain_receipt_renders_with_plain_typesetting_options(tmp_path, m
     assert (tmp_path / "baseline-ready").is_file()
     assert (tmp_path / "measure/book.pdf").read_bytes() == pdf
     assert json.loads((tmp_path / "measure/spacing.json").read_bytes()) == [row]
+    assert json.loads((tmp_path / "measure/leading.json").read_bytes())[0]["source"] == "manual"

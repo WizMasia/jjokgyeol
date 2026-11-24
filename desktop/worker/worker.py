@@ -165,7 +165,7 @@ def render_decision(runtime, request, deadline, connection, reason, *, plain=Fal
     doc, style = manuscript(request)
     bundled = bundled_typesetter(runtime)
     if with_spacing:
-        bundled = partial(bundled, collect_spacing=True)
+        bundled = partial(bundled, collect_spacing=True, collect_leading=True)
     workdir = Path.cwd()
     measure = workdir / 'measure'
 

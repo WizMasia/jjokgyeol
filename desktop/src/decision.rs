@@ -234,8 +234,8 @@ pub fn render_model_proof(
 fn read_spacing(folder: &Path, limit: u64) -> Option<Value> {
     let data = read_limited(&folder.join("spacing.json"), limit).ok()?;
     let rows: Vec<Value> = serde_json::from_slice(&data).ok()?;
-    let coordinate = |v: &Value| v.as_u64().filter(|n| *n <= (1 << 53) - 1);
-    let measured = rows
+    let coordinate = |value: &Value| value.as_u64().filter(|number| *number <= (1 << 53) - 1);
+    let measured: Vec<Value> = rows
         .iter()
         .filter_map(|row| {
             let source = row["source"].as_str()?;
@@ -244,15 +244,62 @@ fn read_spacing(folder: &Path, limit: u64) -> Option<Value> {
             {
                 return None;
             }
-            Some(json!({
-                "before_line": coordinate(&row["before_line"])?,
-                "after_line": coordinate(&row["after_line"])?,
-                "gap_sp": coordinate(&row["gap_sp"])?,
+            let mut public = json!({
+                "before_line": coordinate(&row["before_line"] )?,
+                "after_line": coordinate(&row["after_line"] )?,
+                "gap_sp": coordinate(&row["gap_sp"] )?,
                 "source": source,
-            }))
+            });
+            if coordinate(&row["gap_sp"]) == Some(0)
+                && coordinate(&row["left_page"]).is_some_and(|left| {
+                    coordinate(&row["page"]).is_some_and(|page| left > 0 && left < page)
+                })
+            {
+                public["page_break"] = json!(true);
+            }
+            Some(public)
         })
         .collect();
     Some(Value::Array(measured))
+}
+
+fn read_leading(folder: &Path, limit: u64) -> Option<Value> {
+    let data = read_limited(&folder.join("leading.json"), limit).ok()?;
+    let rows: Vec<Value> = serde_json::from_slice(&data).ok()?;
+    let coordinate = |value: &Value| value.as_u64().filter(|number| *number <= (1 << 53) - 1);
+    let measured: Vec<Value> = rows
+        .iter()
+        .filter_map(|row| {
+            let source = row["source"].as_str()?;
+            if !matches!(source, "manual" | "style" | "ai" | "rule" | "default")
+                || coordinate(&row["line"]).is_none()
+                || coordinate(&row["lines"]).map_or(true, |lines| lines < 2)
+            {
+                return None;
+            }
+            let variable = row["variable"].as_bool()?;
+            let leading_sp = if variable {
+                if row["valid"] != false || !row.get("leading_sp").is_some_and(Value::is_null) {
+                    return None;
+                }
+                Value::Null
+            } else {
+                if row["valid"] != true
+                    || coordinate(&row["leading_sp"]).map_or(true, |leading| leading == 0)
+                {
+                    return None;
+                }
+                row["leading_sp"].clone()
+            };
+            Some(json!({
+                "line": coordinate(&row["line"] )?,
+                "leading_sp": leading_sp,
+                "source": source,
+                "variable": variable,
+            }))
+        })
+        .collect();
+    (!measured.is_empty()).then_some(Value::Array(measured))
 }
 
 pub fn render_preview(
@@ -335,9 +382,15 @@ pub fn render_preview(
         if let Some(rows) = read_spacing(&path.join("measure"), cap) {
             header["spacing"]["rule"] = rows;
         }
+        if let Some(rows) = read_leading(&path.join("measure"), cap) {
+            header["spacing"]["leading"]["rule"] = rows;
+        }
         if !selected.is_empty() {
             if let Some(rows) = read_spacing(&selected_folder, cap) {
                 header["spacing"]["model"] = rows;
+            }
+            if let Some(rows) = read_leading(&selected_folder, cap) {
+                header["spacing"]["leading"]["model"] = rows;
             }
         }
     }
