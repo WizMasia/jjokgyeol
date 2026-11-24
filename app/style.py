@@ -120,7 +120,8 @@ def leading_sp(value, *, stored=False):
         context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
         amount = _number(value, stored, context)
         scale = SP_PER_PT if stored else 1
-        if not 1 <= amount <= MAX_DIMENSION_PT * scale:
+        minimum = 1 if stored else Decimal(1) / SP_PER_PT
+        if not minimum <= amount <= MAX_DIMENSION_PT * scale:
             raise ValueError(f"줄 간격은 1/65536pt 이상, {MAX_DIMENSION_PT}pt 이하로 입력하세요.")
         return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
 

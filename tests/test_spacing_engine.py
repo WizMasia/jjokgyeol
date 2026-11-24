@@ -57,8 +57,7 @@ def test_explicit_zero_document_gap_removes_the_four_point_default(tmp_path):
 
 def test_manual_leading_changes_only_vertical_body_baselines_and_reports_measurement(tmp_path):
     text = "늘 푸른 산과 강을 따라 걷는다 " * 5
-    doc = parse_md(text)
-    doc.blocks[0].leading_sp = 18 * SP
+    doc = parse_md(f"<!-- 쪽결 leading_sp={18 * SP} -->\n{text}")
     pages = render(tmp_path / "leading", doc, Style(), collect_leading=True)
     chars = [c for page in pages for line in page.lines for c in line.chars]
     first_lines = [line for page in pages for line in page.lines if line.chars]
@@ -74,8 +73,7 @@ def test_manual_leading_changes_only_vertical_body_baselines_and_reports_measure
 
 
 def test_auto_leading_choice_is_applied_and_identified_in_private_receipt(tmp_path):
-    doc = parse_md("자동 간격을 선택할 본문 " * 4)
-    doc.blocks[0].leading_sp = "auto"
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n" + "자동 간격을 선택할 본문 " * 4)
     pages = render(tmp_path / "auto-leading", doc, Style(), leading_choices={"1": 18 * SP})
     assert pages
     row, = json.loads((tmp_path / "auto-leading" / "leading.json").read_text())
@@ -85,16 +83,14 @@ def test_auto_leading_choice_is_applied_and_identified_in_private_receipt(tmp_pa
 def test_leading_choices_reject_unknown_or_out_of_range_values(tmp_path):
     from app.document import InputError
 
-    doc = parse_md("자동 간격 본문")
-    doc.blocks[0].leading_sp = "auto"
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n자동 간격 본문")
     with pytest.raises(InputError, match="줄 간격"):
         render(tmp_path / "invalid-leading", doc, Style(), leading_choices={"1": 0})
 
 
 def test_heading_and_one_line_leading_measurements_are_distinguished(tmp_path):
-    doc = parse_md("# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목\n\n한 줄 본문")
-    doc.blocks[0].leading_sp = 18 * SP
-    doc.blocks[1].leading_sp = 20 * SP
+    doc = parse_md(f"<!-- 쪽결 leading_sp={18 * SP} -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목\n\n"
+                   f"<!-- 쪽결 leading_sp={20 * SP} -->\n한 줄 본문")
     style = apply_style(Style(), {"page_mm": [70, 90], "margins_mm": [10] * 4})
     pages = render(tmp_path / "heading-leading", doc, style, collect_leading=True)
     assert pages
@@ -105,14 +101,57 @@ def test_heading_and_one_line_leading_measurements_are_distinguished(tmp_path):
 
 
 def test_multipage_leading_report_excludes_cross_page_baselines(tmp_path):
-    doc = parse_md("바람이 부는 들판을 천천히 걸으며 " * 120)
-    doc.blocks[0].leading_sp = 18 * SP
+    doc = parse_md("<!-- 쪽결 leading_sp=1179648 -->\n" + "바람이 부는 들판을 천천히 걸으며 " * 120)
     style = apply_style(Style(), {"page_mm": [66, 50], "margins_mm": [8] * 4})
     pages = render(tmp_path / "page-leading", doc, style, collect_leading=True)
     assert len(pages) > 1
     row, = json.loads((tmp_path / "page-leading" / "leading.json").read_text())
     assert row["lines"] > 2 and row["leading_sp"] == 18 * SP and row["valid"]
-    assert row["line"] == 0
+    assert row["line"] == 1
+
+
+def test_tex_lineskip_reports_variable_leading_as_no_single_value(tmp_path):
+    text = "가나다라 " * 6 + "gypq " * 12 + "마바사아 " * 7
+    doc = parse_md(f"<!-- 쪽결 leading_sp={SP} -->\n{text}")
+    style = apply_style(Style(), {"page_mm": [50, 110], "margins_mm": [8] * 4})
+    pages = render(tmp_path / "variable-leading", doc, style, collect_leading=True)
+    lines = [line for page in pages for line in page.lines if line.chars]
+    distances = [round((a.chars[0].baseline - b.chars[0].baseline) * 72 / 72.27, 3)
+                 for a, b in zip(lines, lines[1:])]
+    assert len(set(distances)) > 1
+    row, = json.loads((tmp_path / "variable-leading" / "leading.json").read_text())
+    assert row["variable"] and row["leading_sp"] is None and not row["valid"]
+
+
+def test_auto_heading_leading_uses_rule_value_in_markdown(tmp_path):
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목")
+    pages = render(tmp_path / "auto-heading", doc, Style(), collect_leading=True)
+    assert pages
+    row, = json.loads((tmp_path / "auto-heading" / "leading.json").read_text())
+    assert row["auto"] and row["source"] == "rule" and row["leading_sp"] > 0
+
+
+def test_framed_heading_leading_receipt_counts_inner_baselines(tmp_path):
+    doc = parse_md("<!-- 쪽결 leading_sp=1179648 -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목")
+    style = apply_style(Style(), {"page_mm": [50, 110], "margins_mm": [8] * 4,
+                                  "text_styles": {"heading1": {"frame": "box"}}})
+    pages = render(tmp_path / "framed-leading", doc, style, collect_leading=True)
+    pdf_lines = [line for page in pages for line in page.lines if line.chars]
+    row, = json.loads((tmp_path / "framed-leading" / "leading.json").read_text())
+    assert len(pdf_lines) > 1 and row["lines"] == len(pdf_lines) and row["valid"]
+    assert row["leading_sp"] == 1179648
+
+
+def test_leading_choice_uses_final_fence_list_block_id(tmp_path):
+    source = ("- 항목\n\n~~~\n코드\n~~~\n\n<!-- 쪽결 leading_sp=auto -->\n" +
+              "자동 문단 문장이 길게 출력되어 여러 줄이 필요합니다. " * 5)
+    doc = parse_md(source)
+    assert [block.kind for block in doc.blocks] == ["list_item", "paragraph", "paragraph"]
+    pages = render(tmp_path / "reindexed-leading", doc, Style(), leading_choices={"3": 18 * SP})
+    assert pages
+    rows = json.loads((tmp_path / "reindexed-leading" / "leading.json").read_text())
+    chosen, = [row for row in rows if row["id"] == "3"]
+    assert chosen["line"] == 7 and chosen["source"] == "ai" and chosen["auto"]
 
 
 def test_leading_collection_and_receipt_do_not_change_default_pdf_or_candidates(tmp_path):
@@ -129,7 +168,7 @@ def test_leading_collection_and_receipt_do_not_change_default_pdf_or_candidates(
     assert candidate_ids(tmp_path / "ordinary") == candidate_ids(tmp_path / "collected")
     rows = json.loads((tmp_path / "collected" / "leading.json").read_text())
     assert all(set(row) == {"id", "line", "leading_sp", "source", "auto", "font_sp", "lines",
-                            "remaining_sp", "valid"} for row in rows)
+                            "remaining_sp", "valid", "variable"} for row in rows)
 
 
 def test_frame_and_table_receive_one_exterior_gap(tmp_path):

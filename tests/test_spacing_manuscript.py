@@ -3,7 +3,7 @@ import pytest
 from app.article_edit import toggle_pin
 from app.document import InputError, heading_tokens, parse_md
 from app.paragraph_edit import edit_alignment
-from app.style import SP_PER_PT
+from app.style import SP_PER_PT, Style
 
 
 RIGHT = "<!-- 쪽결 정렬=오른쪽 -->"
@@ -28,7 +28,8 @@ def test_mixed_markers_query_preserves_bytes_and_maps_content_lines():
     assert (second.align, second.space_before_sp, second.space_after_sp) == ("right", 81921, "auto")
 
 
-@pytest.mark.parametrize(("value", "stored"), [(18, 1179648), (80, 5242880), ("auto", "auto"), (None, None)])
+@pytest.mark.parametrize(("value", "stored"), [(18, 1179648), (80, 5242880),
+                                                  ("0.0000152587890625", 1), ("auto", "auto"), (None, None)])
 def test_leading_edit_preserves_bom_mixed_endings_and_reports_legacy_shape(value, stored):
     source = "\ufeff첫 줄\r\n둘째 줄\r\n\r셋째 줄\n\n끝"
     result = edit(source, 1, leading_pt=value)
@@ -134,6 +135,26 @@ def test_invalid_leading_reports_its_field(value):
     with pytest.raises(InputError) as error:
         edit("내용", leading_pt=value)
     assert error.value.field == "leading_pt"
+
+
+@pytest.mark.parametrize("value", [0, -1, 1073676289])
+def test_stored_leading_rejects_out_of_range_sp(value):
+    from app.document import paragraph_marker
+
+    assert paragraph_marker(f"<!-- 쪽결 leading_sp={value} -->") is None
+
+
+def test_leading_edit_round_trips_into_printed_document(tmp_path):
+    from app.typeset import typeset
+    from pdf_metrics import read_pages
+
+    edited = edit("첫 줄 둘째 줄 셋째 줄 " * 8, 0, leading_pt=18)
+    doc = parse_md(edited["source"])
+    folder = tmp_path / "leading-edit"
+    folder.mkdir()
+    pages = read_pages(typeset(doc, Style(), folder))
+    lines = [line for page in pages for line in page.lines if line.chars]
+    assert lines[0].chars[0].baseline - lines[1].chars[0].baseline == pytest.approx(18 * 72 / 72.27, abs=.02)
 
 
 def test_spacing_opt_in_requires_a_boolean():

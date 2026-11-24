@@ -564,6 +564,7 @@ def _document(layout, notes, switches=None):
                     blocks[-1].align = target.align
                     blocks[-1].space_before_sp = target.space_before_sp
                     blocks[-1].space_after_sp = target.space_after_sp
+                    blocks[-1].leading_sp = target.leading_sp
         elif token.type == "table_open":
             blocks.append(Table("table", []))
         elif token.type == "tr_open":

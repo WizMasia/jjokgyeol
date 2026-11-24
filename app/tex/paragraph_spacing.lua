@@ -22,7 +22,7 @@ return function(boundaries, default_gap, leading_request)
         source=selected and "ai" or type(leading) == "number" and "manual" or "rule",
         auto=leading == "auto" or selected, font_sp=font_sp,
         line=leading_request.lines[tostring(index)],
-        lines=0, remaining_sp=0, valid=false}
+        lines=0, remaining_sp=0, valid=false, variable=false}
     end
   end
 
@@ -32,6 +32,34 @@ return function(boundaries, default_gap, leading_request)
   end
 
   function spacing.measure_frame(box)
+    local leading = leading_rows[tex.getattribute(block_id)]
+    local distances, count = {}, 0
+    local function baselines(head)
+      local previous, glue_amount = nil, 0
+      for n in node.traverse(head) do
+        if n.id == glue then
+          if previous then glue_amount = glue_amount + math.round(node.effective_glue(n, head)) end
+        elseif n.id == kern then
+          if previous then glue_amount = glue_amount + n.kern end
+        elseif n.id == hlist or n.id == vlist then
+          if n.id == hlist and n.subtype == 1 then
+            count = count + 1
+            if previous then distances[#distances + 1] = previous.depth + glue_amount + n.height end
+            previous, glue_amount = n, 0
+          else
+            baselines(n.head)
+          end
+        end
+      end
+    end
+    baselines(box.head)
+    if leading then
+      leading.lines = count
+      for _, distance in ipairs(distances) do
+        if leading.leading_sp == nil then leading.leading_sp = distance
+        elseif leading.leading_sp ~= distance then leading.leading_sp, leading.variable = "different", true end
+      end
+    end
     local function lines(head)
       local count = 0
       for n in node.traverse(head) do
@@ -68,13 +96,13 @@ return function(boundaries, default_gap, leading_request)
         if prior_line then line_glue = line_glue + n.kern end
       elseif n.id == hlist or n.id == vlist or n.id == rule then
         local id = node.has_attribute(n, block_id)
-        if n.id == hlist and id and leading_rows[id] then
+        if n.id == hlist and id and leading_rows[id] and not frame_lines[id] then
           local row = leading_rows[id]
           row.lines = row.lines + 1
           if prior_line and prior_id == id then
             local distance = prior_line.depth + line_glue + n.height
             if row.leading_sp == nil then row.leading_sp = distance
-            elseif row.leading_sp ~= distance then row.leading_sp = "different" end
+            elseif row.leading_sp ~= distance then row.leading_sp, row.variable = "different", true end
           end
           prior_line, prior_id, line_glue = n, id, 0
         elseif n.id ~= glue then

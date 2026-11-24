@@ -341,7 +341,8 @@ function book.blocks()
     end
     if block.kind == "heading" then
       local size = values.font_sp or scaled_size(style.body_sp, policy.heading_per_10000[block.level])
-      local leading = values.leading_sp or block.leading_sp or scaled_size(size, policy.heading_leading_per_10000)
+      local leading = values.leading_sp or (type(block.leading_sp) == "number" and block.leading_sp) or
+        scaled_size(size, policy.heading_leading_per_10000)
       local command = values.frame == "box" and "\\bookframedheading" or "\\bookheading"
       emit(command .. "{" .. sp(size) .. "}{" .. sp(leading) .. "}{")
       appearance(values)

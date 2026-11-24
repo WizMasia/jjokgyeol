@@ -152,15 +152,6 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                     for role, fields in role_styles.items()}
     prose_roles = aligned_roles | {role for role, sides in role_spacing.items() if sides}
     doc = doc.alignment_layout(prose_roles)
-    if leading_choices is not None:
-        eligible_leading = {str(i + 1) for i, block in enumerate(doc.blocks) if block.leading_sp == "auto"}
-        if not isinstance(leading_choices, dict) or leading_choices.keys() - eligible_leading:
-            raise InputError({"leading": "선택한 자동 줄 간격 문단을 확인하세요."})
-        try:
-            leading_choices = {key: validate_leading_sp(value, stored=True)
-                               for key, value in leading_choices.items()}
-        except ValueError:
-            raise InputError({"leading": "선택한 줄 간격 값을 확인하세요."}) from None
     levels = style.resolved_list_levels()
     spaced_levels = {i for i, row in enumerate(levels, 1)
                      if row.space_before_sp is not None or row.space_after_sp is not None}
@@ -189,17 +180,26 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                 sides.append((value, "manual") if value is not None else
                              (inherited[field], "style") if inherited.get(field) is not None else None)
             values["spacing"] = sides
-        leading = block.leading_sp
-        if leading == "auto":
-            leading = (leading_choices or {}).get(str(index + 1))
-        if type(leading) is int:
-            values["leading_sp"] = leading
+        if type(block.leading_sp) is int:
+            values["leading_sp"] = block.leading_sp
         if direct := getattr(block, "align", None):
             values["align"] = direct
         elif index not in eligible:
             values.pop("align", None)
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
+    if leading_choices is not None:
+        eligible_leading = {str(i + 1) for i, block in enumerate(doc.blocks) if block.leading_sp == "auto"}
+        if not isinstance(leading_choices, dict) or leading_choices.keys() - eligible_leading:
+            raise InputError({"leading": "선택한 자동 줄 간격 문단을 확인하세요."})
+        try:
+            leading_choices = {key: validate_leading_sp(value, stored=True)
+                               for key, value in leading_choices.items()}
+        except ValueError:
+            raise InputError({"leading": "선택한 줄 간격 값을 확인하세요."}) from None
+        for index, block in enumerate(doc.blocks):
+            if block.leading_sp == "auto" and str(index + 1) in leading_choices:
+                overrides[index]["leading_sp"] = leading_choices[str(index + 1)]
     blocks = [asdict(block) for block in doc.blocks]
     for block in blocks:
         if block["leading_sp"] is None:
