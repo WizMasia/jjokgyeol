@@ -140,7 +140,9 @@ try {
     $identityType = [Security.Principal.SecurityIdentifier]
     $rx = [Security.AccessControl.FileSystemRights]::ReadAndExecute
     function Confirm-RuntimeAccess($item) {
-        $rules = (Get-Acl -LiteralPath $item.FullName).GetAccessRules($true, $true, $identityType)
+        # The launcher's Windows PowerShell host may not load Microsoft.PowerShell.Security.
+        $acl = $item.GetAccessControl([Security.AccessControl.AccessControlSections]::Access)
+        $rules = $acl.GetAccessRules($true, $true, $identityType)
         foreach ($sid in $sids) {
             $matching = @($rules | Where-Object {
                 $_.IdentityReference.Value -eq $sid -and $_.PropagationFlags -eq 'None'

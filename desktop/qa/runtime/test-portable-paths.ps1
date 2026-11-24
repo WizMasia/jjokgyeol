@@ -1,13 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $helper = Join-Path $PSScriptRoot '../../release/portable/Other/Source/prepare-webview.ps1'
-$powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+$powershell = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('jjok-paths-' + [guid]::NewGuid().ToString('N'))
 $outside = Join-Path $work 'outside'
 $sentinel = Join-Path $outside 'keep.ini'
 
 function Test-Guard([string]$Root, [string[]]$Phase, [string]$Expected = '') {
-    $log = & $powershell -NoProfile -NonInteractive -File $helper -Root $Root @Phase 2>&1
+    $log = & $powershell -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $helper -Root $Root @Phase 2>&1
     $code = $LASTEXITCODE
     if ($Expected) {
         if ($code -ne 1 -or ($log | Out-String) -notlike "*$Expected*") {
@@ -63,6 +63,15 @@ try {
     finally { [IO.File]::SetAttributes($ini, [IO.FileAttributes]::Normal) }
     if ((Get-Content -LiteralPath $ini -Raw) -cne 'keep') { throw 'Preflight changed the settings file.' }
     Test-Guard $clean @('-ValidateInstall')
+    $app = Join-Path $clean 'App/Jjokgyeol'
+    $webview = Join-Path $app 'WebView2'
+    [void][IO.Directory]::CreateDirectory((Join-Path $clean 'App/AppInfo'))
+    [void][IO.Directory]::CreateDirectory($webview)
+    foreach ($file in @('jjokgyeol-desktop.exe', 'WebView2/msedgewebview2.exe', 'WebView2/msedge.dll')) {
+        [IO.File]::WriteAllText((Join-Path $app $file), 'fixture')
+    }
+    Test-Guard $clean @('-FinishInstall')
+    Test-Guard $clean @()
     Write-Host 'PASS: launcher and installer write-path guards'
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
