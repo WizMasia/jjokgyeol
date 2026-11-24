@@ -1,0 +1,9 @@
+!macro CustomCodePostInstall
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "$INSTDIR\App\Jjokgyeol\prepare-webview.ps1"'
+    Pop $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "Jjokgyeol could not prepare WebView2. Use a writable local NTFS folder on Windows x64." /SD IDOK
+        SetErrorLevel 1
+        Abort
+    ${EndIf}
+!macroend

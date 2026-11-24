@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Resources,
-    [Parameter(Mandatory=$true)][string]$OutputDir
+    [Parameter(Mandatory=$true)][string]$OutputDir,
+    [switch]$Portable
 )
 $ErrorActionPreference = 'Stop'
 if (-not $env:JJOKGYEOL_RELEASE_TAG) { throw 'Expected release tag' }
@@ -99,6 +100,9 @@ try {
     # _?= keeps the uninstaller in place so the waited process is the real one.
     if (Test-Path -LiteralPath $uninstaller) { Remove-Item -LiteralPath $uninstaller -Force }
     Invoke-Checked 'python' @('desktop/release/verify_uninstall.py', 'verify', $install, $inventory)
+    if ($Portable) {
+        & (Join-Path $PSScriptRoot 'portable.ps1') -Executable (Join-Path $target 'release/jjokgyeol-desktop.exe') -Runtime $runtime -OutputDir $OutputDir
+    }
     Copy-Item -LiteralPath $installer -Destination $output
     Write-Host "Release verified: $output"
 } finally {
