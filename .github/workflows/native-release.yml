@@ -11,6 +11,7 @@ on:
       - 'desktop/gui/tauri.conf.json'
       - 'desktop/gui/release.conf.json'
       - 'desktop/gui/bundle.py'
+      - 'runtime.lock'
 permissions:
   contents: read
 concurrency:
@@ -127,6 +128,7 @@ jobs:
           if (-not @(Get-InstalledWebView2Version).Count) { throw 'Hosted runner must already have Evergreen WebView2 for the ordinary installer smoke test' }
           python -m unittest discover -s desktop/release -p test_portable.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable packaging regression failed' }
+          desktop/qa/runtime/test-portable-paths.ps1
           desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path -Portable
           $files = @(python desktop/release/assets.py $env:JJOKGYEOL_RELEASE_TAG --platform windows)
           if ($LASTEXITCODE -ne 0) { throw 'Could not resolve Windows asset names' }

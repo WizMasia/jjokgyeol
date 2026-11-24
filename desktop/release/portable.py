@@ -15,6 +15,7 @@ from urllib.request import urlopen
 
 HERE = Path(__file__).resolve().parent
 GUI = HERE.parent / 'gui'
+RUNTIME_LOCK = HERE.parents[1] / 'runtime.lock'
 APP_ID = 'JjokgyeolPortable'
 
 
@@ -98,6 +99,15 @@ def validate_inputs(executable, runtime):
         exists = path.is_dir() and any(path.iterdir()) if directory else path.is_file()
         if relative.is_absolute() or not path.is_relative_to(runtime.resolve()) or not exists:
             raise ValueError(f'Missing or invalid runtime {name}: {relative}')
+
+    lock = json.loads(RUNTIME_LOCK.read_text(encoding='utf-8'))
+    fonts = set(lock['document_font_files'])
+    fonts.update(Path(face['path']).name for family in lock['fonts'].values() for face in family.values())
+    font_dir = runtime / paths['font_dir']
+    notice = runtime / 'licenses/debian/fonts-nanum.copyright'
+    for file in [*(font_dir / name for name in sorted(fonts)), notice]:
+        if not file.resolve().is_relative_to(runtime.resolve()) or not file.is_file() or not file.stat().st_size:
+            raise ValueError(f'Missing or invalid required runtime file: {file}')
 
 
 def stage(package, executable, runtime, webview, tag):
