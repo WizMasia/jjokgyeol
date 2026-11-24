@@ -3,7 +3,7 @@ import re
 from decimal import InvalidOperation
 
 from app.document import ALIGNMENT_MARKERS, InputError, paragraph_marker, paragraph_range
-from app.style import SP_PER_PT, SPACING_FIELDS, paragraph_spacing_sp
+from app.style import SP_PER_PT, SPACING_FIELDS, leading_sp, paragraph_spacing_sp
 
 
 def _replace_markers(source, target, changes):
@@ -47,7 +47,7 @@ def _replace_markers(source, target, changes):
 
 def edit_alignment(payload: dict) -> dict:
     required = {"source", "first_line", "last_line"}
-    allowed = required | {"align", "spacing", *SPACING_FIELDS}
+    allowed = required | {"align", "spacing", "leading", "leading_pt", *SPACING_FIELDS}
     if not isinstance(payload, dict) or not required <= payload.keys() <= allowed:
         raise InputError({"source": "원고와 선택한 줄을 확인하세요."})
     source, first, last = payload["source"], payload["first_line"], payload["last_line"]
@@ -55,6 +55,8 @@ def edit_alignment(payload: dict) -> dict:
         raise InputError({"source": "선택한 줄의 범위를 확인하세요."})
     if type(payload.get("spacing", False)) is not bool:
         raise InputError({"spacing": "문단 여백 조회 여부를 확인하세요."})
+    if type(payload.get("leading", False)) is not bool:
+        raise InputError({"leading": "줄 간격 조회 여부를 확인하세요."})
 
     updates = {}
     if "align" in payload:
@@ -68,9 +70,15 @@ def edit_alignment(payload: dict) -> dict:
                 updates[stored] = None if payload[key] is None else paragraph_spacing_sp(payload[key])
             except (ValueError, InvalidOperation) as error:
                 raise InputError({key: str(error) or "문단 여백의 단위와 범위를 확인하세요."}) from None
+    if "leading_pt" in payload:
+        try:
+            value = payload["leading_pt"]
+            updates["leading_sp"] = None if value is None else "auto" if value == "auto" else leading_sp(value)
+        except (ValueError, InvalidOperation) as error:
+            raise InputError({"leading_pt": str(error) or "줄 간격의 단위와 범위를 확인하세요."}) from None
 
     target = paragraph_range(source, first, last)
-    values = {key: getattr(target, key, None) for key in ("align", *SPACING_FIELDS.values())}
+    values = {key: getattr(target, key, None) for key in ("align", *SPACING_FIELDS.values(), "leading_sp")}
     start_line = None
     if target:
         start_line = target.start
@@ -81,9 +89,12 @@ def edit_alignment(payload: dict) -> dict:
 
     result = dict(source=source, align=values["align"],
                   supported=target is not None, message="" if target else "최상위 본문이나 제목 한 곳을 선택하세요.")
-    if payload.get("spacing") or SPACING_FIELDS.keys() & payload.keys():
+    if payload.get("spacing") or SPACING_FIELDS.keys() & payload.keys() or "leading_pt" in payload or payload.get("leading"):
         result["start_line"] = start_line
         for key, stored in SPACING_FIELDS.items():
             value = values[stored]
             result[key] = value / SP_PER_PT if isinstance(value, int) else value
+        if payload.get("leading") or "leading_pt" in payload:
+            leading = values["leading_sp"]
+            result["leading_pt"] = leading / SP_PER_PT if isinstance(leading, int) else leading
     return result

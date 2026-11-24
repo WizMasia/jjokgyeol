@@ -44,11 +44,11 @@
 
 **Interfaces** 기존 paragraph align 요청과 응답에 leading_pt를 선택적으로 추가한다. 숫자는 현재 줄 간격의 유효 범위를 따르고, auto는 조판 시 규칙값 또는 AI 후보를 뜻하며, null은 행 제거를 뜻한다. 파서의 Block·ParagraphRange 필드는 leading_sp로 둔다. 원고의 표기는 쪽결 주석 leading_sp=1179648 또는 leading_sp=auto를 사용한다. 기존 간격 조회를 요청하면 leading_pt도 돌려준다.
 
-- [ ] **RED.** 선행 BOM과 CRLF/CR이 섞인 본문에서 18pt를 지정하면 선택 위치에만 leading_sp=1179648이 추가되고, auto 및 null로 왕복하며 이하 원문 마커와 개행이 보존되는 테스트를 작성한다. 기존 정렬 전용 응답과 범위를 유지한다. 본문과 제목의 수동 줄 간격 및 이전 원고의 실제 PDF를 대조한다. 줄 높이가 섞인 문단과 줄이 한 개뿐인 문단도 넣는다.
-- [ ] **실패 확인.** pytest -q tests/test_spacing_manuscript.py tests/test_spacing_engine.py tests/test_paragraph_transport.py에서 새 필드와 실측에 대한 실패를 확인한다.
-- [ ] **구현.** 기존 문단 편집과 Style의 수치 변환을 재사용한다. 개별 수치를 본문·제목의 Lua 줄 간격에 적용한다. 규칙값, 후보 선택 대상, 지면 안의 실제 기준선 위치를 문단 ID와 원고 줄에 연결한다. typeset(..., leading_choices=None)에서 문단 ID 문자열을 정수 sp에 매핑한다. 줄 간격 요청이 있거나 간격 측정이 요청된 조판에서 leading.json에 id, line, leading_sp, source, auto, font_sp, lines, remaining_sp, valid를 내보낸다. 단일 간격을 확인할 수 없는 보고 행에는 leading_sp를 null로 둔다. 일반 문단과 제목 틀의 내부 글줄을 비교하며 페이지 경계를 넘는 기준선 간격은 제외한다.
-- [ ] **GREEN.** 같은 명령과 tests/test_paragraph_alignment.py, tests/test_alignment_engine.py를 실행한다.
-- [ ] 작업 단위로 커밋한다.
+- [x] **RED.** 선행 BOM과 CRLF/CR이 섞인 본문에서 18pt를 지정하면 선택 위치에만 leading_sp=1179648이 추가되고, auto 및 null로 왕복하며 이하 원문 마커와 개행이 보존되는 테스트를 작성한다. 기존 정렬 전용 응답과 범위를 유지한다. 본문과 제목의 수동 줄 간격 및 이전 원고의 실제 PDF를 대조한다. 줄 높이가 섞인 문단과 줄이 한 개뿐인 문단도 넣는다.
+- [x] **실패 확인.** pytest -q tests/test_spacing_manuscript.py tests/test_spacing_engine.py tests/test_paragraph_transport.py에서 새 필드와 실측에 대한 실패를 확인한다.
+- [x] **구현.** 기존 문단 편집과 Style의 수치 변환을 재사용한다. 개별 수치를 본문·제목의 Lua 줄 간격에 적용한다. 규칙값, 후보 선택 대상, 지면 안의 실제 기준선 위치를 문단 ID와 원고 줄에 연결한다. typeset(..., leading_choices=None)에서 문단 ID 문자열을 정수 sp에 매핑한다. 줄 간격 요청이 있거나 간격 측정이 요청된 조판에서 leading.json에 id, line, leading_sp, source, auto, font_sp, lines, remaining_sp, valid를 내보낸다. 단일 간격을 확인할 수 없는 보고 행에는 leading_sp를 null로 둔다. 일반 문단과 제목 틀의 내부 글줄을 비교하며 페이지 경계를 넘는 기준선 간격은 제외한다.
+- [x] **GREEN.** 같은 명령과 tests/test_paragraph_alignment.py, tests/test_alignment_engine.py를 실행한다.
+- [x] 작업 단위로 커밋한다.
 
 ## 작업 3. AI 줄 간격 후보와 교정본 전달
 

@@ -42,6 +42,7 @@ class Block:
     align: str | None = field(default=None, kw_only=True)
     space_before_sp: int | str | None = field(default=None, kw_only=True)
     space_after_sp: int | str | None = field(default=None, kw_only=True)
+    leading_sp: int | str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -77,7 +78,7 @@ ALIGNMENT_MARKERS = {
     "right": "<!-- 쪽결 정렬=오른쪽 -->",
 }
 _MARKER_VALUES = {marker: value for value, marker in ALIGNMENT_MARKERS.items()}
-_SPACING_MARKER = re.compile(r"<!-- 쪽결 (space_before_sp|space_after_sp)=(auto|[0-9]+) -->")
+_SPACING_MARKER = re.compile(r"<!-- 쪽결 (space_before_sp|space_after_sp|leading_sp)=(auto|[0-9]+) -->")
 
 
 def paragraph_marker(line: str) -> tuple[str, int | str] | None:
@@ -89,12 +90,13 @@ def paragraph_marker(line: str) -> tuple[str, int | str] | None:
     key, raw = match.groups()
     if raw == "auto":
         return key, raw
-    from app.style import MAX_NUMBER_CHARS, paragraph_spacing_sp
+    from app.style import MAX_NUMBER_CHARS, leading_sp, paragraph_spacing_sp
 
     if len(raw) > MAX_NUMBER_CHARS:
         return None
     try:
-        return key, paragraph_spacing_sp(int(raw), stored=True)
+        converter = leading_sp if key == "leading_sp" else paragraph_spacing_sp
+        return key, converter(raw if raw == "auto" else int(raw), stored=True)
     except ValueError:
         return None  # An unrecognized manuscript comment is printed literally.
 
@@ -107,6 +109,7 @@ class ParagraphRange:
     align: str | None = None
     space_before_sp: int | str | None = None
     space_after_sp: int | str | None = None
+    leading_sp: int | str | None = None
 
 
 @dataclass

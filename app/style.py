@@ -114,6 +114,17 @@ def paragraph_spacing_sp(value, *, stored=False):
         return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
 
 
+def leading_sp(value, *, stored=False):
+    """Validate a baseline distance using the same limits as the document line leading."""
+    with localcontext() as context:
+        context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
+        amount = _number(value, stored, context)
+        scale = SP_PER_PT if stored else 1
+        if not 1 <= amount <= MAX_DIMENSION_PT * scale:
+            raise ValueError(f"줄 간격은 1/65536pt 이상, {MAX_DIMENSION_PT}pt 이하로 입력하세요.")
+        return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def _map_numbers(key, value, convert):
     if key not in ARRAY_LENGTHS:
         return convert(value)

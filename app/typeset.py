@@ -17,7 +17,7 @@ from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
 from app.security import worker_env
-from app.style import RUNNING_DEFAULTS, SP_PER_PT, TEXT_DEFAULTS, paragraph_spacing_sp
+from app.style import RUNNING_DEFAULTS, SP_PER_PT, TEXT_DEFAULTS, leading_sp as validate_leading_sp, paragraph_spacing_sp
 
 if TYPE_CHECKING:
     from app.document import Document
@@ -38,11 +38,12 @@ def _tex_path(path):
 def typeset(doc: Document, style: Style, workdir: Path, *, collect_candidates: bool = False,
             paragraph_choices: dict[int, str] | None = None,
             spacing_choices: dict[str, int] | None = None, collect_spacing: bool = False,
+            leading_choices: dict[str, int] | None = None, collect_leading: bool = False,
             engine: Path | None = None, font_dir: Path | None = None,
             max_pdf_bytes: int | None = None) -> bytes:
     """Optionally collect paragraph-candidates.jsonl or replay its per-block IDs."""
     return _render(doc, style, workdir, None, collect_candidates, paragraph_choices, engine, font_dir,
-                   max_pdf_bytes, spacing_choices, collect_spacing)
+                   max_pdf_bytes, spacing_choices, collect_spacing, leading_choices, collect_leading)
 
 
 def _running_fields(values):
@@ -141,7 +142,8 @@ def _spacing_boundaries(blocks, rows, style):
 
 
 def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_choices=None, engine=None,
-            font_dir=None, max_pdf_bytes=None, spacing_choices=None, collect_spacing=False):
+            font_dir=None, max_pdf_bytes=None, spacing_choices=None, collect_spacing=False,
+            leading_choices=None, collect_leading=False):
     if any(workdir.iterdir()):
         raise ValueError("조판에는 빈 작업 폴더가 필요합니다.")
     role_styles = _role_styles(style)
@@ -150,6 +152,15 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                     for role, fields in role_styles.items()}
     prose_roles = aligned_roles | {role for role, sides in role_spacing.items() if sides}
     doc = doc.alignment_layout(prose_roles)
+    if leading_choices is not None:
+        eligible_leading = {str(i + 1) for i, block in enumerate(doc.blocks) if block.leading_sp == "auto"}
+        if not isinstance(leading_choices, dict) or leading_choices.keys() - eligible_leading:
+            raise InputError({"leading": "선택한 자동 줄 간격 문단을 확인하세요."})
+        try:
+            leading_choices = {key: validate_leading_sp(value, stored=True)
+                               for key, value in leading_choices.items()}
+        except ValueError:
+            raise InputError({"leading": "선택한 줄 간격 값을 확인하세요."}) from None
     levels = style.resolved_list_levels()
     spaced_levels = {i for i, row in enumerate(levels, 1)
                      if row.space_before_sp is not None or row.space_after_sp is not None}
@@ -178,6 +189,11 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                 sides.append((value, "manual") if value is not None else
                              (inherited[field], "style") if inherited.get(field) is not None else None)
             values["spacing"] = sides
+        leading = block.leading_sp
+        if leading == "auto":
+            leading = (leading_choices or {}).get(str(index + 1))
+        if type(leading) is int:
+            values["leading_sp"] = leading
         if direct := getattr(block, "align", None):
             values["align"] = direct
         elif index not in eligible:
@@ -185,6 +201,9 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
     blocks = [asdict(block) for block in doc.blocks]
+    for block in blocks:
+        if block["leading_sp"] is None:
+            block.pop("leading_sp")
     number_articles(blocks, style.article_expr, doc.fenced_blocks)
     box_ids = {}
     ordinals = []
@@ -271,6 +290,10 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                 boundary.update(gap_sp=paragraph_spacing_sp(gap, stored=True), source="ai")
         if boundaries:
             data["spacing"] = boundaries
+    if collect_leading or leading_choices is not None:
+        line_rows = doc._layout.block_rows if doc._layout else range(len(blocks))
+        data["leading"] = {"collect": True, "choices": leading_choices or {},
+                            "lines": {str(i + 1): line for i, line in enumerate(line_rows)}}
     if "spacing" not in data:
         (workdir / "spacing.json").write_text("[]", encoding="utf-8")
     (workdir / "input.json").write_text(

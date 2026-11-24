@@ -55,6 +55,83 @@ def test_explicit_zero_document_gap_removes_the_four_point_default(tmp_path):
     assert zero["둘"][1] - default["둘"][1] == pytest.approx(4 * BP, abs=.02)
 
 
+def test_manual_leading_changes_only_vertical_body_baselines_and_reports_measurement(tmp_path):
+    text = "늘 푸른 산과 강을 따라 걷는다 " * 5
+    doc = parse_md(text)
+    doc.blocks[0].leading_sp = 18 * SP
+    pages = render(tmp_path / "leading", doc, Style(), collect_leading=True)
+    chars = [c for page in pages for line in page.lines for c in line.chars]
+    first_lines = [line for page in pages for line in page.lines if line.chars]
+    assert len(first_lines) > 1
+    assert first_lines[0].chars[0].baseline - first_lines[1].chars[0].baseline == pytest.approx(18 * BP, abs=.02)
+    assert len({c.x0 for c in chars[:2]}) == 2
+    report = json.loads((tmp_path / "leading" / "leading.json").read_text())
+    assert any(row["id"] == "1" and row["leading_sp"] == 18 * SP and row["valid"] for row in report)
+    reference = render(tmp_path / "default-leading", parse_md(text), Style())
+    reference_lines = [line for page in reference for line in page.lines if line.chars]
+    assert [[c.x0 for c in line.chars] for line in first_lines] == [
+        [c.x0 for c in line.chars] for line in reference_lines]
+
+
+def test_auto_leading_choice_is_applied_and_identified_in_private_receipt(tmp_path):
+    doc = parse_md("자동 간격을 선택할 본문 " * 4)
+    doc.blocks[0].leading_sp = "auto"
+    pages = render(tmp_path / "auto-leading", doc, Style(), leading_choices={"1": 18 * SP})
+    assert pages
+    row, = json.loads((tmp_path / "auto-leading" / "leading.json").read_text())
+    assert (row["leading_sp"], row["source"], row["auto"]) == (18 * SP, "ai", True)
+
+
+def test_leading_choices_reject_unknown_or_out_of_range_values(tmp_path):
+    from app.document import InputError
+
+    doc = parse_md("자동 간격 본문")
+    doc.blocks[0].leading_sp = "auto"
+    with pytest.raises(InputError, match="줄 간격"):
+        render(tmp_path / "invalid-leading", doc, Style(), leading_choices={"1": 0})
+
+
+def test_heading_and_one_line_leading_measurements_are_distinguished(tmp_path):
+    doc = parse_md("# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목\n\n한 줄 본문")
+    doc.blocks[0].leading_sp = 18 * SP
+    doc.blocks[1].leading_sp = 20 * SP
+    style = apply_style(Style(), {"page_mm": [70, 90], "margins_mm": [10] * 4})
+    pages = render(tmp_path / "heading-leading", doc, style, collect_leading=True)
+    assert pages
+    rows = json.loads((tmp_path / "heading-leading" / "leading.json").read_text())
+    heading, single = rows
+    assert heading["lines"] > 1 and heading["leading_sp"] == 18 * SP and heading["valid"]
+    assert single["lines"] == 1 and single["leading_sp"] is None and not single["valid"]
+
+
+def test_multipage_leading_report_excludes_cross_page_baselines(tmp_path):
+    doc = parse_md("바람이 부는 들판을 천천히 걸으며 " * 120)
+    doc.blocks[0].leading_sp = 18 * SP
+    style = apply_style(Style(), {"page_mm": [66, 50], "margins_mm": [8] * 4})
+    pages = render(tmp_path / "page-leading", doc, style, collect_leading=True)
+    assert len(pages) > 1
+    row, = json.loads((tmp_path / "page-leading" / "leading.json").read_text())
+    assert row["lines"] > 2 and row["leading_sp"] == 18 * SP and row["valid"]
+    assert row["line"] == 0
+
+
+def test_leading_collection_and_receipt_do_not_change_default_pdf_or_candidates(tmp_path):
+    from test_decision import SOURCE, STYLE
+
+    doc = parse_md(SOURCE)
+    style = apply_style(Style(), STYLE)
+    ordinary = render(tmp_path / "ordinary", doc, style, collect_candidates=True)
+    collected = render(tmp_path / "collected", doc, style, collect_candidates=True, collect_leading=True)
+    assert ordinary == collected
+    def candidate_ids(folder):
+        return [(row["block"], row["selected_id"], [choice["id"] for choice in row["candidates"]])
+                for row in map(json.loads, (folder / "paragraph-candidates.jsonl").read_text().splitlines())]
+    assert candidate_ids(tmp_path / "ordinary") == candidate_ids(tmp_path / "collected")
+    rows = json.loads((tmp_path / "collected" / "leading.json").read_text())
+    assert all(set(row) == {"id", "line", "leading_sp", "source", "auto", "font_sp", "lines",
+                            "remaining_sp", "valid"} for row in rows)
+
+
 def test_frame_and_table_receive_one_exterior_gap(tmp_path):
     doc = parse_md("앞\n\n# 제목\n\n| 갑 | 을 |\n| -- | -- |\n| 병 | 정 |\n\n뒤")
     style = apply_style(Style(), {"text_styles": {"heading1": {"frame": "box"}}})

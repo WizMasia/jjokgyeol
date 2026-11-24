@@ -38,6 +38,18 @@ async def test_http_edit_query_and_reset(client):
         assert result == {"source": after, "align": alignment, "supported": True}
 
 
+async def test_http_leading_edit_has_opt_in_response_field(client):
+    response = await client.post(URL, json={"source": "첫 줄\n둘째 줄", "first_line": 0,
+                                            "last_line": 0, "leading_pt": 18})
+    assert response.status_code == 200
+    assert response.json()["leading_pt"] == 18
+    assert "leading_sp=1179648" in response.json()["source"]
+
+    query = await client.post(URL, json={"source": response.json()["source"], "first_line": 1,
+                                         "last_line": 1, "leading": True})
+    assert query.json()["leading_pt"] == 18
+
+
 async def test_http_unsupported_selection(client):
     source = "- 목록"
     response = await client.post(URL, json={"source": source, "first_line": 0, "last_line": 0, "align": "center"})
