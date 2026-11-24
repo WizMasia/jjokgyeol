@@ -42,7 +42,9 @@ try {
     function Test-DirectoryWrite([string]$Path) {
         $probe = Join-Path $Path ([IO.Path]::GetRandomFileName())
         try {
-            [IO.FileStream]::new($probe, 'CreateNew', 'Write', 'None', 4096, [IO.FileOptions]::DeleteOnClose).Dispose()
+            $stream = [IO.File]::Open($probe, 'CreateNew', 'Write', 'None')
+            try { $stream.Dispose() }
+            finally { [IO.File]::Delete($probe) }
         }
         catch { throw "Cannot write in $Path. $($_.Exception.Message)" }
     }

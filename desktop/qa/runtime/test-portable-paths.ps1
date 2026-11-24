@@ -27,8 +27,8 @@ try {
     $clean = Join-Path $work 'no platform/JjokgyeolPortable'
     [void][IO.Directory]::CreateDirectory($clean)
     Test-Guard $clean @('-ValidateInstall')
-    if (Test-Path -LiteralPath (Join-Path $clean 'Data')) {
-        throw 'Fresh installation preflight created Data.'
+    if (@(Get-ChildItem -LiteralPath $clean -Force).Count) {
+        throw 'Fresh installation preflight left files or directories behind.'
     }
 
     $cases = @(
