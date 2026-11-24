@@ -1,6 +1,7 @@
 """Print the release artifact inventory and optionally write its SHA256SUMS."""
 import argparse
 from pathlib import Path
+import sys
 
 from portable import portable_filename, sha256
 
@@ -41,4 +42,5 @@ if __name__ == '__main__':
     files = files_for(args.tag, args.platform)
     if args.checksums:
         write_checksums(args.checksums, files)
+    sys.stdout.reconfigure(newline='\n')
     print('\n'.join(files))

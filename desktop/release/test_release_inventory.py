@@ -16,6 +16,17 @@ FILES = (
 )
 
 
+class InventoryOutputTests(unittest.TestCase):
+    def test_windows_asset_list_uses_lf_with_crlf_stdout(self):
+        result = subprocess.check_output([
+            sys.executable, '-c',
+            r'import runpy, sys; sys.stdout.reconfigure(newline="\r\n"); '
+            'sys.path.insert(0, "desktop/release"); runpy.run_path(sys.argv.pop(1), run_name="__main__")',
+            'desktop/release/assets.py', 'v0.1.1-preview.7', '--platform', 'windows',
+        ], cwd=ROOT)
+        self.assertEqual(result, ('\n'.join(FILES[-2:]) + '\n').encode('ascii'))
+
+
 @unittest.skipIf(os.name == 'nt', 'draft preflight runs on Linux')
 class DraftInventoryTests(unittest.TestCase):
     def test_draft_requires_exact_assets_before_writing_checksums(self):
