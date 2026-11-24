@@ -16,7 +16,7 @@ permissions:
   contents: read
 concurrency:
   group: native-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   resources:
@@ -118,7 +118,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
         run: bash desktop/release/macos.sh release-work/resources release-out
-      - name: Package and test both Windows distributions
+      - name: Build Windows packages and test the ordinary installer
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -130,9 +130,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Portable packaging regression failed' }
           desktop/qa/runtime/test-portable-paths.ps1
           desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path -Portable
-          $files = @(python desktop/release/assets.py $env:JJOKGYEOL_RELEASE_TAG --platform windows)
-          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve Windows asset names' }
-          desktop/qa/runtime/verify-portable.ps1 -Package (Join-Path release-out $files[1]) -ExtractOnly
       - name: Resolve exact upload paths
         id: assets
         shell: bash
@@ -155,6 +152,14 @@ jobs:
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
+      - name: Probe the uploaded Windows portable candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $files = @(python desktop/release/assets.py $env:JJOKGYEOL_RELEASE_TAG --platform windows)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve Windows asset names' }
+          desktop/qa/runtime/verify-portable.ps1 -Package (Join-Path release-out $files[1]) -ExtractOnly
 
   draft:
     if: github.event_name == 'push'

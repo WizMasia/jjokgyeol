@@ -61,6 +61,41 @@ function Install-Package([string]$File, [int]$ExpectedExit = 0) {
     }
 }
 
+function Observe-PortablePreflight([string]$Folder) {
+    $helper = Join-Path $Folder 'Other/Source/prepare-webview.ps1'
+    # The official launcher is 32-bit and invokes Windows PowerShell through WOW64.
+    $powershell = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+    $stdout = Join-Path $work 'preflight.stdout'
+    $stderr = Join-Path $work 'preflight.stderr'
+    Write-Host "=== Independent preflight on $Folder ==="
+    try {
+        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "{0}" -Root "{1}"' -f $helper, $Folder
+        $process = Start-Process -FilePath $powershell -ArgumentList $arguments -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        try {
+            if ($process.WaitForExit(60000)) { Write-Host "Independent preflight exit: $($process.ExitCode)" }
+            else {
+                Write-Host 'Independent preflight timed out after 60 seconds'
+                $process.Kill($true)
+                [void]$process.WaitForExit(5000)
+            }
+        } finally { $process.Dispose() }
+    } catch {
+        Write-Warning "Could not run independent preflight: $($_ | Out-String)"
+    } finally {
+        foreach ($path in @($stdout, $stderr)) {
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $reader = [IO.StreamReader]::new($path, [Console]::OutputEncoding)
+            try {
+                $buffer = [char[]]::new(8192)
+                $length = $reader.ReadBlock($buffer, 0, $buffer.Length)
+                Write-Host "=== $([IO.Path]::GetExtension($path)) ==="
+                Write-Host ([string]::new($buffer, 0, $length))
+                if (-not $reader.EndOfStream) { Write-Host '[output truncated after 8192 characters]' }
+            } finally { $reader.Dispose() }
+        }
+    }
+}
+
 function Test-PortableLaunch([string]$Folder, [string]$Name) {
     $status = Join-Path $work "$Name.txt"
     Run-Check $Name {
@@ -69,10 +104,24 @@ function Test-PortableLaunch([string]$Folder, [string]$Name) {
     if ((Get-Content -LiteralPath $status -Raw).Trim() -ne 'PASS') { throw "$Name GUI smoke did not pass" }
 }
 
+$failed = $false
 try {
     [IO.Directory]::CreateDirectory($parent) | Out-Null
     if ($ExtractOnly) {
         $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+        $diagnosticRoot = Join-Path $parent '독립 진단'
+        try {
+            Run-Check 'extract-for-preflight' { & $sevenZip x -y "-o$diagnosticRoot" $Package }
+            Observe-PortablePreflight $diagnosticRoot
+        } catch {
+            Write-Warning "Independent preflight diagnostics could not be completed: $_"
+        } finally {
+            if (Test-Path -LiteralPath $diagnosticRoot) {
+                try { Remove-Item -LiteralPath $diagnosticRoot -Recurse -Force }
+                catch { Write-Warning "Could not remove the diagnostic extraction: $_" }
+            }
+        }
+        # Only the earlier disposable extraction was modified by the standalone helper.
         Run-Check 'extract-paf' { & $sevenZip x -y "-o$destination" $Package }
     } else {
         Install-Package $firstPackage
@@ -134,6 +183,14 @@ try {
     } else {
         Write-Host 'PASS: interactive PAF install and reinstall, junction rejection, fixed WebView2, Data retention, relocation and numbered PDF'
     }
+} catch {
+    $failed = $true
+    throw
 } finally {
-    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    try {
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    } catch {
+        if (-not $failed) { throw }
+        Write-Warning "Portable QA cleanup failed after the original failure: $_"
+    }
 }
