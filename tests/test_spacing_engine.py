@@ -119,6 +119,8 @@ def test_tex_lineskip_reports_variable_leading_as_no_single_value(tmp_path):
     distances = [round((a.chars[0].baseline - b.chars[0].baseline) * 72 / 72.27, 3)
                  for a, b in zip(lines, lines[1:])]
     assert len(set(distances)) > 1
+    assert all(any(abs(actual - expected) <= .1 for actual in distances)
+               for expected in (11.356, 7.653, 8.906))
     row, = json.loads((tmp_path / "variable-leading" / "leading.json").read_text())
     assert row["variable"] and row["leading_sp"] is None and not row["valid"]
 
