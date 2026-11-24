@@ -14,7 +14,7 @@ from time import monotonic
 from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from app.ai.builtin import BuiltinDecision
-from app.ai.model import LIMITS, ProviderError, SPACING_PROMPT
+from app.ai.model import LEADING_PROMPT, LIMITS, ProviderError, SPACING_PROMPT
 from app.configuration import CONFIG_DIR, read_config, unique_fields
 from app.operations import LIMITS as OPERATIONS
 from app.security import LOOPBACK_HOSTS
@@ -280,6 +280,9 @@ class Connection:
 
     def predict_spacing(self, options, *, timeout):
         return self._predict(options, SPACING_PROMPT, timeout)
+
+    def predict_leading(self, options, *, timeout):
+        return self._predict(options, LEADING_PROMPT, timeout)
 
     def _predict(self, options, prompt, timeout):
         seconds = LIMITS["decision_seconds"]

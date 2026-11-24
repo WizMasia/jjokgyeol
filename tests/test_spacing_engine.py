@@ -133,6 +133,19 @@ def test_auto_heading_leading_uses_rule_value_in_markdown(tmp_path):
     assert row["auto"] and row["source"] == "rule" and row["leading_sp"] > 0
 
 
+def test_leading_replay_keeps_heading_and_body_on_one_verified_page(tmp_path):
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목\n\n본문 문단")
+    style = apply_style(Style(), {"page_mm": [50, 110], "margins_mm": [8] * 4})
+    pages = render(tmp_path / "heading-body", doc, style, leading_choices={"1": 18 * SP}, collect_spacing=True)
+    rows = report(tmp_path / "heading-body")
+    boundary, = [row for row in rows if row["left_kind"] == "heading"]
+    assert boundary["valid"] and boundary["left_page"] == boundary["page"] == 1
+    assert any("본문" in line.text for line in pages[0].lines)
+    leading = next(row for row in json.loads((tmp_path / "heading-body" / "leading.json").read_text())
+                   if row["id"] == "1")
+    assert leading["source"] == "ai" and leading["valid"]
+
+
 def test_framed_heading_leading_receipt_counts_inner_baselines(tmp_path):
     doc = parse_md("<!-- 쪽결 leading_sp=1179648 -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목")
     style = apply_style(Style(), {"page_mm": [50, 110], "margins_mm": [8] * 4,

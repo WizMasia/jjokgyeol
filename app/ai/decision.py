@@ -14,7 +14,7 @@ from time import monotonic
 from unicodedata import category
 
 from app.ai import spacing
-from app.ai.model import DecisionModel, LIMITS as PIN, ProviderError, SPACING_PROMPT
+from app.ai.model import DecisionModel, LEADING_PROMPT, LIMITS as PIN, ProviderError, SPACING_PROMPT
 from app.configuration import unique_fields
 from app.document import InputError
 from app.security import complete_pdf
@@ -97,6 +97,9 @@ class LocalModel:
 
     def predict_spacing(self, options, *, timeout):
         return self._predict(options, "paragraph_spacing", SPACING_PROMPT, timeout)
+
+    def predict_leading(self, options, *, timeout):
+        return self._predict(options, "paragraph_leading", LEADING_PROMPT, timeout)
 
     def _predict(self, options, name, prompt, timeout):
         end = monotonic() + min(timeout, PIN["decision_seconds"])
@@ -306,7 +309,10 @@ def render_choice(doc, style, workdir, deadline):
 
 def measure_rule(doc, style, measure, *, typesetter=typeset):
     measure.mkdir()
-    baseline = typesetter(doc, style, measure, collect_candidates=True)
+    kwargs = {"collect_candidates": True}
+    if _has_auto_leading(doc):
+        kwargs.update(collect_leading=True, collect_spacing=True)
+    baseline = typesetter(doc, style, measure, **kwargs)
     if not complete_pdf(baseline):
         raise ValueError("incomplete rule PDF")
     return baseline
@@ -338,21 +344,28 @@ def render_provider_choice(doc, style, workdir, deadline, connection, *, typeset
                 spacing_end = end - PIN["delivery_reserve_seconds"]
                 rows = spacing.read_report(folder)
                 automatic = [r for r in rows if r["auto"] is True and r["source"] == "rule" and spacing.measured(r)]
-                if automatic:
+                leading_auto = [row for row in _read_leading(folder) if spacing.leading_options(row)]
+                if automatic or leading_auto:
                     with decision_timer(spacing_end):
-                        refined, partial = _spacing_proof(doc, style, folder, pdf, rows, automatic,
-                                                          get_model(), spacing_end, typesetter)
-                    pdf, folder = refined, workdir / "spacing"
+                        refined, partial, fallback = _spacing_proof(
+                            doc, style, folder, pdf, rows, automatic, get_model(), spacing_end, typesetter)
+                    pdf = refined
+                    reason = reason or fallback
+                    if (workdir / "spacing" / "book.pdf").is_file():
+                        folder = workdir / "spacing"
                     status = "mixed" if partial or reason else "model"
             except (TimeoutError, subprocess.TimeoutExpired):
                 reason = "timeout"
             except ProviderError as error:
                 reason = error.code
-            except (*MODEL_ERRORS, subprocess.CalledProcessError):
+            except (*MODEL_ERRORS, subprocess.CalledProcessError, InputError):
                 reason = "invalid_response"
             if reason and status == "model":
                 status = "mixed"
-        copyfile(folder / "spacing.json", workdir / "spacing.json")
+        if (folder / "spacing.json").is_file():
+            copyfile(folder / "spacing.json", workdir / "spacing.json")
+        if (folder / "leading.json").is_file():
+            copyfile(folder / "leading.json", workdir / "leading.json")
     return pdf, status, reason
 
 
@@ -361,40 +374,98 @@ TERMINAL_ERRORS = {"authentication", "model", "address", "rate_limit", "builtin_
 
 
 def _spacing_proof(doc, style, folder, accepted_pdf, rows, automatic, model, end, typesetter):
-    predict = getattr(model, "predict_spacing", None)
-    if predict is None:
-        raise ProviderError("unavailable")
+    predict_spacing = getattr(model, "predict_spacing", None)
+    predict_leading = getattr(model, "predict_leading", None)
     if folder.name == "replay":
         saved = folder / "book.pdf"
         if saved.is_file() and saved.read_bytes() == accepted_pdf:
             (folder.parent / "line-replay-ready").touch(exist_ok=False)
     limit = PIN["max_spacing_calls_per_document"]
-    choices = {}
-    for row in automatic[:limit]:
+    used, choices, leading_choices = 0, {}, {}
+    for row in automatic:
+        if predict_spacing is None or used >= limit:
+            break
         options = spacing.options(row, style.body_sp)
         offered = {key: fields["gap_sp"] for key, fields in options.items()}
-        selected = predict(options, timeout=seconds_left(end))
+        selected = predict_spacing(options, timeout=seconds_left(end))
         seconds_left(end)
         if not isinstance(selected, str) or selected not in offered:
             raise ProviderError("invalid_response")
         choices[row["id"]] = offered[selected]
+        used += 1
+    leading_rows = _read_leading(folder)
+    for row in leading_rows:
+        if predict_leading is None or used >= limit:
+            break
+        options = spacing.leading_options(row)
+        if not options:
+            continue
+        offered = {key: fields["leading_sp"] for key, fields in options.items()}
+        selected = predict_leading(options, timeout=seconds_left(end))
+        seconds_left(end)
+        if not isinstance(selected, str) or selected not in offered:
+            raise ProviderError("invalid_response")
+        leading_choices[row["id"]] = offered[selected]
+        used += 1
+    eligible_leading = sum(bool(spacing.leading_options(row)) for row in leading_rows)
+    available = len(automatic) + eligible_leading
+    fallback = "unavailable" if automatic and predict_spacing is None else None
+    if not choices and not leading_choices:
+        return accepted_pdf, available > 0, fallback
 
     prior = list(measured_rows(folder))
     line_choices = {row["block"]: row["selected_id"] for row in prior
                     if row["selected_id"] != row["rule_id"]}
     replay = folder.parent / "spacing"
     replay.mkdir()
-    pdf = typesetter(doc, style, replay, collect_candidates=True,
-                     paragraph_choices=line_choices, spacing_choices=choices)
+    kwargs = {"collect_candidates": True, "paragraph_choices": line_choices}
+    if choices:
+        kwargs["spacing_choices"] = choices
+    if leading_choices:
+        kwargs["leading_choices"] = leading_choices
+    if _has_auto_leading(doc):
+        kwargs["collect_leading"] = True
+    pdf = typesetter(doc, style, replay, **kwargs)
     seconds_left(end)
     if not complete_pdf(pdf):
         raise ValueError("incomplete spacing PDF")
     spacing.verify_report(rows, spacing.read_report(replay), choices, folder)
+    if leading_choices:
+        _verify_leading(leading_rows, _read_leading(replay), leading_choices)
     for before, after in zip(prior, measured_rows(replay), strict=True):
         if (before["block"] != after["block"] or before["selected_id"] != after["selected_id"]
                 or candidate_catalog(before) != candidate_catalog(after)):
             raise ValueError("spacing replay changed paragraph layout")
-    return pdf, len(automatic) > limit
+    return pdf, used < available, fallback
+
+
+def _has_auto_leading(doc):
+    return any(getattr(block, "leading_sp", None) == "auto" for block in getattr(doc, "blocks", ()))
+
+
+def _read_leading(folder):
+    path = folder / "leading.json"
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8") as stream:
+        rows = json.load(stream, object_pairs_hook=unique_fields)
+    if not isinstance(rows, list):
+        raise ValueError("invalid leading report")
+    return rows
+
+
+def _verify_leading(before, after, choices):
+    old = {row["id"]: row for row in before}
+    new = {row["id"]: row for row in after}
+    if len(old) != len(before) or len(new) != len(after):
+        raise ValueError("duplicate leading report ID")
+    for key, value in choices.items():
+        previous, row = old.get(key), new.get(key)
+        if (previous is None or row is None or previous.get("line") != row.get("line")
+                or row.get("auto") is not True or row.get("source") != "ai"
+                or row.get("valid") is not True or row.get("variable") is True
+                or row.get("leading_sp") != value):
+            raise ValueError("unverified leading selection")
 
 
 def _line_proof(doc, style, measure, baseline, end, get_model, legacy, typesetter):
@@ -427,7 +498,10 @@ def _line_proof(doc, style, measure, baseline, end, get_model, legacy, typesette
             seconds_left(end)
             replay = measure.parent / "replay"
             replay.mkdir()
-            pdf = typesetter(doc, style, replay, paragraph_choices=choices, collect_candidates=True)
+            kwargs = {"paragraph_choices": choices, "collect_candidates": True}
+            if _has_auto_leading(doc):
+                kwargs.update(collect_leading=True, collect_spacing=True)
+            pdf = typesetter(doc, style, replay, **kwargs)
             seconds_left(end)
             if complete_pdf(pdf):
                 status = replay_status(doc, style, measure, replay, choices, reason is not None, typesetter=typesetter)

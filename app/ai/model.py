@@ -12,6 +12,11 @@ SPACING_PROMPT = (
     'Consider block kinds and levels, body size, remaining page space and line count. '
     'Lengths are in TeX sp. Return only a JSON object {"id":"..."} with the exact candidate ID.'
 )
+LEADING_PROMPT = (
+    'Choose a safe baseline distance for one automatic paragraph from the supplied candidates. '
+    'Use only its font size, line count and remaining page space. '
+    'Lengths are in TeX sp. Return only a JSON object {"id":"..."} with the exact candidate ID.'
+)
 
 
 class DecisionModel(Protocol):

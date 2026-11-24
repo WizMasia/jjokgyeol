@@ -86,9 +86,19 @@ def _paragraph_spacing(fields):
     return fields
 
 
+def _paragraph_leading(fields):
+    if not isinstance(fields, dict) or fields.keys() != {"candidate_ratios"}:
+        raise ValueError("publication.json paragraph_leading requires candidate_ratios")
+    ratios = fields["candidate_ratios"]
+    if (not isinstance(ratios, list) or not ratios
+            or any(type(n) is not int or not 1 <= n <= MAX_SAFE_INTEGER for n in ratios)):
+        raise ValueError("publication.json paragraph_leading ratios must be positive exact integers")
+    return fields
+
+
 _policy = read_config(CONFIG_DIR / "publication.json", parse_float=Decimal)
 _keys = {"defaults", "page_presets_mm", "fonts", "space_pct_range", "heading_per_10000", "heading_leading_per_10000",
-         "paragraph_spacing", "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
+         "paragraph_spacing", "paragraph_leading", "new_paragraph_layout", "justified_spacing", "list_presets", "default_list_preset", "default_article_expr", "running_defaults", "text_defaults"}
 if not isinstance(_policy, dict) or (_policy.keys() - {"new_list_preset"}) != _keys:
     difference = sorted((_policy.keys() - {"new_list_preset"}) ^ _keys) if isinstance(_policy, dict) else sorted(_keys)
     raise ValueError(f"publication.json fields: {difference}")
@@ -102,6 +112,7 @@ if not isinstance(JUSTIFIED_SPACING, dict) or JUSTIFIED_SPACING.keys() != {"ko_t
     raise ValueError("publication.json justified_spacing requires ko_tracking_bounds_pct and space_pct")
 NEW_SPACING = JUSTIFIED_SPACING if NEW_PARAGRAPH_LAYOUT == "justified" else {}
 PARAGRAPH_SPACING = _paragraph_spacing(_policy["paragraph_spacing"])
+PARAGRAPH_LEADING = _paragraph_leading(_policy["paragraph_leading"])
 DEFAULTS = _policy["defaults"]
 PAGE_PRESETS_MM = _policy["page_presets_mm"]
 RUNNING_DEFAULTS = _policy["running_defaults"]

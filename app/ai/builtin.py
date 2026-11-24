@@ -19,7 +19,10 @@ class BuiltinDecision:
     def predict_spacing(self, options, *, timeout) -> str:
         return self._predict(options, timeout, spacing=True)
 
-    def _predict(self, options, timeout, *, spacing):
+    def predict_leading(self, options, *, timeout) -> str:
+        return self._predict(options, timeout, spacing="leading")
+
+    def _predict(self, options, timeout, *, spacing=False):
         seconds = LIMITS["decision_seconds"]
         if timeout is not None:
             seconds = min(seconds, timeout)
@@ -28,11 +31,15 @@ class BuiltinDecision:
             raise ProviderError("timeout")
         try:
             # Import only after the rule PDF is ready; packaging discovers this fixed module.
-            if spacing:
+            if spacing == "leading":
+                from app.ai.trained_decision import predict_leading as select
+            elif spacing:
                 from app.ai.trained_decision import predict_spacing as select
             else:
                 from app.ai.trained_decision import predict as select
 
+            if not callable(select):
+                raise ImportError
             candidates = deepcopy(options)
             remaining = end - monotonic()
             if remaining <= 0:

@@ -188,6 +188,7 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
             values.pop("align", None)
     settings, ids = _running_sections(doc, style)
     doc, overrides = doc.render_layout(overrides, number_articles=style.article_expr is not None, running_ids=ids)
+    collect_leading = collect_leading or any(block.leading_sp == "auto" for block in doc.blocks)
     if leading_choices is not None:
         eligible_leading = {str(i + 1) for i, block in enumerate(doc.blocks) if block.leading_sp == "auto"}
         if not isinstance(leading_choices, dict) or leading_choices.keys() - eligible_leading:
@@ -197,9 +198,6 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
                                for key, value in leading_choices.items()}
         except ValueError:
             raise InputError({"leading": "선택한 줄 간격 값을 확인하세요."}) from None
-        for index, block in enumerate(doc.blocks):
-            if block.leading_sp == "auto" and str(index + 1) in leading_choices:
-                overrides[index]["leading_sp"] = leading_choices[str(index + 1)]
     blocks = [asdict(block) for block in doc.blocks]
     for block in blocks:
         if block["leading_sp"] is None:

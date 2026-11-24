@@ -148,7 +148,7 @@ return function(boundaries, default_gap, leading_request)
       for id, row in pairs(leading_rows) do
         local info = blocks[id]
         if info then row.remaining_sp = info.remaining_sp end
-        row.valid = row.lines > 1 and row.leading_sp ~= nil and row.leading_sp ~= "different"
+        row.valid = valid and row.lines > 1 and row.leading_sp ~= nil and row.leading_sp ~= "different"
         if not row.valid then row.leading_sp = "__jjokgyeol_null__" end
         measured[#measured + 1] = row
       end

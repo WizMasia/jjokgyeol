@@ -322,26 +322,27 @@ function book.blocks()
   lists.columns(data.blocks, width)
   if #data.blocks == 0 then emit("\\null") end
   for index, block in ipairs(data.blocks) do
+    local chosen_leading = data.leading and data.leading.choices[tostring(index)]
     if book.spacing then
       local block_font = block.overrides and block.overrides.font_sp
       local size = block.kind == "heading" and (block_font or
         scaled_size(style.body_sp, policy.heading_per_10000[block.level])) or
         (block_font or style.body_sp)
-      book.spacing.begin_block(index, block.leading_sp, size)
+      book.spacing.begin_block(index, block.leading_sp, size, block.kind, block.level or 0)
     end
     if book.running then emit("\\directlua{book.running.section(" .. block.running_id .. ")}") end
     local values = block.overrides or {}
-    local grouped = block.kind ~= "heading" and (next(values) ~= nil or block.leading_sp ~= nil)
+    local grouped = block.kind ~= "heading" and (next(values) ~= nil or block.leading_sp ~= nil or chosen_leading ~= nil)
     if grouped then
       emit("\\begingroup")
       body_appearance(values)
     end
-    if block.kind ~= "heading" and type(block.leading_sp) == "number" then
-      emit("\\baselineskip=" .. sp(block.leading_sp) .. "\\relax")
+    if block.kind ~= "heading" and (type(block.leading_sp) == "number" or chosen_leading ~= nil) then
+      emit("\\baselineskip=" .. sp(chosen_leading or block.leading_sp) .. "\\relax")
     end
     if block.kind == "heading" then
       local size = values.font_sp or scaled_size(style.body_sp, policy.heading_per_10000[block.level])
-      local leading = values.leading_sp or (type(block.leading_sp) == "number" and block.leading_sp) or
+      local leading = chosen_leading or values.leading_sp or (type(block.leading_sp) == "number" and block.leading_sp) or
         scaled_size(size, policy.heading_leading_per_10000)
       local command = values.frame == "box" and "\\bookframedheading" or "\\bookheading"
       emit(command .. "{" .. sp(size) .. "}{" .. sp(leading) .. "}{")

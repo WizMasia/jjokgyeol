@@ -5,6 +5,7 @@ import json
 from app import publication
 from app.configuration import unique_fields
 from app.style import SP_PER_PT, paragraph_spacing_sp
+from app.style import leading_sp
 
 
 KINDS = {"paragraph", "heading", "list_item", "table"}
@@ -55,6 +56,29 @@ def options(row, body_sp):
             geometry[key] = row[key]
     return {f"gap-{i}": dict(geometry, body_sp=body_sp, gap_sp=gap)
             for i, gap in enumerate(dict.fromkeys(gaps)) if low <= gap <= high}
+
+
+def leading_options(row):
+    if (not isinstance(row, dict) or row.get("valid") is not True or row.get("auto") is not True
+            or row.get("variable") is True or type(row.get("leading_sp")) is not int
+            or type(row.get("font_sp")) is not int or type(row.get("lines")) is not int
+            or type(row.get("remaining_sp")) is not int or row["font_sp"] <= 0
+            or row["lines"] < 2 or row["remaining_sp"] < 0):
+        return {}
+    try:
+        rule = leading_sp(row["leading_sp"], stored=True)
+    except ValueError:
+        return {}
+    options = {}
+    for index, ratio in enumerate(publication.PARAGRAPH_LEADING["candidate_ratios"]):
+        candidate = (rule * ratio + publication.RATIO_UNIT // 2) // publication.RATIO_UNIT
+        try:
+            candidate = leading_sp(candidate, stored=True)
+        except ValueError:
+            continue
+        options[f"leading-{index}"] = {key: row[key] for key in ("font_sp", "lines", "remaining_sp")}
+        options[f"leading-{index}"].update(leading_sp=candidate)
+    return options
 
 
 def verify_report(before, after, choices, original_folder):
