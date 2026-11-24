@@ -899,6 +899,7 @@ def editor_bootstrap() -> dict:
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,
                         "sp_per_mm_denominator": DENOMINATOR},
+        "leading_range_pt": [format(Decimal(1) / SP_PER_PT, "f"), str(MAX_DIMENSION_PT)],
         "paragraph_spacing": publication.paragraph_spacing_settings(),
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],

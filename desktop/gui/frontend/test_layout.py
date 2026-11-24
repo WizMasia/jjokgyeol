@@ -34,14 +34,23 @@ class EditorLayoutTest(unittest.TestCase):
                     source.fill("첫 문단\n\n둘째 문단")
                     source.evaluate("el => { el.focus(); el.setSelectionRange(2, 5); }")
                     before = [source_region.bounding_box(), proof_region.bounding_box()]
+                    self.assertAlmostEqual(before[0]["y"], before[1]["y"], delta=1)
                     pdf_before = preview.get_attribute("src")
                     toggle.click()
                     self.assertTrue(panel.is_visible())
                     after = [source_region.bounding_box(), proof_region.bounding_box()]
+                    self.assertAlmostEqual(after[0]["y"], after[1]["y"], delta=1)
+                    self.assertLessEqual(page.locator("#app-status-bar").bounding_box()["y"] + page.locator("#app-status-bar").bounding_box()["height"], 1000)
                     for old, new in zip(before, after):
                         self.assertAlmostEqual(old["x"], new["x"], delta=1)
                         self.assertAlmostEqual(old["y"], new["y"], delta=1)
                         self.assertAlmostEqual(old["width"], new["width"], delta=1)
+                    self.assertLess(after[0]["height"], before[0]["height"])
+                    self.assertGreaterEqual(after[0]["height"], 240)
+                    dock_box = page.locator("#paragraph-dock").bounding_box()
+                    status_box = page.locator("#app-status-bar").bounding_box()
+                    self.assertLessEqual(dock_box["y"] + dock_box["height"], 1000)
+                    self.assertLessEqual(status_box["y"] + status_box["height"], 1000)
                     print("wide pane geometry before/after:", before, after)
                     self.assertEqual(source.evaluate("el => [el.selectionStart, el.selectionEnd]"), [2, 5])
                     self.assertEqual(preview.get_attribute("src"), pdf_before)

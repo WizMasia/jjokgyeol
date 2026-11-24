@@ -38,7 +38,6 @@
       <details class="app-menu"><summary>편집</summary><div class="menu-items" role="menu" aria-label="편집">
         <button type="button" role="menuitem" data-command="undo">실행 취소</button>
         <button type="button" role="menuitem" data-command="redo">다시 실행</button>
-        <button type="button" role="menuitem" data-command="open-settings">설정</button>
       </div></details>
       <details class="app-menu"><summary>서식</summary><div class="menu-items" role="menu" aria-label="서식">
         <button type="button" role="menuitem" data-command="format-bold">굵게</button>
@@ -46,8 +45,10 @@
         <button type="button" role="menuitem" data-command="open-fonts">문서 글꼴</button>
         <button type="button" role="menuitem" data-command="paragraph-align">문단 정렬</button>
         <button type="button" role="menuitem" data-command="toggle-paragraph-dock">문단 서식</button>
+        <button type="button" role="menuitem" data-command="open-settings">설정</button>
       </div></details>
       <details class="app-menu"><summary>조판</summary><div class="menu-items" role="menu" aria-label="조판">
+        <button type="button" role="menuitem" data-command="ai-typeset">AI로 조판</button>
         <button type="button" role="menuitem" data-command="refresh">미리보기 갱신</button>
         <button type="button" role="menuitem" data-command="export">PDF 다운로드</button>
       </div></details>
@@ -60,6 +61,7 @@
     </div>
     <div class="actions">
       <button id="open-fonts" type="button" aria-controls="font-dialog">문서 글꼴</button>
+      <button id="ai-typeset" type="button">AI로 조판</button>
       <button id="open-settings" type="button" aria-controls="settings-dialog">설정</button>
       <button id="refresh" type="button"><span aria-hidden="true">↻</span> 미리보기 갱신</button>
       <button id="export" class="primary" type="button"><span aria-hidden="true">↓</span> <span>PDF 다운로드</span></button>
@@ -98,6 +100,12 @@
         <label hidden><input type="text" inputmode="decimal" spellcheck="false"> pt</label>
       </div>
     </template>
+    <nav id="source-toolbar" aria-label="원고 서식 도구">
+      <button type="button" id="format-bold">굵게</button>
+      <button type="button" id="format-italic">기울임</button>
+      <label>정렬 <select id="paragraph-align" aria-describedby="paragraph-align-message"></select></label>
+      <button type="button" id="toggle-paragraph-dock" aria-controls="paragraph-dock" aria-expanded="false">문단 서식</button>
+    </nav>
     <div class="spread">
       <section class="manuscript" aria-labelledby="manuscript-title">
         <header class="panel-head">
@@ -111,12 +119,6 @@
             <input type="file" id="file" accept=".md,.markdown,text/markdown,text/plain" hidden>
           </div>
         </header>
-        <nav id="source-toolbar" aria-label="원고 서식 도구">
-          <button type="button" id="format-bold">굵게</button>
-          <button type="button" id="format-italic">기울임</button>
-          <label>정렬 <select id="paragraph-align" aria-describedby="paragraph-align-message"></select></label>
-          <button type="button" id="toggle-paragraph-dock" aria-controls="paragraph-dock" aria-expanded="false">문단 서식</button>
-        </nav>
         <div class="sheet">
           <label class="sr-only" for="source">마크다운 원고</label>
           <textarea id="source" spellcheck="false" autocomplete="off" placeholder="원고를 입력하세요."></textarea>
@@ -143,6 +145,11 @@
     <section id="paragraph-dock" aria-label="문단 서식" hidden>
       <header class="dock-head"><h2>문단 서식</h2><button type="button" id="close-paragraph-dock">닫기</button></header>
       <fieldset id="paragraph-spacing" disabled><legend>선택한 문단 여백</legend></fieldset>
+      <fieldset id="paragraph-leading" disabled><legend>선택한 문단 줄 간격</legend>
+        <label>방식 <select id="paragraph-leading-mode"></select></label>
+        <label id="paragraph-leading-measure" hidden>줄 간격 <input id="paragraph-leading-value" type="text" inputmode="decimal" spellcheck="false"> pt</label>
+      </fieldset>
+      <p id="paragraph-target-help" aria-live="polite"></p>
       <p id="paragraph-align-message" aria-live="polite"></p>
       <p id="paragraph-spacing-applied" aria-live="polite"></p>
     </section>
@@ -189,7 +196,8 @@
           <label>문단 배치 방식 <select id="paragraph-layout" aria-label="문단 배치 방식"></select></label>
           <label>본문 글꼴 <select id="body_font" name="body_font"></select></label>
           <label>본문 크기 <span class="measure"><input id="body_pt" name="body_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
-          <label>행간 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+          <label>본문 기본 줄 간격 <span class="measure"><input id="leading_pt" name="leading_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
+          <label>본문 기본 문단 간격 <span class="measure"><input id="paragraph-gap-pt" name="paragraph_gap_pt" type="text" inputmode="decimal"><span>pt</span></span></label>
         </div>
         <div class="typebar-actions">
           <button id="open-suggestion" type="button" aria-controls="style-suggestion" aria-expanded="false">AI 양식 제안</button>

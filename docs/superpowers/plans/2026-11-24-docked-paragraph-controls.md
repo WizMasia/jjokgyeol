@@ -68,11 +68,11 @@
 
 **Interfaces** 기존 styleForm을 통해 paragraph_gap_pt를 저장하고, paragraph align 요청에 leading_pt를 포함한다. 표시 중인 표식과 파일에서 읽은 설정에 해당하는 표시·조판 버전에서만 고정을 허용한다. AI로 조판은 기존 render 경로를 호출하고 현재 동작에서만 모델 결과를 먼저 표시한다.
 
-- [ ] **RED.** 브라우저에서 문단 패널이 초기에는 접히고, 열기와 닫기 전후 원고·PDF의 top 및 width가 그대로인지 확인한다. 굵게·기울임의 선택, 해제, 실행 취소를 검증한다. 보류된 조판 응답으로 AI 조판 중 상태와 이전 PDF를 확인하고, 최신 응답의 줄 간격만 고정한다. 파일이나 선택, PDF를 바꾼 뒤 이전 응답이 다른 대상에 적용되지 않는지 웹과 데스크톱에서 검사한다.
-- [ ] **실패 확인.** pytest -q tests/test_spacing_editor.py tests/test_paragraph_alignment_editor.py 및 데스크톱 프런트엔드 빌드 뒤 python -m unittest test_layout test_decision_settings_native에서 새 기능 부재를 확인한다.
-- [ ] **구현.** 기존 문단 작업에 연결한 접이식 하단 패널과 상태 표시줄을 배치한다. 파일·편집·서식·조판 메뉴에서 기존 파일, 원고, 양식, 조판을 호출한다. 선택 변경, 저장, 상태 발표, 키보드와 포커스를 기존 편집 수명 주기에 연결한다. 최신 버전에서 측정값의 sp를 반올림한 화면 수치와 구분하고, 현재 문단의 한 항목만 직접 값으로 저장한다.
-- [ ] **GREEN.** 앞의 브라우저 테스트와 tests/test_editor.py, tests/test_jjok_editor.py, tests/test_proof_choice_editor.py, 데스크톱 test_desktop을 실행한다.
-- [ ] 작업 단위로 커밋한다.
+- [x] **RED.** 브라우저에서 문단 패널이 초기에는 접히고, 열기와 닫기 전후 원고·PDF의 top 및 width가 그대로인지 확인한다. 굵게·기울임의 선택, 해제, 실행 취소를 검증한다. 보류된 조판 응답으로 AI 조판 중 상태와 이전 PDF를 확인하고, 최신 응답의 줄 간격만 고정한다. 파일이나 선택, PDF를 바꾼 뒤 이전 응답이 다른 대상에 적용되지 않는지 웹과 데스크톱에서 검사한다.
+- [x] **실패 확인.** 초기 웹 회귀에서 원고와 PDF 표면 y 차이 46.17px, 빈 강조 선택 후 textarea 포커스 상실, 새 leading 입력 부재를 확인했다.
+- [x] **구현.** 기존 문단 작업에 연결한 접이식 하단 패널과 상태 표시줄을 배치한다. 파일·편집·서식·조판 메뉴에서 기존 파일, 원고, 양식, 조판을 호출한다. 선택 변경, 저장, 상태 발표, 키보드와 포커스를 기존 편집 수명 주기에 연결한다. 최신 버전에서 측정값의 sp를 반올림한 화면 수치와 구분하고, 현재 문단의 한 항목만 직접 값으로 저장한다.
+- [x] **GREEN.** dock, spacing, alignment, editor, jjok, proof-choice 브라우저 테스트와 데스크톱 test_layout, test_decision_settings_native, test_desktop을 실행했다.
+- [x] 작업 단위로 커밋한다.
 
 ## 통합 검증
 

@@ -22,9 +22,13 @@ class DesktopTest(unittest.TestCase):
                 browser = p.chromium.launch(executable_path=os.environ.get('CHROME_PATH'), headless=True)
                 page = browser.new_page(viewport={"width": 1440, "height": 1000})
                 page.add_init_script("""
+                  window.calls = [];
                   window.__TAURI__ = {core: {invoke: async (command, args) => {
+                    window.calls.push({command, args});
                     if (command === 'style_convert') return {};
                     if (command === 'render_proof') throw 'no render';
+                    if (command === 'paragraph_align') return {source: args.payload.source, supported: true,
+                      start_line: 0, align: null, leading_pt: null, space_before_pt: null, space_after_pt: null};
                     return true;
                   }}};
                 """)
@@ -43,6 +47,11 @@ class DesktopTest(unittest.TestCase):
                 proof_region = page.locator('.proof-stage').bounding_box()
                 page.locator('#toggle-paragraph-dock').click()
                 self.assertTrue(page.locator('#paragraph-dock').is_visible())
+                page.wait_for_function("window.calls.some(c => c.command === 'paragraph_align' && c.args.payload.leading === true)")
+                page.locator('#paragraph-leading-mode').select_option('manual')
+                page.locator('#paragraph-leading-value').fill('19')
+                page.locator('#paragraph-leading-value').press('Enter')
+                page.wait_for_function("window.calls.some(c => c.command === 'paragraph_align' && c.args.payload.leading_pt === '19')")
                 self.assertEqual(source_region['y'], page.locator('.sheet').bounding_box()['y'])
                 self.assertEqual(proof_region['y'], page.locator('.proof-stage').bounding_box()['y'])
                 self.assertEqual(page.locator('#status').evaluate("el => el.parentElement.id"), 'app-status-bar')

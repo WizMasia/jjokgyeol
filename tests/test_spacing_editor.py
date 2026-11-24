@@ -147,6 +147,67 @@ def test_display_tracks_proof_selection_revision_and_archive(editor):
     expect(details).not_to_contain_text("8 pt")
 
 
+def test_ai_leading_pin_writes_exact_sp_and_only_leading(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n줄 간격을 고정할 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("고정"), source.index("고정"))
+    p.wait_for_function("document.querySelector('#paragraph-leading').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [], "rule": [], "leading": {"rule": [], "model": [
+        {"line": 2, "leading_sp": 1179649, "source": "ai", "variable": False}]}})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("18.000015258789062 pt · AI")
+    expect(details.get_by_role("button", name="고정")).to_have_count(1)
+    with p.expect_request(lambda request: request.url.endswith("/api/paragraph/align") and
+                          request.post_data_json.get("leading_pt") == "18.0000152587890625") as pinned:
+        details.get_by_role("button", name="고정").click()
+    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "leading_pt"}
+    p.wait_for_function("document.querySelector('#source').value.includes('leading_sp=1179649')")
+    assert "space_before_sp" not in editor.source.input_value()
+
+
+def test_ai_gap_pin_writes_exact_sp_and_only_that_boundary(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n고정할 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("고정"), source.index("고정"))
+    p.wait_for_function("document.querySelector('#paragraph-spacing').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [{"before_line": 0, "after_line": 2, "gap_sp": 1179649, "source": "ai"}],
+                             "rule": []})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("위 18.000015258789062 pt · AI")
+    with p.expect_request(lambda request: request.url.endswith("/api/paragraph/align") and
+                          request.post_data_json.get("space_before_pt") == "18.0000152587890625") as pinned:
+        details.get_by_role("button", name="고정").click()
+    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "space_before_pt"}
+    p.wait_for_function("document.querySelector('#source').value.includes('space_before_sp=1179649')")
+    assert "leading_sp" not in editor.source.input_value()
+
+
+def test_page_break_gap_is_not_confused_with_explicit_ai_zero(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n다음 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("다음"), source.index("다음"))
+    p.wait_for_function("document.querySelector('#paragraph-spacing').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [
+        {"before_line": 0, "after_line": 2, "gap_sp": 0, "source": "ai", "page_break": True},
+        {"before_line": 2, "after_line": 5, "gap_sp": 0, "source": "ai"}], "rule": []})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("위 경계 없음")
+    expect(details).to_contain_text("아래 0 pt · AI")
+    expect(details.get_by_role("button", name="고정")).to_have_count(1)
+
+
 def test_unfinished_numeric_paragraph_edit_cannot_be_saved(editor):
     p = editor.page
     open_paragraph_dock(p)
