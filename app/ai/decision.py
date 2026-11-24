@@ -425,7 +425,7 @@ def _spacing_proof(doc, style, folder, accepted_pdf, rows, automatic, model, end
     if leading_choices:
         kwargs["leading_choices"] = leading_choices
     if _has_auto_leading(doc):
-        kwargs["collect_leading"] = True
+        kwargs.update(collect_leading=True, collect_spacing=True)
     pdf = typesetter(doc, style, replay, **kwargs)
     seconds_left(end)
     if not complete_pdf(pdf):

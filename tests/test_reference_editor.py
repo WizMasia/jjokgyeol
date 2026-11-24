@@ -88,7 +88,10 @@ def review(browser, server_url):
         page.set_default_timeout(3000)
         desk = Review(page, server_url)
         desk.ready()
-        yield desk
+        try:
+            yield desk
+        finally:
+            page.unroute_all(behavior="wait")
 
 
 def test_selected_style_trial_cancel_commit_and_reopen(review):

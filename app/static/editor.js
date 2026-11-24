@@ -44,7 +44,7 @@ let originalView = "";
 let withBom = false;
 let newline = "\n";
 let mixedEndings = false;
-// Textarea undo retains LF text only. Keep the raw changes for mixed-ending alignment edits.
+// Textarea undo retains LF text only. Keep the raw changes for mixed-ending formatting edits.
 const alignmentUndo = [];
 const alignmentRedo = [];
 let editStart = Infinity;
@@ -145,6 +145,16 @@ function editedRange(before, after, prefixLimit = Infinity) {
   return {start, end, nextEnd};
 }
 
+// Only CRLF occupies a second code unit in the file at a textarea newline.
+function rawSourceRange(text, start, end) {
+  for (const match of text.matchAll(/\r\n/g)) {
+    if (match.index >= end) break;
+    if (match.index < start) start++;
+    end++;
+  }
+  return [start, end];
+}
+
 function sourceText() {
   if (source.value === originalView) return original;
   return source.value.replaceAll("\n", newline);
@@ -176,14 +186,7 @@ function editManuscript(event) {
   if (!restored && (mixedEndings || alignmentUndo.length || alignmentRedo.length)) {
     const view = source.value;
     const {start, end, nextEnd} = editedRange(originalView, view, Math.min(editStart, source.selectionStart));
-    // Only CRLF occupies a second code unit in the file at a textarea newline.
-    let rawStart = start;
-    let rawEnd = end;
-    for (const match of original.matchAll(/\r\n/g)) {
-      if (match.index >= rawEnd) break;
-      if (match.index < rawStart) rawStart++;
-      rawEnd++;
-    }
+    const [rawStart, rawEnd] = rawSourceRange(original, start, end);
     original = original.slice(0, rawStart) + view.slice(start, nextEnd).replaceAll("\n", newline) + original.slice(rawEnd);
     originalView = view;
   }
@@ -691,6 +694,7 @@ proofChoice.addEventListener("change", async () => {
     } finally {
       if (switchingProof === turn) {
         switchingProof = null;
+        showAppliedSpacing();
         updateFileActions();
       }
     }
@@ -706,7 +710,7 @@ function clearSavedChoice() {
 }
 
 function proofStatus() {
-  if (displayedVersion === version) return "최신 버전";
+  if (displayedVersion === version) return displayedProof.completion || "최신 버전";
   if (displayedProof?.saved && displayedDocument === documentIdentity) return "수정 전 교정본 · 갱신 필요";
   return displayedProof ? "이전 버전 · 갱신 필요" : "갱신 필요";
 }
@@ -750,16 +754,21 @@ async function render(job) {
     let mode;
     if (nativeDesktop) {
       let pages;
+      const desiredMode = () => files.model ? (job.ai ? "model" : nativePreference) : "rule";
       do {
-        mode = files.model ? (job.ai ? "model" : nativePreference) : "rule";
+        mode = desiredMode();
         pages = await desktop.pages(files[mode]);
         if (pending !== job || version !== job.version) return;
-      } while (files.model && mode !== nativePreference);
+      } while (mode !== desiredMode());
       byId("desktop-pages")?.remove();
       preview.parentNode.append(pages);
     }
     const proof = new ProofUrls(files);
     proof.nativeMode = mode;
+    if (job.ai || job.attemptsModel) {
+      const completion = {model: "AI 조판 완료", mixed: "일부 AI 적용", rule: "규칙 조판 완료"};
+      proof.completion = completion[proof.model?.mode ?? "rule"] + (proof.reason ? " · " + proof.reason : "");
+    }
     if (job.ai && proof.model) {
       nativePreference = "model";
       proofChoice.value = "model";
@@ -780,23 +789,34 @@ async function render(job) {
   }
 }
 
+function aiProgress() {
+  return displayedProof ? "AI 조판 중 · 이전 지면 유지" : "AI 조판 중";
+}
+
 async function requestPdf(exporting, ai = false) {
   if (!paragraphDraftValid() || (pendingAlignmentEdit && !await pendingAlignmentEdit)) return;
   if (fileLoads.source || fileLoads.style) return;
   if (pending?.version === version) {
     pending.exporting ||= exporting;
-    pending.ai ||= ai;
+    if (ai && !pending.ai) {
+      pending.ai = true;
+      statusText.textContent = aiProgress();
+    }
     return;
   }
   if (exporting && (displayedVersion === version || displayedProof?.openedAt === version)) {
     exportPdf();
     return;
   }
-  pending = {version, exporting, ai};
+  const attemptsModel = decisionConnection.provider !== "rule" &&
+    (!nativeDesktop || decisionConnection.provider !== "operator");
+  pending = {version, exporting, ai, attemptsModel};
   showAppliedSpacing();
   errorText.textContent = "";
   marginError();
-  statusText.textContent = ai ? "AI 조판 중 · 이전 지면 유지" : displayedProof && displayedVersion !== version ? "이전 버전 · 조판 중" : "조판 중";
+  statusText.textContent = ai || attemptsModel
+    ? aiProgress()
+    : (displayedProof && displayedVersion !== version ? "이전 버전 · 조판 중" : "조판 중");
   if (!displayedProof) byId("placeholder").textContent = "첫 지면을 조판하고 있습니다.";
   render(pending);
 }
@@ -1002,21 +1022,26 @@ byId("close-paragraph-dock").addEventListener("click", () => {
 });
 
 function toggleEmphasis(marker) {
-  const start = source.selectionStart, end = source.selectionEnd;
+  const {selectionStart: start, selectionEnd: end, selectionDirection: direction} = source;
   source.focus({preventScroll: true});
   if (start === end) return;
   const value = source.value;
-  const unwrap = !(marker === "*" && (value.slice(start - 2, start) === "**" || value.slice(end, end + 2) === "**")) &&
-    value.slice(start - marker.length, start) === marker &&
-    value.slice(end, end + marker.length) === marker;
-  const from = unwrap ? start - marker.length : start;
-  const to = unwrap ? end + marker.length : end;
-  const selected = value.slice(start, end);
+  const left = value.slice(Math.max(0, start - 4), start).match(/\*+$/)?.[0].length;
+  const right = value.slice(end, end + 4).match(/^\*+/)?.[0].length;
+  const unwrap = left === right && (left === marker.length || left === 3);
+  const raw = sourceText();
+  const [rawStart, rawEnd] = rawSourceRange(raw, start, end);
+  const selected = raw.slice(rawStart, rawEnd);
+  const remove = unwrap ? marker.length : 0;
   const replacement = unwrap ? selected : marker + selected + marker;
-  source.setSelectionRange(from, to);
-  if (!document.execCommand("insertText", false, replacement)) return;
-  const innerStart = from + (unwrap ? 0 : marker.length);
-  source.setSelectionRange(innerStart, innerStart + selected.length);
+  try {
+    const formatted = raw.slice(0, rawStart - remove) + replacement + raw.slice(rawEnd + remove);
+    applyFormattedSource(formatted, {start, end, direction});
+    const innerStart = start + (unwrap ? -marker.length : marker.length);
+    source.setSelectionRange(innerStart, innerStart + end - start, direction);
+  } catch (error) {
+    errorText.textContent = error.message;
+  }
 }
 byId("format-bold").addEventListener("click", () => toggleEmphasis("**"));
 byId("format-italic").addEventListener("click", () => toggleEmphasis("*"));
@@ -1101,9 +1126,24 @@ function showAppliedSpacing() {
   const selected = displayedProof?.selected;
   const rows = selected?.rows;
   const leadingRows = selected?.leadingRows;
-  const pinAvailable = displayedVersion === version && alignmentTarget?.revision === manuscriptRevision &&
-    alignmentTarget.start === source.selectionStart && alignmentTarget.end === source.selectionEnd &&
-    !pending && !switchingProof && !fileLoads.source && !fileLoads.style;
+  const proof = displayedProof;
+  const target = alignmentTarget;
+  const line = selectedParagraphLine;
+  const currentMeasurement = () => proof === displayedProof && selected?.url === proof?.selected.url &&
+    line === selectedParagraphLine && displayedVersion === version && !pending && !switchingProof && !fileLoads.style;
+  const pinAvailable = currentMeasurement() && currentTarget(target);
+  const pinValue = (field, sp) => {
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.textContent = "고정";
+    pin.disabled = Boolean(pendingAlignmentEdit);
+    pin.addEventListener("click", () => {
+      if (target === alignmentTarget && currentTarget(target) && currentMeasurement()) {
+        editParagraph({[field]: exactPtFromSp(sp)}, currentMeasurement);
+      }
+    });
+    return pin;
+  };
   if ((!Array.isArray(rows) && !Array.isArray(leadingRows)) || displayedDocument !== documentIdentity ||
       displayedProof.manuscriptRevision !== manuscriptRevision || pending || switchingProof || fileLoads.source || fileLoads.style ||
       !Number.isInteger(selectedParagraphLine)) {
@@ -1120,10 +1160,7 @@ function showAppliedSpacing() {
     const text = document.createElement("span");
     text.textContent = label + " " + row.gap_sp / spPerPt + " pt · " + spacingSources[row.source];
     if (row.source === "ai" && pinAvailable) {
-      const pin = document.createElement("button");
-      pin.type = "button"; pin.textContent = "고정";
-      pin.addEventListener("click", () => editParagraph({[field]: exactPtFromSp(row.gap_sp)}));
-      text.append(" ", pin);
+      text.append(" ", pinValue(field, row.gap_sp));
     }
     return text;
   };
@@ -1135,9 +1172,7 @@ function showAppliedSpacing() {
       ? `${leading.leading_sp / spPerPt} pt · ${spacingSources[leading.source]}` : "확인 불가";
     caption.append(" / 줄 간격 ", value);
     if (!leading.variable && leading.source === "ai" && Number.isSafeInteger(leading.leading_sp) && leading.leading_sp > 0 && pinAvailable) {
-      const pin = document.createElement("button"); pin.type = "button"; pin.textContent = "고정";
-      pin.addEventListener("click", () => editParagraph({leading_pt: exactPtFromSp(leading.leading_sp)}));
-      caption.append(" ", pin);
+      caption.append(" ", pinValue("leading_pt", leading.leading_sp));
     }
   } else {
     caption.append(" / 줄 간격 측정 안 됨");
@@ -1152,9 +1187,9 @@ let alignmentQueue = Promise.resolve();
 let pendingAlignmentEdit = null;
 let pendingSpacingEdit = null;
 
-function queueAlignment(target, patch) {
+function queueAlignment(target, patch, currentMeasurement) {
   // One worker per editor. Stale cursor lookups skip their turn before reading the manuscript.
-  alignmentQueue = alignmentQueue.then(() => updateAlignment(target, patch));
+  alignmentQueue = alignmentQueue.then(() => updateAlignment(target, patch, currentMeasurement));
   return alignmentQueue;
 }
 
@@ -1200,7 +1235,7 @@ function closeWebKitUndoGroup() {
   }
 }
 
-function applyAlignedSource(text, selection) {
+function applyFormattedSource(text, selection) {
   const before = source.value;
   const rawBefore = sourceText();
   const after = text.replace(/\r\n?/g, "\n");
@@ -1217,7 +1252,7 @@ function applyAlignedSource(text, selection) {
     // Native editing commands include this replacement in the textarea's undo history.
     if (!document.execCommand(replacement ? "insertText" : "delete", false, replacement)) {
       source.setSelectionRange(selection.start, selection.end, selection.direction);
-      throw new Error("문단 정렬을 적용하지 못했습니다.");
+      throw new Error("원고 서식을 적용하지 못했습니다.");
     }
     closeWebKitUndoGroup();
     if (mixedEndings) {
@@ -1231,27 +1266,34 @@ function applyAlignedSource(text, selection) {
   }
 }
 
-async function updateAlignment(target, patch) {
+async function updateAlignment(target, patch, currentMeasurement) {
+  const measurementChanged = () => currentMeasurement && !currentMeasurement();
+  const resetTarget = () => {
+    alignmentTarget = null;
+    scheduleAlignmentQuery();
+  };
   if (target !== alignmentTarget || !currentTarget(target)) return;
+  if (measurementChanged()) return resetTarget();
   const lines = selectedLines(target.start, target.end);
   const query = patch === undefined;
   const sameLines = lastAlignmentQuery?.revision === target.revision &&
     lastAlignmentQuery.first_line === lines.first_line && lastAlignmentQuery.last_line === lines.last_line;
+  const options = query ? (paragraphSpacing.hidden ? {} : {spacing: true, leading: true}) :
+    (Object.hasOwn(patch, "space_before_pt") || Object.hasOwn(patch, "space_after_pt") ? {...patch, leading: true} : patch);
   try {
     const data = query && sameLines ? lastAlignmentQuery.result :
-      await requestAlignment({source: sourceText(), ...lines, ...(patch ?? (paragraphSpacing.hidden ? {} : {spacing: true, leading: true}))});
+      await requestAlignment({source: sourceText(), ...lines, ...options});
     if (target !== alignmentTarget || !currentTarget(target)) return;
+    if (measurementChanged()) return resetTarget();
     const focus = document.activeElement;
     const output = ["save", "save-document", "refresh", "export"].includes(focus?.id);
     const outside = ![source, paragraphAlign, document.body].includes(focus) &&
       !paragraphSpacing.contains(focus) && !paragraphLeading.contains(focus) && !byId("source-toolbar").contains(focus);
     if (!query && Object.hasOwn(patch, "align") && outside && !output) {
-      alignmentTarget = null;
-      scheduleAlignmentQuery();
-      return;
+      return resetTarget();
     }
     if (!query && data.supported) {
-      applyAlignedSource(data.source, target);
+      applyFormattedSource(data.source, target);
       if (outside) focus.focus({preventScroll: true});
     }
     paragraphAlign.disabled = false;
@@ -1259,8 +1301,7 @@ async function updateAlignment(target, patch) {
     alignmentMessage.textContent = data.message;
     if (!query && !Object.hasOwn(data, "start_line")) {
       // Alignment-only replies use the legacy shape. Look up spacing at the restored selection.
-      alignmentTarget = null;
-      scheduleAlignmentQuery();
+      resetTarget();
     } else {
       clearTimeout(alignmentTimer);
       alignmentTarget = alignmentSelection();
@@ -1282,6 +1323,7 @@ async function updateAlignment(target, patch) {
     return data.supported;
   } catch (error) {
     if (target !== alignmentTarget || !currentTarget(target)) return;
+    if (measurementChanged()) return resetTarget();
     paragraphAlign.selectedIndex = -1;
     paragraphAlign.disabled = false;
     paragraphSpacing.disabled = !Number.isInteger(selectedParagraphLine);
@@ -1311,15 +1353,20 @@ function scheduleAlignmentQuery() {
   alignmentTimer = setTimeout(() => queueAlignment(target), 250);
 }
 
-function editParagraph(patch) {
+function editParagraph(patch, currentMeasurement) {
+  if (pendingAlignmentEdit) return;
   clearTimeout(alignmentTimer);
-  const target = alignmentTarget = alignmentSelection();
+  const target = alignmentTarget = currentMeasurement ? alignmentTarget : alignmentSelection();
   paragraphAlign.disabled = paragraphSpacing.disabled = paragraphLeading.disabled = true;
-  const edit = pendingAlignmentEdit = queueAlignment(target, patch);
+  const edit = pendingAlignmentEdit = queueAlignment(target, patch, currentMeasurement);
+  showAppliedSpacing();
   if (!Object.hasOwn(patch, "align")) pendingSpacingEdit = edit;
   edit.finally(() => {
     if (pendingSpacingEdit === edit) pendingSpacingEdit = null;
-    if (pendingAlignmentEdit === edit) pendingAlignmentEdit = null;
+    if (pendingAlignmentEdit === edit) {
+      pendingAlignmentEdit = null;
+      showAppliedSpacing();
+    }
   });
 }
 paragraphAlign.addEventListener("change", () => editParagraph({align: paragraphAlign.value || null}));

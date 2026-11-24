@@ -277,6 +277,22 @@ def test_invalid_leading_geometry_never_reaches_selector(tmp_path):
     assert not model.leading_options
 
 
+def test_leading_only_replay_verifies_default_boundary_without_public_receipts(tmp_path):
+    from app.typeset import typeset
+
+    model = Selector()
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n" + "자동 줄 간격 본문 " * 12 + "\n\n다음 문단")
+    for block in doc.blocks:
+        block.align = "left"
+    pdf, status, reason = decision.render_provider_choice(
+        doc, Style(), tmp_path, monotonic() + 60, model, typesetter=typeset)
+    assert model.leading_options and not model.options
+    assert (status, reason) == ("model", None)
+    assert pdf == (tmp_path / "spacing" / "book.pdf").read_bytes()
+    assert report(tmp_path / "spacing")[0]["source"] == "default"
+    assert json.loads((tmp_path / "leading.json").read_text())[0]["source"] == "ai"
+
+
 def test_left_aligned_auto_leading_without_selector_keeps_rule_result(tmp_path):
     from app.typeset import typeset
 

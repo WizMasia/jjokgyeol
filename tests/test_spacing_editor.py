@@ -96,15 +96,17 @@ def test_individual_edits_only_send_one_side_and_preserve_undo(editor):
     expect(editor.source).to_have_value(before_clear)
 
 
-def proof_reply(editor, index, receipt, decision="model"):
+def proof_reply(editor, index, receipt, decision="model", reason=None):
     parts = []
     for key in (("rule",) if decision == "rule" else ("rule", "model")):
         parts.append(f'--p\r\nContent-Disposition: form-data; name="{key}"; filename="{key}.pdf"\r\n'
                      'Content-Type: application/pdf\r\n\r\n'.encode() + editor.pdf + b"\r\n")
     parts.append(b'--p\r\nContent-Disposition: form-data; name="spacing"\r\n\r\n'
                  + json.dumps(receipt).encode() + b"\r\n--p--\r\n")
-    editor.pending[index].fulfill(headers={"Content-Type": "multipart/form-data; boundary=p",
-                                           "X-Jjokgyeol-Decision": decision}, body=b"".join(parts))
+    headers = {"Content-Type": "multipart/form-data; boundary=p", "X-Jjokgyeol-Decision": decision}
+    if reason:
+        headers["X-Jjokgyeol-Decision-Reason"] = reason
+    editor.pending[index].fulfill(headers=headers, body=b"".join(parts))
 
 
 def test_display_tracks_proof_selection_revision_and_archive(editor):
@@ -185,7 +187,7 @@ def test_ai_gap_pin_writes_exact_sp_and_only_that_boundary(editor):
     with p.expect_request(lambda request: request.url.endswith("/api/paragraph/align") and
                           request.post_data_json.get("space_before_pt") == "18.0000152587890625") as pinned:
         details.get_by_role("button", name="고정").click()
-    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "space_before_pt"}
+    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "space_before_pt", "leading"}
     p.wait_for_function("document.querySelector('#source').value.includes('space_before_sp=1179649')")
     assert "leading_sp" not in editor.source.input_value()
 
