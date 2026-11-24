@@ -12,7 +12,7 @@ return function(boundaries, default_gap, leading_request)
   local leading_rows = {}
   local valid = true
 
-  function spacing.begin_block(index, leading, font_sp)
+  function spacing.begin_block(index, leading, font_sp, kind, level)
     local boundary = boundaries[tostring(index)]
     local gap = boundary and boundary.gap_sp or default_gap
     tex.sprint(string.format("\\attribute%d=%d\\relax\\parskip=%dsp\\relax", block_id, index, gap))
@@ -21,6 +21,8 @@ return function(boundaries, default_gap, leading_request)
       leading_rows[index] = {id=tostring(index), leading_sp=nil,
         source=selected and "ai" or type(leading) == "number" and "manual" or "rule",
         auto=leading == "auto" or selected, font_sp=font_sp,
+        kind=kind == "heading" and "heading" or "paragraph",
+        level=kind == "heading" and level or 0,
         line=leading_request.lines[tostring(index)],
         lines=0, remaining_sp=0, valid=false, variable=false}
     end

@@ -25,7 +25,8 @@ def boundary(index, *, source="rule"):
 class Engine:
     def __init__(self, rows, *, leading_rows=(), line_choices=True, damage=None):
         self.rows = rows
-        self.leading_rows = list(leading_rows)
+        self.leading_rows = [dict(row, kind=row.get("kind", "paragraph"), level=row.get("level", 0))
+                             for row in leading_rows]
         self.line_choices = line_choices
         self.damage = damage
         self.calls = []
@@ -127,6 +128,8 @@ def test_fixed_model_selects_auto_leading_and_keeps_line_layout(tmp_path):
     pdf, status, reason = render(tmp_path, model, engine, doc)
     assert (status, reason) == ("model", None)
     assert model.leading_options
+    assert all((item["kind"], item["level"]) == ("paragraph", 0)
+               for item in model.leading_options[0].values())
     assert engine.calls[-1][3] == {"1": (11 * SP_PER_PT * 10500 + 5000) // 10000}
     assert report(tmp_path / "spacing") == []
     assert json.loads((tmp_path / "spacing" / "leading.json").read_text())[0]["source"] == "ai"
@@ -135,12 +138,23 @@ def test_fixed_model_selects_auto_leading_and_keeps_line_layout(tmp_path):
 
 def test_leading_candidates_use_exact_sp_ratios_and_reject_invalid_measurements():
     row = dict(leading_sp=11 * SP_PER_PT, font_sp=11 * SP_PER_PT, lines=3,
-               remaining_sp=20 * SP_PER_PT, valid=True, auto=True, variable=False)
+               remaining_sp=20 * SP_PER_PT, valid=True, auto=True, variable=False,
+               kind="paragraph", level=0)
     options = leading_options(row)
     assert [item["leading_sp"] for item in options.values()] == [684851, 720896, 756941]
     assert not leading_options(dict(row, leading_sp=0))
     assert not leading_options(dict(row, variable=True))
     assert not leading_options(dict(row, valid=False))
+
+
+def test_duplicate_leading_ratios_offer_each_sp_distance_once(monkeypatch):
+    from app.ai import spacing
+
+    monkeypatch.setattr(spacing, "PARAGRAPH_LEADING_RATIOS", (9500, 9500, 10000, 10500, 10500))
+    row = dict(leading_sp=11 * SP_PER_PT, font_sp=11 * SP_PER_PT, lines=3,
+               remaining_sp=20 * SP_PER_PT, valid=True, auto=True, variable=False,
+               kind="paragraph", level=0)
+    assert [item["leading_sp"] for item in leading_options(row).values()] == [684851, 720896, 756941]
 
 
 def test_real_leading_replay_preserves_model_line_endings_and_horizontal_positions(tmp_path):
@@ -190,7 +204,8 @@ def test_failed_or_unsupported_leading_keeps_last_verified_pdf_and_receipt(tmp_p
     assert pdf == b"%PDF-replay\n%%EOF"
     assert report(tmp_path) == report(tmp_path / "measure")
     assert json.loads((tmp_path / "leading.json").read_text()) == engine.leading_rows
-    assert reason == (None if fault == "unsupported" else "timeout" if fault == "timeout" else "invalid_response")
+    assert reason == ("unavailable" if fault == "unsupported" else
+                      "timeout" if fault == "timeout" else "invalid_response")
 
 
 def test_spacing_alone_and_document_call_limit(tmp_path, monkeypatch):
@@ -244,7 +259,7 @@ def test_model_without_leading_selector_still_selects_gap(tmp_path):
     engine = Engine([boundary(2)], leading_rows=[leading])
     doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n<!-- 쪽결 after_sp=auto -->\n자동 문단")
     _, status, reason = render(tmp_path, GapOnly(), engine, doc)
-    assert (status, reason) == ("mixed", None)
+    assert (status, reason) == ("mixed", "unavailable")
     assert engine.calls[-1][2] == {"2": 11 * SP_PER_PT}
     assert json.loads((tmp_path / "leading.json").read_text())[0]["source"] == "rule"
     assert report(tmp_path)[0]["source"] == "ai"
@@ -259,6 +274,21 @@ def test_invalid_leading_geometry_never_reaches_selector(tmp_path):
     pdf, status, reason = render(tmp_path, model, engine, doc)
     assert (pdf, status, reason) == (b"%PDF-measure\n%%EOF", "rule", None)
     assert not model.leading_options
+
+
+def test_left_aligned_auto_leading_without_selector_keeps_rule_result(tmp_path):
+    from app.typeset import typeset
+
+    class Legacy:
+        pass
+
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n" + "왼쪽 정렬 자동 간격 본문 " * 8)
+    doc.blocks[0].align = "left"
+    pdf, status, reason = decision.render_provider_choice(
+        doc, Style(), tmp_path, monotonic() + 60, Legacy(), typesetter=typeset)
+    assert pdf == (tmp_path / "measure" / "book.pdf").read_bytes()
+    assert (status, reason) == ("rule", "unavailable")
+    assert not (tmp_path / "spacing" / "book.pdf").exists()
 
 
 @pytest.mark.parametrize("fault", ["unknown", "timeout", "invalid-proof", "wrong-gap", "wrong-source",
@@ -288,7 +318,7 @@ def test_failed_spacing_returns_accepted_line_pdf_and_its_own_report(tmp_path, f
         model.predict_spacing = expire
     engine = Engine([boundary(2, source="style"), boundary(3)], damage=damage)
     pdf, status, reason = render(tmp_path, model, engine)
-    assert (pdf, status, reason) == (b"%PDF-replay\n%%EOF", "mixed",
+    assert (pdf, status, reason) == (b"%PDF-replay\n%%EOF", "model",
                                      "timeout" if fault == "timeout" else "invalid_response")
     assert report(tmp_path) == report(tmp_path / "replay")
 
@@ -299,7 +329,7 @@ def test_legacy_line_only_selector_preserves_lines_and_rule_spacing(tmp_path):
             return "other"
 
     engine = Engine([boundary(2)])
-    assert render(tmp_path, Lines(), engine) == (b"%PDF-replay\n%%EOF", "mixed", "unavailable")
+    assert render(tmp_path, Lines(), engine) == (b"%PDF-replay\n%%EOF", "model", "unavailable")
     assert len(engine.calls) == 2 and report(tmp_path) == report(tmp_path / "replay")
 
 
@@ -314,7 +344,7 @@ def test_late_spacing_result_cannot_replace_validated_lines(tmp_path, monkeypatc
         return pdf
 
     assert render(tmp_path, Selector(), Engine([boundary(2)], damage=late)) == (
-        b"%PDF-replay\n%%EOF", "mixed", "timeout")
+        b"%PDF-replay\n%%EOF", "model", "timeout")
     assert report(tmp_path) == report(tmp_path / "replay")
 
 

@@ -353,15 +353,13 @@ def render_provider_choice(doc, style, workdir, deadline, connection, *, typeset
                     reason = reason or fallback
                     if (workdir / "spacing" / "book.pdf").is_file():
                         folder = workdir / "spacing"
-                    status = "mixed" if partial or reason else "model"
+                        status = "mixed" if partial or reason else "model"
             except (TimeoutError, subprocess.TimeoutExpired):
                 reason = "timeout"
             except ProviderError as error:
                 reason = error.code
             except (*MODEL_ERRORS, subprocess.CalledProcessError, InputError):
                 reason = "invalid_response"
-            if reason and status == "model":
-                status = "mixed"
         if (folder / "spacing.json").is_file():
             copyfile(folder / "spacing.json", workdir / "spacing.json")
         if (folder / "leading.json").is_file():
@@ -409,7 +407,8 @@ def _spacing_proof(doc, style, folder, accepted_pdf, rows, automatic, model, end
         used += 1
     eligible_leading = sum(bool(spacing.leading_options(row)) for row in leading_rows)
     available = len(automatic) + eligible_leading
-    fallback = "unavailable" if automatic and predict_spacing is None else None
+    fallback = "unavailable" if (automatic and predict_spacing is None
+                                  or eligible_leading and predict_leading is None) else None
     if not choices and not leading_choices:
         return accepted_pdf, available > 0, fallback
 
@@ -461,7 +460,8 @@ def _verify_leading(before, after, choices):
         raise ValueError("duplicate leading report ID")
     for key, value in choices.items():
         previous, row = old.get(key), new.get(key)
-        if (previous is None or row is None or previous.get("line") != row.get("line")
+        if (previous is None or row is None
+                or any(previous.get(key) != row.get(key) for key in ("line", "kind", "level"))
                 or row.get("auto") is not True or row.get("source") != "ai"
                 or row.get("valid") is not True or row.get("variable") is True
                 or row.get("leading_sp") != value):

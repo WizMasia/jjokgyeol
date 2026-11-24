@@ -133,6 +133,29 @@ def test_auto_heading_leading_uses_rule_value_in_markdown(tmp_path):
     assert row["auto"] and row["source"] == "rule" and row["leading_sp"] > 0
 
 
+def test_leading_receipt_and_model_options_include_normalized_structure(tmp_path):
+    from time import monotonic
+
+    from app.ai import decision
+    from app.typeset import typeset
+
+    class Fixed:
+        def predict(self, options, *, timeout):
+            return next(iter(options))
+
+        def predict_leading(self, options, *, timeout):
+            assert all((item["kind"], item["level"]) == ("heading", 1)
+                       for item in options.values())
+            return next(iter(options))
+
+    doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n# 여러 줄 제목이 될 만큼 충분히 긴 제목을 인쇄합니다")
+    _, status, reason = decision.render_provider_choice(
+        doc, Style(), tmp_path, monotonic() + 60, Fixed(), typesetter=typeset)
+    assert (status, reason) == ("model", None)
+    row, = json.loads((tmp_path / "leading.json").read_text())
+    assert (row["kind"], row["level"]) == ("heading", 1)
+
+
 def test_leading_replay_keeps_heading_and_body_on_one_verified_page(tmp_path):
     doc = parse_md("<!-- 쪽결 leading_sp=auto -->\n# 길고 긴 제목을 여러 글줄에 걸쳐 출력할 만큼 이어지는 제목\n\n본문 문단")
     style = apply_style(Style(), {"page_mm": [50, 110], "margins_mm": [8] * 4})
@@ -183,7 +206,7 @@ def test_leading_collection_and_receipt_do_not_change_default_pdf_or_candidates(
     assert candidate_ids(tmp_path / "ordinary") == candidate_ids(tmp_path / "collected")
     rows = json.loads((tmp_path / "collected" / "leading.json").read_text())
     assert all(set(row) == {"id", "line", "leading_sp", "source", "auto", "font_sp", "lines",
-                            "remaining_sp", "valid", "variable"} for row in rows)
+                            "remaining_sp", "valid", "variable", "kind", "level"} for row in rows)
 
 
 def test_frame_and_table_receive_one_exterior_gap(tmp_path):

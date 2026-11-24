@@ -4,6 +4,11 @@ from typing import Protocol
 from app.configuration import CONFIG_DIR, read_config
 
 LIMITS = read_config(CONFIG_DIR / "decision.json")
+PARAGRAPH_LEADING_RATIOS = LIMITS.get("paragraph_leading_ratios")
+if (not isinstance(PARAGRAPH_LEADING_RATIOS, list) or not PARAGRAPH_LEADING_RATIOS
+        or any(type(ratio) is not int or not 1 <= ratio <= (1 << 53) - 1
+               for ratio in PARAGRAPH_LEADING_RATIOS)):
+    raise ValueError("decision.json paragraph_leading_ratios must be positive exact integers")
 Candidates = dict[str, list[dict[str, int | bool | str]]]
 
 

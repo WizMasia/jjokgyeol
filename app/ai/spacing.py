@@ -2,6 +2,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 import json
 
+from app.ai.model import PARAGRAPH_LEADING_RATIOS
 from app import publication
 from app.configuration import unique_fields
 from app.style import SP_PER_PT, paragraph_spacing_sp
@@ -63,20 +64,24 @@ def leading_options(row):
             or row.get("variable") is True or type(row.get("leading_sp")) is not int
             or type(row.get("font_sp")) is not int or type(row.get("lines")) is not int
             or type(row.get("remaining_sp")) is not int or row["font_sp"] <= 0
-            or row["lines"] < 2 or row["remaining_sp"] < 0):
+            or row["lines"] < 2 or row["remaining_sp"] < 0
+            or row.get("kind") not in ("paragraph", "heading")
+            or type(row.get("level")) is not int or not 0 <= row["level"] <= 6
+            or (row["kind"] == "heading") != (row["level"] > 0)):
         return {}
     try:
         rule = leading_sp(row["leading_sp"], stored=True)
     except ValueError:
         return {}
     options = {}
-    for index, ratio in enumerate(publication.PARAGRAPH_LEADING["candidate_ratios"]):
-        candidate = (rule * ratio + publication.RATIO_UNIT // 2) // publication.RATIO_UNIT
+    candidates = dict.fromkeys((rule * ratio + publication.RATIO_UNIT // 2) // publication.RATIO_UNIT
+                               for ratio in PARAGRAPH_LEADING_RATIOS)
+    for index, candidate in enumerate(candidates):
         try:
             candidate = leading_sp(candidate, stored=True)
         except ValueError:
             continue
-        options[f"leading-{index}"] = {key: row[key] for key in ("font_sp", "lines", "remaining_sp")}
+        options[f"leading-{index}"] = {key: row[key] for key in ("font_sp", "lines", "remaining_sp", "kind", "level")}
         options[f"leading-{index}"].update(leading_sp=candidate)
     return options
 
