@@ -10,6 +10,41 @@ from app.style import Style, apply_style, from_editor_style, from_stored_style
 LEVEL = {"expr": "-", "indent_mm": 0, "gap_mm": 1}
 
 
+def test_document_paragraph_gap_round_trips_zero_fraction_and_omission():
+    zero = from_editor_style({"paragraph_gap_pt": 0})
+    assert zero.to_stored()["paragraph_gap_sp"] == 0
+    assert zero.to_editor()["paragraph_gap_pt"] == "0"
+
+    omitted = from_editor_style({})
+    assert "paragraph_gap_sp" not in omitted.to_stored()
+    assert "paragraph_gap_pt" not in omitted.to_editor()
+
+    fractional = from_editor_style({"paragraph_gap_pt": "6.25"})
+    assert fractional.to_stored()["paragraph_gap_sp"] == 409600
+    assert from_stored_style(fractional.to_stored()).to_editor()["paragraph_gap_pt"] == "6.25"
+
+
+@pytest.mark.parametrize("value", [-1, 73, "auto"])
+def test_invalid_document_paragraph_gap_reports_its_field(value):
+    with pytest.raises(InputError) as exc:
+        from_editor_style({"paragraph_gap_pt": value})
+    assert exc.value.field == "paragraph_gap_pt"
+
+
+@pytest.mark.parametrize(("stored", "field", "wrong_field"), [
+    (False, "paragraph_gap_pt", "paragraph_gap_sp"),
+    (True, "paragraph_gap_sp", "paragraph_gap_pt"),
+])
+def test_document_paragraph_gap_rejects_the_other_transport_unit(stored, field, wrong_field):
+    from app.server import _convert_style_payload
+
+    payload = Style().to_stored() if stored else {}
+    payload[wrong_field] = 0
+    with pytest.raises(InputError) as exc:
+        _convert_style_payload(json.dumps(payload).encode(), export=not stored)
+    assert exc.value.field == wrong_field
+
+
 def test_spacing_round_trips_exactly_and_keeps_each_side_optional():
     titles = {f"heading{i}": {"space_before_pt": "0.00000762939453125"} for i in range(1, 7)}
     style = from_editor_style({

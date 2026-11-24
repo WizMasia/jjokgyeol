@@ -76,10 +76,50 @@ def read_spacing(folder):
     if not isinstance(rows, list):
         return None
     fields = ("before_line", "after_line", "gap_sp")
-    return [{key: row[key] for key in (*fields, "source")} for row in rows
-            if isinstance(row, dict) and row.get("valid") is True
-            and row.get("source") in ("manual", "style", "ai", "rule", "default")
-            and all(type(row.get(key)) is int and 0 <= row[key] <= MAX_SAFE_INTEGER for key in fields)]
+    result = []
+    for row in rows:
+        if (not isinstance(row, dict) or row.get("valid") is not True
+                or row.get("source") not in ("manual", "style", "ai", "rule", "default")
+                or not all(type(row.get(key)) is int and 0 <= row[key] <= MAX_SAFE_INTEGER for key in fields)):
+            continue
+        public = {key: row[key] for key in (*fields, "source")}
+        if (row["gap_sp"] == 0 and type(row.get("left_page")) is int
+                and type(row.get("page")) is int
+                and 0 < row["left_page"] < row["page"] <= MAX_SAFE_INTEGER):
+            public["page_break"] = True
+        result.append(public)
+    return result
+
+
+def read_leading(folder):
+    try:
+        with (folder / "leading.json").open("rb") as stream:
+            raw = stream.read(LIMITS.request_body_bytes + 1)
+        if len(raw) > LIMITS.request_body_bytes:
+            return None
+        rows = json.loads(raw, object_pairs_hook=unique_fields)
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    result = []
+    sources = ("manual", "style", "ai", "rule", "default")
+    for row in rows:
+        if (not isinstance(row, dict) or row.get("source") not in sources
+                or type(row.get("line")) is not int or not 0 <= row["line"] <= MAX_SAFE_INTEGER
+                or type(row.get("lines")) is not int or not 2 <= row["lines"] <= MAX_SAFE_INTEGER):
+            continue
+        leading, variable = row.get("leading_sp"), row.get("variable")
+        if (variable is False and row.get("valid") is True and type(leading) is int
+                and 0 < leading <= MAX_SAFE_INTEGER):
+            pass
+        elif variable is True and row.get("valid") is False and leading is None:
+            pass
+        else:
+            continue
+        result.append({"line": row["line"], "leading_sp": leading,
+                       "source": row["source"], "variable": variable})
+    return result or None
 
 
 def read_payload(workdir, checking):
@@ -166,7 +206,8 @@ def process_payload(workdir, payload, checking):
         doc = parse_md(payload.get("source"))
         fields = payload.get("style", {})
         style = NEW_DOCUMENT_STYLE if fields == {} else from_editor_style(fields)
-        render_pdf = partial(typeset, collect_spacing=True) if "--spacing-receipt" in sys.argv else typeset
+        render_pdf = (partial(typeset, collect_spacing=True, collect_leading=True)
+                      if "--spacing-receipt" in sys.argv else typeset)
         if reason:
             from app.ai.decision import measure_rule
             pdf = measure_rule(doc, style, workdir / "measure", typesetter=render_pdf)
@@ -312,8 +353,13 @@ async def isolated_job(
         folders = {"rule": measure if measure.is_dir() else workdir}
         if applied in ("model", "mixed"):
             folders = {**(folders if paired else {}), "model": selected_folder}
-        return (*result, {key: rows for key, folder in folders.items()
-                          if (rows := read_spacing(folder)) is not None})
+        receipts = {key: rows for key, folder in folders.items()
+                    if (rows := read_spacing(folder)) is not None}
+        leading = {key: rows for key, folder in folders.items()
+                   if (rows := read_leading(folder)) is not None}
+        if leading:
+            receipts["leading"] = leading
+        return (*result, receipts)
 
 
 if __name__ == "__main__":

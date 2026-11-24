@@ -61,7 +61,9 @@ function book.setup()
   emit(string.format("\\geometry{%spaperwidth=%s,paperheight=%s,top=%s,right=%s,bottom=%s,left=%s,noheadfoot}",
     mirrored and "twoside," or "", sp(p[1]), sp(p[2]), sp(m[1]), sp(outer), sp(m[3]), sp(inner)))
   book.set_glyph = require("font_fallback")(policy, font_basename)
-  if data.spacing then book.spacing = require("paragraph_spacing")(data.spacing, default_gap) end
+  if data.spacing or data.leading then
+    book.spacing = require("paragraph_spacing")(data.spacing or {}, default_gap, data.leading)
+  end
   luatexbase.add_to_callback("pre_shipout_filter", require("font_text"), "jjokgyeol.font_text")
   local function font_pair(latin, hangul, name)
     local face = assert(policy.fonts[name])
@@ -320,17 +322,28 @@ function book.blocks()
   lists.columns(data.blocks, width)
   if #data.blocks == 0 then emit("\\null") end
   for index, block in ipairs(data.blocks) do
-    if book.spacing then book.spacing.begin_block(index) end
+    local chosen_leading = data.leading and data.leading.choices[tostring(index)]
+    if book.spacing then
+      local block_font = block.overrides and block.overrides.font_sp
+      local size = block.kind == "heading" and (block_font or
+        scaled_size(style.body_sp, policy.heading_per_10000[block.level])) or
+        (block_font or style.body_sp)
+      book.spacing.begin_block(index, block.leading_sp, size, block.kind, block.level or 0)
+    end
     if book.running then emit("\\directlua{book.running.section(" .. block.running_id .. ")}") end
     local values = block.overrides or {}
-    local grouped = block.kind ~= "heading" and next(values) ~= nil
+    local grouped = block.kind ~= "heading" and (next(values) ~= nil or block.leading_sp ~= nil or chosen_leading ~= nil)
     if grouped then
       emit("\\begingroup")
       body_appearance(values)
     end
+    if block.kind ~= "heading" and (type(block.leading_sp) == "number" or chosen_leading ~= nil) then
+      emit("\\baselineskip=" .. sp(chosen_leading or block.leading_sp) .. "\\relax")
+    end
     if block.kind == "heading" then
       local size = values.font_sp or scaled_size(style.body_sp, policy.heading_per_10000[block.level])
-      local leading = values.leading_sp or scaled_size(size, policy.heading_leading_per_10000)
+      local leading = chosen_leading or values.leading_sp or (type(block.leading_sp) == "number" and block.leading_sp) or
+        scaled_size(size, policy.heading_leading_per_10000)
       local command = values.frame == "box" and "\\bookframedheading" or "\\bookheading"
       emit(command .. "{" .. sp(size) .. "}{" .. sp(leading) .. "}{")
       appearance(values)

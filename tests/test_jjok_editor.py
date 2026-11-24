@@ -68,12 +68,14 @@ def test_document_picker_original_bytes_and_per_document_pdf_preference(editor):
     editor.reply(0, editor.pdf)
     open_settings(p)
     p.locator("#body_pt").fill("12.0000152587890625")
+    p.locator("#paragraph-gap-pt").fill("6.25")
     close_settings(p)
     p.locator("#include-proof").uncheck()
     data = save_document(p)
     saved = entries(data)
     assert saved["manuscript.md"] == source
     assert json.loads(saved["style.json"])["body_sp"] == 786433
+    assert json.loads(saved["style.json"])["paragraph_gap_sp"] == 409600
     assert "proof.pdf" not in saved and proof_bytes(editor) == editor.pdf
     with p.expect_file_chooser() as chooser:
         p.locator("#open-document").click()

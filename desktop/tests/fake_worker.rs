@@ -76,7 +76,7 @@ fn main() {
             ("measure/spacing.json", "rule", 0),
             ("spacing.json", "ai", 360448),
         ] {
-            let rows = r#"[{"before_line":0,"after_line":2,"gap_sp":GAP,"source":"SOURCE","valid":true,"private":"private-text"},
+            let rows = r#"[{"before_line":0,"after_line":2,"gap_sp":GAP,"source":"SOURCE","valid":true,"page":2,"left_page":1,"private":"private-text"},
                 {"before_line":2,"after_line":4,"gap_sp":0,"source":"private-text","valid":true},
                 {"before_line":2,"after_line":4,"gap_sp":0,"source":"rule","valid":false}]"#;
             fs::write(
@@ -85,6 +85,14 @@ fn main() {
                     .replace("GAP", &gap.to_string()),
             )
             .unwrap();
+        }
+        if args.iter().any(|arg| arg == "--spacing-receipt") && !request.contains("no-leading") {
+            let rule_leading = r#"[{"line":7,"leading_sp":1179648,"source":"manual","variable":false,"valid":true,"lines":3,"font_sp":720896,"remaining_sp":200000,"kind":"paragraph","level":0,"private":"private-text"},{"line":8,"leading_sp":null,"source":"manual","variable":true,"valid":false,"lines":3,"kind":"paragraph","level":0},{"line":9,"leading_sp":1179648,"source":"private-text","variable":false,"valid":true,"lines":3}]"#;
+            let model_leading = rule_leading
+                .replace("1179648", "1245184")
+                .replace("manual", "ai");
+            fs::write("measure/leading.json", rule_leading).unwrap();
+            fs::write("leading.json", model_leading).unwrap();
         }
         fs::write("measure/book.pdf", b"%PDF-1.4\nrule\n%%EOF\n").unwrap();
         if request.contains("incomplete") {
@@ -95,6 +103,15 @@ fn main() {
             fs::create_dir("replay").unwrap();
             fs::write("replay/book.pdf", b"%PDF-line\n%%EOF").unwrap();
             fs::copy("measure/spacing.json", "replay/spacing.json").unwrap();
+            if args.iter().any(|arg| arg == "--spacing-receipt") {
+                fs::write("replay/leading.json", r#"[{"line":9,"leading_sp":1310720,"source":"rule","variable":false,"valid":true,"lines":3}]"#).unwrap();
+                fs::create_dir("spacing").unwrap();
+                fs::write(
+                    "spacing/leading.json",
+                    r#"[{"line":0,"leading_sp":-1,"source":"private","variable":false}]"#,
+                )
+                .unwrap();
+            }
             fs::write("line-replay-ready", "").unwrap();
             std::process::exit(1);
         }

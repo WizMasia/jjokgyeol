@@ -225,6 +225,7 @@ def test_pending_alignment_leaves_new_settings_focus_and_text_intact(desk):
 def test_code_selection_shows_reason_and_same_alignment_keeps_document_clean(editor):
     connect_paragraph_service(editor)
     p = editor.page
+    p.locator("#toggle-paragraph-dock").click()
     marker = "<!-- 쪽결 정렬=오른쪽 -->"
     text = f"{marker}\n작성자\n\n~~~\n{marker}\n~~~"
     upload(p, "#file", "예시.md", text.encode())

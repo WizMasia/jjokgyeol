@@ -17,6 +17,12 @@ def amount(scope, side):
     return scope.locator(f'[data-spacing-value="space_{side}_pt"]')
 
 
+def open_paragraph_dock(page):
+    button = page.locator("#toggle-paragraph-dock")
+    if button.get_attribute("aria-expanded") != "true":
+        button.click()
+
+
 def test_role_and_list_settings_roundtrip_and_independent_reset(editor):
     p = editor.page
     open_settings(p)
@@ -58,6 +64,7 @@ def test_role_and_list_settings_roundtrip_and_independent_reset(editor):
 
 def test_individual_edits_only_send_one_side_and_preserve_undo(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     editor.source.fill("첫 문단\n\n마지막 문단")
     select_text(editor.source, 1, 1)
@@ -89,19 +96,22 @@ def test_individual_edits_only_send_one_side_and_preserve_undo(editor):
     expect(editor.source).to_have_value(before_clear)
 
 
-def proof_reply(editor, index, receipt, decision="model"):
+def proof_reply(editor, index, receipt, decision="model", reason=None):
     parts = []
     for key in (("rule",) if decision == "rule" else ("rule", "model")):
         parts.append(f'--p\r\nContent-Disposition: form-data; name="{key}"; filename="{key}.pdf"\r\n'
                      'Content-Type: application/pdf\r\n\r\n'.encode() + editor.pdf + b"\r\n")
     parts.append(b'--p\r\nContent-Disposition: form-data; name="spacing"\r\n\r\n'
                  + json.dumps(receipt).encode() + b"\r\n--p--\r\n")
-    editor.pending[index].fulfill(headers={"Content-Type": "multipart/form-data; boundary=p",
-                                           "X-Jjokgyeol-Decision": decision}, body=b"".join(parts))
+    headers = {"Content-Type": "multipart/form-data; boundary=p", "X-Jjokgyeol-Decision": decision}
+    if reason:
+        headers["X-Jjokgyeol-Decision-Reason"] = reason
+    editor.pending[index].fulfill(headers=headers, body=b"".join(parts))
 
 
 def test_display_tracks_proof_selection_revision_and_archive(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     source = "처음\n\n중간\n계속\n\n마지막"
     editor.source.fill(source)
@@ -139,8 +149,70 @@ def test_display_tracks_proof_selection_revision_and_archive(editor):
     expect(details).not_to_contain_text("8 pt")
 
 
+def test_ai_leading_pin_writes_exact_sp_and_only_leading(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n줄 간격을 고정할 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("고정"), source.index("고정"))
+    p.wait_for_function("document.querySelector('#paragraph-leading').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [], "rule": [], "leading": {"rule": [], "model": [
+        {"line": 2, "leading_sp": 1179649, "source": "ai", "variable": False}]}})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("18.000015258789062 pt · AI")
+    expect(details.get_by_role("button", name="고정")).to_have_count(1)
+    with p.expect_request(lambda request: request.url.endswith("/api/paragraph/align") and
+                          request.post_data_json.get("leading_pt") == "18.0000152587890625") as pinned:
+        details.get_by_role("button", name="고정").click()
+    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "leading_pt"}
+    p.wait_for_function("document.querySelector('#source').value.includes('leading_sp=1179649')")
+    assert "space_before_sp" not in editor.source.input_value()
+
+
+def test_ai_gap_pin_writes_exact_sp_and_only_that_boundary(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n고정할 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("고정"), source.index("고정"))
+    p.wait_for_function("document.querySelector('#paragraph-spacing').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [{"before_line": 0, "after_line": 2, "gap_sp": 1179649, "source": "ai"}],
+                             "rule": []})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("위 18.000015258789062 pt · AI")
+    with p.expect_request(lambda request: request.url.endswith("/api/paragraph/align") and
+                          request.post_data_json.get("space_before_pt") == "18.0000152587890625") as pinned:
+        details.get_by_role("button", name="고정").click()
+    assert set(pinned.value.post_data_json) == {"source", "first_line", "last_line", "space_before_pt", "leading"}
+    p.wait_for_function("document.querySelector('#source').value.includes('space_before_sp=1179649')")
+    assert "leading_sp" not in editor.source.input_value()
+
+
+def test_page_break_gap_is_not_confused_with_explicit_ai_zero(editor):
+    p = editor.page
+    open_paragraph_dock(p)
+    connect_paragraph_service(editor)
+    source = "첫 문단\n\n다음 문단"
+    editor.source.fill(source)
+    select_text(editor.source, source.index("다음"), source.index("다음"))
+    p.wait_for_function("document.querySelector('#paragraph-spacing').disabled === false")
+    editor.submit(editor.refresh)
+    proof_reply(editor, 0, {"model": [
+        {"before_line": 0, "after_line": 2, "gap_sp": 0, "source": "ai", "page_break": True},
+        {"before_line": 2, "after_line": 5, "gap_sp": 0, "source": "ai"}], "rule": []})
+    details = p.locator("#paragraph-spacing-applied")
+    expect(details).to_contain_text("위 경계 없음")
+    expect(details).to_contain_text("아래 0 pt · AI")
+    expect(details.get_by_role("button", name="고정")).to_have_count(1)
+
+
 def test_unfinished_numeric_paragraph_edit_cannot_be_saved(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     editor.source.fill("한 문단")
     select_text(editor.source, 0, 0)
@@ -163,6 +235,7 @@ def test_unfinished_numeric_paragraph_edit_cannot_be_saved(editor):
 
 
 def test_manual_value_keeps_the_exact_side_of_a_half_sp(editor):
+    open_paragraph_dock(editor.page)
     connect_paragraph_service(editor)
     editor.source.fill("원고")
     select_text(editor.source, 0, 0)
@@ -178,6 +251,7 @@ def test_manual_value_keeps_the_exact_side_of_a_half_sp(editor):
 
 def test_second_side_waits_for_first_edit_and_late_selection_reply_is_ignored(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     source = "처음\n\n다음"
     editor.source.fill(source)
@@ -206,6 +280,7 @@ def test_second_side_waits_for_first_edit_and_late_selection_reply_is_ignored(ed
 
 def test_leaving_amount_for_pdf_checkbox_commits_and_keeps_focus(editor):
     page = editor.page
+    open_paragraph_dock(page)
     connect_paragraph_service(editor)
     editor.source.fill("가을\n\n겨울")
     select_text(editor.source, 0, 0)
@@ -232,6 +307,7 @@ def test_role_spacing_error_marks_the_invalid_amount(editor):
 
 def test_settings_waits_for_blurred_paragraph_amount(editor):
     page = editor.page
+    open_paragraph_dock(page)
     connect_paragraph_service(editor)
     editor.source.fill("날짜\n\n본문")
     select_text(editor.source, 0, 0)

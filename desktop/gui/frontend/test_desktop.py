@@ -14,6 +14,61 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
 class DesktopTest(unittest.TestCase):
+    def test_shared_dock_menu_and_source_formatting(self):
+        server = EditorServer()
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(executable_path=os.environ.get('CHROME_PATH'), headless=True)
+                page = browser.new_page(viewport={"width": 1440, "height": 1000})
+                page.add_init_script("""
+                  window.calls = [];
+                  window.__TAURI__ = {core: {invoke: async (command, args) => {
+                    window.calls.push({command, args});
+                    if (command === 'style_convert') return {};
+                    if (command === 'render_proof') throw 'no render';
+                    if (command === 'paragraph_align') return {source: args.payload.source, supported: true,
+                      start_line: 0, align: null, leading_pt: null, space_before_pt: null, space_after_pt: null};
+                    return true;
+                  }}};
+                """)
+                page.goto(f'http://127.0.0.1:{server.server_port}/index.html')
+                page.wait_for_function("document.querySelector('#source').value.length > 0")
+                source = page.locator('#source')
+                text = "첫 문장"
+                source.fill(text)
+                source.evaluate("el => { el.focus(); el.setSelectionRange(0, 1); }")
+                page.locator('#format-bold').click()
+                self.assertEqual(source.input_value(), '**첫** 문장')
+                source.press('ControlOrMeta+z')
+                self.assertEqual(source.input_value(), text)
+                self.assertFalse(page.locator('#paragraph-dock').is_visible())
+                source_region = page.locator('.sheet').bounding_box()
+                proof_region = page.locator('.proof-stage').bounding_box()
+                page.locator('#toggle-paragraph-dock').click()
+                self.assertTrue(page.locator('#paragraph-dock').is_visible())
+                page.wait_for_function("window.calls.some(c => c.command === 'paragraph_align' && c.args.payload.leading === true)")
+                page.locator('#paragraph-leading-mode').select_option('manual')
+                page.locator('#paragraph-leading-value').fill('19')
+                page.locator('#paragraph-leading-value').press('Enter')
+                page.wait_for_function("window.calls.some(c => c.command === 'paragraph_align' && c.args.payload.leading_pt === '19')")
+                self.assertEqual(source_region['y'], page.locator('.sheet').bounding_box()['y'])
+                self.assertEqual(proof_region['y'], page.locator('.proof-stage').bounding_box()['y'])
+                self.assertEqual(page.locator('#status').evaluate("el => el.parentElement.id"), 'app-status-bar')
+                self.assertFalse(page.locator('[data-command="import-source"]').is_visible())
+                menu = page.locator('.app-menu summary').first
+                menu.click()
+                menu.press('ArrowDown')
+                self.assertTrue(page.get_by_role('menuitem', name='원고 열기').evaluate('el => el === document.activeElement'))
+                page.keyboard.press('ArrowDown')
+                self.assertTrue(page.get_by_role('menuitem', name='원고 저장').evaluate('el => el === document.activeElement'))
+                page.keyboard.press('Escape')
+                self.assertTrue(menu.evaluate('el => el === document.activeElement'))
+                browser.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_initial_pdf_save_and_late_render(self):
         pdf = (ROOT / 'proofs/numbering/odd-even.pdf').read_bytes()
         server = EditorServer()

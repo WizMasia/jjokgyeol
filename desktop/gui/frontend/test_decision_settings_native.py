@@ -15,8 +15,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
 
-def frame(rule, model, decision, reason):
-    meta = json.dumps({"decision": decision, "reason": reason, "rule_bytes": len(rule)}).encode()
+def frame(rule, model, decision, reason, **metadata):
+    meta = json.dumps({"decision": decision, "reason": reason, "rule_bytes": len(rule), **metadata}).encode()
     return len(meta).to_bytes(4, "big") + meta + rule + model
 
 
@@ -52,20 +52,25 @@ class DecisionSettingsTest(unittest.TestCase):
                       if (window.failCheck) throw JSON.stringify({code:"authentication", message:"native-test-key"});
                       return {ok:true};
                     }
+                    if (command === "paragraph_align")
+                      return {source: args.payload.source, supported: true, start_line: 0};
                     if (command === "style_convert")
                       return args.action === 'export' ? {body_sp: 720896} : {};
                     if (command === "render_proof") return bytes(RULE_DATA);
                     if (command === "render_model_proof") {
                       if (window.renderError) throw JSON.stringify(window.renderError);
                       if (window.timedOut) return bytes(TIMEOUT_FRAME);
-                      return window.broken || bytes(MODEL_FRAME);
+                      return window.broken || bytes(window.fullModel ? COMPLETE_FRAME : MODEL_FRAME);
                     }
                     if (command === "save_bytes") window.saved = Array.from(args);
                     return true;
                   }}
                 };
             """.replace("RULE_DATA", json.dumps(base64.b64encode(rule).decode()))
-               .replace("MODEL_FRAME", json.dumps(base64.b64encode(frame(rule, model, "mixed", "rate_limit")).decode()))
+               .replace("MODEL_FRAME", json.dumps(base64.b64encode(frame(
+                   rule, model, "mixed", "rate_limit",
+                   spacing={"rule": [], "model": [{"before_line": 0, "gap_sp": 65536, "source": "ai"}]})).decode()))
+               .replace("COMPLETE_FRAME", json.dumps(base64.b64encode(frame(rule, model, "model", None)).decode()))
                .replace("TIMEOUT_FRAME", json.dumps(base64.b64encode(frame(rule, b"", "rule", "timeout")).decode())))
             main = context.new_page()
             # This mocked installation has one licensed face. The interop suite exercises the full Nanum catalog.
@@ -98,6 +103,10 @@ class DecisionSettingsTest(unittest.TestCase):
                 child.add_init_script("window.snapshot = " + json.dumps(snapshot))
                 child.goto(url + "?view=settings")
                 expect(child.locator("#apply-settings")).to_be_enabled()
+                expect(child.locator(".masthead")).to_be_hidden()
+                expect(child.locator(".spread")).to_be_hidden()
+                expect(child.locator("#paragraph-dock")).to_be_hidden()
+                expect(child.locator("#app-status-bar")).to_be_hidden()
                 return child
 
             child = open_child()
@@ -160,7 +169,78 @@ class DecisionSettingsTest(unittest.TestCase):
             main.wait_for_function("window.saved")
             self.assertEqual(bytes(main.evaluate("saved")), rule)
             main.evaluate("delete window.saved")
-            choice.select_option("model")
+            # Explicit AI must render the model once even when the last selection was rule.
+            main.evaluate("""() => {
+                window.fullModel = true;
+                const pages = desktop.pages.bind(desktop);
+                window.restorePages = () => { desktop.pages = pages; };
+                window.pageAttempts = 0;
+                desktop.pages = async blob => {
+                    if (++pageAttempts > 1) throw new Error("Repeated PDF rendering");
+                    await new Promise(resolve => { window.finishModelPages = resolve; });
+                    return pages(blob);
+                };
+            }""")
+            main.locator("#ai-typeset").click()
+            main.wait_for_function("typeof window.finishModelPages === 'function'")
+            expect(main.locator("#status")).to_contain_text("AI 조판 중")
+            expect(main.locator("#desktop-pages canvas")).to_have_count(2)
+            main.evaluate("finishModelPages()")
+            expect(main.locator("#status")).to_have_text("AI 조판 완료")
+            expect(choice).to_have_value("model")
+            expect(status).to_have_text("표시 중 · 모델 조판")
+            expect(main.locator("#desktop-pages canvas")).to_have_count(1)
+            self.assertEqual(main.evaluate("pageAttempts"), 1)
+            main.evaluate("restorePages(); window.fullModel = false")
+            choice.select_option("rule")
+            expect(main.locator("#desktop-pages canvas")).to_have_count(2)
+
+            # A normal job rendering the rule PDF can be promoted while PDF.js is busy.
+            main.evaluate("""() => {
+                const pages = desktop.pages.bind(desktop);
+                window.restorePages = () => { desktop.pages = pages; };
+                window.pageAttempts = 0;
+                desktop.pages = async blob => {
+                    if (++pageAttempts === 1) {
+                        await new Promise(resolve => { window.finishRulePages = resolve; });
+                    }
+                    if (pageAttempts > 2) throw new Error("Repeated PDF rendering");
+                    return pages(blob);
+                };
+            }""")
+            def model_calls():
+                return main.evaluate("calls.filter(c => c.command === 'render_model_proof').length")
+
+            before = model_calls()
+            main.locator("#refresh").click()
+            main.wait_for_function("typeof window.finishRulePages === 'function'")
+            main.locator("#ai-typeset").click()
+            expect(main.locator("#desktop-pages canvas")).to_have_count(2)
+            main.evaluate("finishRulePages()")
+            expect(status).to_contain_text("혼합 조판")
+            expect(main.locator("#status")).to_contain_text("일부 AI 적용")
+            expect(choice).to_have_value("model")
+            expect(main.locator("#desktop-pages canvas")).to_have_count(1)
+            self.assertEqual(model_calls(), before + 1)
+            self.assertEqual(main.evaluate("pageAttempts"), 2)
+            main.evaluate("restorePages()")
+
+            main.locator("#source").evaluate("el => el.setSelectionRange(0, 0)")
+            main.locator("#toggle-paragraph-dock").click()
+            receipt = main.locator("#paragraph-spacing-applied")
+            expect(receipt).to_contain_text("아래 1 pt · AI")
+            main.evaluate("""() => {
+                const pages = desktop.pages.bind(desktop);
+                window.restorePages = () => { desktop.pages = pages; };
+                desktop.pages = async () => { throw new Error("PDF rendering failed"); };
+            }""")
+            choice.select_option("rule")
+            expect(main.locator("#error")).to_contain_text("선택한 교정 PDF")
+            expect(receipt).to_contain_text("아래 1 pt · AI")
+            expect(main.locator("#paragraph-leading-mode")).to_be_enabled()
+            expect(choice).to_have_value("model")
+            expect(main.locator("#desktop-pages canvas")).to_have_count(1)
+            main.evaluate("restorePages()")
             expect(status).to_contain_text("요청 한도")
             # An immediate export waits for the selected PDF to finish displaying.
             main.evaluate("""() => {

@@ -114,6 +114,18 @@ def paragraph_spacing_sp(value, *, stored=False):
         return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
 
 
+def leading_sp(value, *, stored=False):
+    """Validate a baseline distance using the same limits as the document line leading."""
+    with localcontext() as context:
+        context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
+        amount = _number(value, stored, context)
+        scale = SP_PER_PT if stored else 1
+        minimum = 1 if stored else Decimal(1) / SP_PER_PT
+        if not minimum <= amount <= MAX_DIMENSION_PT * scale:
+            raise ValueError(f"줄 간격은 1/65536pt 이상, {MAX_DIMENSION_PT}pt 이하로 입력하세요.")
+        return amount if stored else int((amount * SP_PER_PT).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def _map_numbers(key, value, convert):
     if key not in ARRAY_LENGTHS:
         return convert(value)
@@ -558,8 +570,14 @@ def _load(current, patch, *, stored):
         units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers"}
-    if patch.keys() - units.keys() - set(FONTS) - optional_fields:
+    gap_field = "paragraph_gap_sp" if stored else "paragraph_gap_pt"
+    wrong_gap_field = "paragraph_gap_pt" if stored else "paragraph_gap_sp"
+    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers", gap_field}
+    unsupported = patch.keys() - units.keys() - set(FONTS) - optional_fields
+    if wrong_gap_field in unsupported:
+        errors[wrong_gap_field] = "문단 간격 단위가 전송 형식과 맞지 않습니다."
+        unsupported.remove(wrong_gap_field)
+    if unsupported:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "line_numbers" in patch:
         setting = patch["line_numbers"]
@@ -584,6 +602,14 @@ def _load(current, patch, *, stored):
             errors["article_expr"] = str(error) if isinstance(expr, str) else "조 번호 표현식은 문자열이어야 합니다."
         else:
             values["article_expr"] = expr
+    if gap_field in patch:
+        field = gap_field
+        try:
+            if patch[field] == "auto":
+                raise ValueError("기본 문단 간격은 수치로 입력하세요.")
+            values["paragraph_gap_sp"] = paragraph_spacing_sp(patch[field], stored=stored)
+        except (ValueError, InvalidOperation) as error:
+            errors[field] = str(error) or "유효한 문단 여백을 입력하세요."
     with localcontext() as context:
         context.prec = 64
         context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
@@ -724,6 +750,7 @@ class Style:
     ko_tracking_bounds_per_10000: tuple[int, int] | None = None
     paragraph_layout: str | None = None
     line_numbers: str | tuple[str, str] | None = None
+    paragraph_gap_sp: int | None = None
 
     def _line_number_fields(self):
         if isinstance(self.line_numbers, tuple):
@@ -752,6 +779,8 @@ class Style:
         with localcontext() as context:
             context.prec = 40
             values = _editor_values(self)
+            if self.paragraph_gap_sp is not None:
+                values["paragraph_gap_pt"] = _pt(self.paragraph_gap_sp)
             if self.text_styles:
                 values["text_styles"] = {role: _editor_rule_values(fields) for role, fields in self.text_styles}
             if self.ko_tracking_bounds_per_10000 is not None:
@@ -870,6 +899,7 @@ def editor_bootstrap() -> dict:
         "page_presets_mm": {name: list(size) for name, size in _PAGE_PRESETS_MM.items()},
         "indent_units": {"sp_per_pt": SP_PER_PT, "sp_per_mm_numerator": MM_NUMERATOR,
                         "sp_per_mm_denominator": DENOMINATOR},
+        "leading_range_pt": [format(Decimal(1) / SP_PER_PT, "f"), str(MAX_DIMENSION_PT)],
         "paragraph_spacing": publication.paragraph_spacing_settings(),
         "new_paragraph_layout": publication.NEW_PARAGRAPH_LAYOUT,
         "new_text_styles": new["text_styles"],
