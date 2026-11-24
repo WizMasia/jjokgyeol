@@ -17,7 +17,7 @@ from app.publication import FONT_DIR, LINE_NUMBER_GAP_PT, engine_policy
 from app.reference_rules import block_values, running_contexts
 from app.running_heads import RUNNING_ROLES, SLOTS, parse_running_text
 from app.security import worker_env
-from app.style import RUNNING_DEFAULTS, TEXT_DEFAULTS, paragraph_spacing_sp
+from app.style import RUNNING_DEFAULTS, SP_PER_PT, TEXT_DEFAULTS, paragraph_spacing_sp
 
 if TYPE_CHECKING:
     from app.document import Document
@@ -246,6 +246,8 @@ def _render(doc, style, workdir, candidate, collect_candidates=False, paragraph_
     data = {"blocks": blocks,
             "footnotes": dict(doc.footnotes), "style": book_style,
             "policy": engine_policy(), "candidate": candidate}
+    if style.paragraph_gap_sp is not None:
+        data["policy"]["paragraph_spacing"]["default_pt"] = style.paragraph_gap_sp / SP_PER_PT
     installed_dir = font_dir if font_dir is not None else Path(os.environ.get("JJOKGYEOL_FONT_DIR", FONT_DIR))
     has_document_files = prepare_fonts(style, data["policy"], workdir / "fonts", installed_dir,
                                        copy_installed=font_dir is not None)

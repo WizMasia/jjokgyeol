@@ -47,6 +47,14 @@ def test_one_gap_per_boundary_and_defaults_reported(tmp_path):
     assert all(a["remaining_sp"] > b["remaining_sp"] > 0 for a, b in zip(rows, rows[1:]))
 
 
+def test_explicit_zero_document_gap_removes_the_four_point_default(tmp_path):
+    doc = parse_md("첫 문단\n\n둘째 문단")
+    default = baselines(render(tmp_path / "default-gap", doc, Style()))
+    zero_style = apply_style(Style(), {"paragraph_gap_pt": 0})
+    zero = baselines(render(tmp_path / "zero-gap", doc, zero_style))
+    assert zero["둘"][1] - default["둘"][1] == pytest.approx(4 * BP, abs=.02)
+
+
 def test_frame_and_table_receive_one_exterior_gap(tmp_path):
     doc = parse_md("앞\n\n# 제목\n\n| 갑 | 을 |\n| -- | -- |\n| 병 | 정 |\n\n뒤")
     style = apply_style(Style(), {"text_styles": {"heading1": {"frame": "box"}}})

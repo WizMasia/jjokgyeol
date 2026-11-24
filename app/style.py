@@ -558,7 +558,7 @@ def _load(current, patch, *, stored):
         units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers"}
+    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers", "paragraph_gap_pt", "paragraph_gap_sp"}
     if patch.keys() - units.keys() - set(FONTS) - optional_fields:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "line_numbers" in patch:
@@ -584,6 +584,14 @@ def _load(current, patch, *, stored):
             errors["article_expr"] = str(error) if isinstance(expr, str) else "조 번호 표현식은 문자열이어야 합니다."
         else:
             values["article_expr"] = expr
+    if "paragraph_gap_pt" in patch or (stored and "paragraph_gap_sp" in patch):
+        field = "paragraph_gap_sp" if stored else "paragraph_gap_pt"
+        try:
+            if patch[field] == "auto":
+                raise ValueError("기본 문단 간격은 수치로 입력하세요.")
+            values["paragraph_gap_sp"] = paragraph_spacing_sp(patch[field], stored=stored)
+        except (ValueError, InvalidOperation) as error:
+            errors[field] = str(error) or "유효한 문단 여백을 입력하세요."
     with localcontext() as context:
         context.prec = 64
         context.Emax, context.Emin = MAX_EMAX, MIN_EMIN
@@ -724,6 +732,7 @@ class Style:
     ko_tracking_bounds_per_10000: tuple[int, int] | None = None
     paragraph_layout: str | None = None
     line_numbers: str | tuple[str, str] | None = None
+    paragraph_gap_sp: int | None = None
 
     def _line_number_fields(self):
         if isinstance(self.line_numbers, tuple):
@@ -752,6 +761,8 @@ class Style:
         with localcontext() as context:
             context.prec = 40
             values = _editor_values(self)
+            if self.paragraph_gap_sp is not None:
+                values["paragraph_gap_pt"] = _pt(self.paragraph_gap_sp)
             if self.text_styles:
                 values["text_styles"] = {role: _editor_rule_values(fields) for role, fields in self.text_styles}
             if self.ko_tracking_bounds_per_10000 is not None:

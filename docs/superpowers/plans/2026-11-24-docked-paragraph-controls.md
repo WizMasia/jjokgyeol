@@ -32,11 +32,11 @@
 
 **Interfaces** 편집기 양식의 선택 필드 paragraph_gap_pt, 정수 양식과 Style의 paragraph_gap_sp. 생략은 None으로 보존한다. 설치값과 범위는 기존 publication.PARAGRAPH_SPACING을 사용한다.
 
-- [ ] **RED.** tests/test_spacing_style.py에 입력 0의 저장값이 0이고, 생략한 저장값은 키가 없으며, 6.25pt가 409600sp로 왕복하는 테스트를 추가한다. -1, 73, auto는 필드 오류로 확인한다. tests/test_spacing_engine.py에 명시적 0pt가 기존 4pt와 비교해 기준선 사이의 거리를 정확히 4 TeX pt 줄이는 PDF 테스트를 추가한다.
-- [ ] **실패 확인.** pytest -q tests/test_spacing_style.py tests/test_spacing_engine.py에서 새 케이스가 미지원 필드 때문에 실패하는지 확인한다.
-- [ ] **구현.** Style의 편집 및 저장 변환을 확장한다. typeset에서 해석된 값을 Lua의 parskip, 경계 기본값과 리플레이 검증에 사용한다. 생략한 경우 기존 4pt의 PDF와 후보 ID를 재현한다.
-- [ ] **GREEN.** 같은 명령을 다시 실행하고 tests/test_style_file.py와 tests/test_spacing_decision.py를 확인한다.
-- [ ] 작업 단위로 커밋한다.
+- [x] **RED.** tests/test_spacing_style.py에 입력 0의 저장값이 0이고, 생략한 저장값은 키가 없으며, 6.25pt가 409600sp로 왕복하는 테스트를 추가한다. -1, 73, auto는 필드 오류로 확인한다. tests/test_spacing_engine.py에 명시적 0pt가 기존 4pt와 비교해 기준선 사이의 거리를 정확히 4 TeX pt 줄이는 PDF 테스트를 추가한다.
+- [x] **실패 확인.** pytest -q tests/test_spacing_style.py tests/test_spacing_engine.py에서 새 케이스가 미지원 필드 때문에 실패하는지 확인한다.
+- [x] **구현.** Style의 편집 및 저장 변환을 확장한다. typeset에서 해석된 값을 Lua의 parskip, 경계 기본값과 리플레이 검증에 사용한다. 생략한 경우 기존 4pt의 PDF와 후보 ID를 재현한다.
+- [x] **GREEN.** 같은 명령을 다시 실행하고 tests/test_style_file.py와 tests/test_spacing_decision.py를 확인한다.
+- [x] 작업 단위로 커밋한다.
 
 ## 작업 2. 개별 문단 줄 간격과 조판 측정
 
