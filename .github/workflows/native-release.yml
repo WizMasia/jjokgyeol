@@ -130,7 +130,7 @@ jobs:
           desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path -Portable
           $files = @(python desktop/release/assets.py $env:JJOKGYEOL_RELEASE_TAG --platform windows)
           if ($LASTEXITCODE -ne 0) { throw 'Could not resolve Windows asset names' }
-          desktop/qa/runtime/verify-portable.ps1 -Package (Join-Path release-out $files[1]) -AllowInstalledWebView2
+          desktop/qa/runtime/verify-portable.ps1 -Package (Join-Path release-out $files[1]) -ExtractOnly
       - name: Resolve exact upload paths
         id: assets
         shell: bash

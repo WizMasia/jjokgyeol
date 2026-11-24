@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Package,
     [string]$PreviousPackage,
-    [switch]$AllowInstalledWebView2
+    [switch]$ExtractOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -20,13 +20,14 @@ function Resolve-Package([string]$Path) {
     $file.FullName
 }
 $Package = Resolve-Package $Package
+if ($ExtractOnly -and $PreviousPackage) { throw 'PreviousPackage requires interactive installation.' }
 $firstPackage = if ($PreviousPackage) { Resolve-Package $PreviousPackage } else { $Package }
 if (-not $IsWindows -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
     throw 'Run acceptance on Windows x64 with 64-bit PowerShell 7.'
 }
 . (Join-Path $PSScriptRoot 'webview2.ps1')
 $installed = @(Get-InstalledWebView2Version)
-if (-not $AllowInstalledWebView2) {
+if (-not $ExtractOnly) {
     $os = Get-CimInstance Win32_OperatingSystem
     $identity = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($os.ProductType -ne 1 -or $installed.Count -or
@@ -46,8 +47,9 @@ $results = $work
 . (Join-Path $PSScriptRoot 'run-check.ps1')
 
 function Install-Package([string]$File, [int]$ExpectedExit = 0) {
+    Write-Host "Complete the PortableApps installer in $destination (expected exit $ExpectedExit)."
     # PortableApps adds the AppID to the supplied parent directory.
-    $installer = Start-Process -FilePath $File -ArgumentList ('/S /DESTINATION="{0}\"' -f $parent) -PassThru
+    $installer = Start-Process -FilePath $File -ArgumentList ('/DESTINATION="{0}\"' -f $parent) -PassThru
     try {
         if (-not $installer.WaitForExit(300000)) { throw "PAF installation timed out: $File" }
         if ($installer.ExitCode -ne $ExpectedExit) {
@@ -69,7 +71,12 @@ function Test-PortableLaunch([string]$Folder, [string]$Name) {
 
 try {
     [IO.Directory]::CreateDirectory($parent) | Out-Null
-    Install-Package $firstPackage
+    if ($ExtractOnly) {
+        $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+        Run-Check 'extract-paf' { & $sevenZip x -y "-o$destination" $Package }
+    } else {
+        Install-Package $firstPackage
+    }
     Test-PortableLaunch $destination 'first-launch'
 
     $data = Join-Path $destination 'Data'
@@ -78,7 +85,7 @@ try {
     Set-Content -LiteralPath $sentinel -Value $token -NoNewline
     $profileMarker = Join-Path $data 'WebView2/acceptance-profile.txt'
     Set-Content -LiteralPath $profileMarker -Value $token -NoNewline
-    Install-Package $Package
+    if (-not $ExtractOnly) { Install-Package $Package }
 
     $metadata = Get-Content -LiteralPath (Join-Path $destination 'App/AppInfo/appinfo.ini') -Raw
     $name = (Get-Item -LiteralPath $Package).Name
@@ -91,7 +98,7 @@ try {
     Test-PortableLaunch $moved 'relocated-launch'
     foreach ($marker in @('acceptance-sentinel.txt', 'WebView2/acceptance-profile.txt')) {
         if ((Get-Content -LiteralPath (Join-Path (Join-Path $moved 'Data') $marker) -Raw) -cne $token) {
-            throw "Upgrade or relocation lost Data/$marker"
+            throw "Data/$marker is missing or changed after relocation."
         }
     }
     $runtime = Join-Path $moved 'App/Jjokgyeol/runtime'
@@ -101,26 +108,32 @@ try {
         python (Join-Path $repo 'desktop/qa/compare_pdfs.py') (Join-Path $job 'response.pdf') (Join-Path $repo 'proofs/numbering/odd-even.pdf')
     }
 
-    # An unsafe upgrade target must be rejected before touching its App tree.
-    $outside = Join-Path $work 'untouched'
-    [IO.Directory]::CreateDirectory($outside) | Out-Null
-    $outsideFile = Join-Path $outside 'keep.txt'
-    Set-Content -LiteralPath $outsideFile -Value $token -NoNewline
-    [IO.Directory]::CreateDirectory($destination) | Out-Null
-    $junction = Join-Path $destination 'App'
-    New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
-    try {
-        Install-Package $Package 1
-        if ((Get-Content -LiteralPath $outsideFile -Raw) -cne $token -or
-            @(Get-ChildItem -LiteralPath $outside -Force).Count -ne 1) {
-            throw 'Installer touched the target of a junction.'
-        }
-    } finally { [IO.Directory]::Delete($junction) }
+    if (-not $ExtractOnly) {
+        # An unsafe upgrade target must be rejected before touching its App tree.
+        $outside = Join-Path $work 'untouched'
+        [IO.Directory]::CreateDirectory($outside) | Out-Null
+        $outsideFile = Join-Path $outside 'keep.txt'
+        Set-Content -LiteralPath $outsideFile -Value $token -NoNewline
+        [IO.Directory]::CreateDirectory($destination) | Out-Null
+        $junction = Join-Path $destination 'App'
+        New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+        try {
+            Install-Package $Package 1
+            if ((Get-Content -LiteralPath $outsideFile -Raw) -cne $token -or
+                @(Get-ChildItem -LiteralPath $outside -Force).Count -ne 1) {
+                throw 'Installer touched the target of a junction.'
+            }
+        } finally { [IO.Directory]::Delete($junction) }
+    }
 
     if ((@(Get-InstalledWebView2Version) -join ',') -ne ($installed -join ',')) {
         throw 'Evergreen WebView2 registration changed during portable acceptance.'
     }
-    Write-Host 'PASS: portable install, fixed WebView2, Data retention, relocation and numbered PDF'
+    if ($ExtractOnly) {
+        Write-Host 'PASS: PAF extraction, fixed WebView2, Data relocation and numbered PDF'
+    } else {
+        Write-Host 'PASS: interactive PAF install and reinstall, junction rejection, fixed WebView2, Data retention, relocation and numbered PDF'
+    }
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 }

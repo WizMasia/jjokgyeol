@@ -40,9 +40,9 @@ gh release edit "$tag" -R WizMasia/jjokgyeol --draft=false --prerelease --latest
 
 중단된 업로드는 같은 실행의 실패한 작업을 다시 실행해 이어갑니다. 설치물을 다시 빌드하거나 대상 커밋이 바뀌면 새 순번을 사용합니다. Mac 앱은 임시 서명(ad hoc)이며 Apple 공증 전입니다. Windows 설치 프로그램은 게시자 서명 전입니다.
 
-Windows 작업은 한 번 빌드한 실행 파일과 조판 런타임으로 일반 설치판과 PAF를 만듭니다. 빌드에는 x64 7-Zip이 필요하며, 해시를 검증한 공식 PortableApps.com Launcher Generator와 Installer Generator를 사용합니다. Installer Generator가 사용하는 NSIS 템플릿은 쓰기 전에 경로를 검사하고 명시적 `/S` 검증 실행을 허용하도록 빌드 중 조정합니다. 공개 버전과 PAF 파일명에는 Tauri 설정의 전체 버전을 사용합니다. PAF의 숫자 버전은 네 번째 자리에 시험판 순번을 쓰며, 같은 기본 버전의 정식판에는 65535를 사용합니다. 포터블 런타임과 도구를 업데이트할 때 `desktop/release/portable.lock.json`의 버전·공식 URL·SHA-256을 함께 갱신하고 같은 검사를 다시 실행합니다. 고정 WebView2는 새 PAF를 설치할 때 갱신됩니다. [Microsoft 고정 버전 배포 문서](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+Windows 작업은 한 번 빌드한 실행 파일과 조판 런타임으로 일반 설치판과 PAF를 만듭니다. 빌드에는 x64 7-Zip이 필요하며, 해시를 검증한 공식 PortableApps.com Launcher Generator와 Installer Generator를 사용합니다. 공식 NSIS 템플릿을 그대로 사용하며, PAF에 포함된 템플릿의 SHA-256을 공식 도구의 원본과 대조합니다. 설치 경로는 기존 앱 삭제와 파일 추출 전에 공식 사용자 정의 훅에서 검사합니다. 공개 버전과 PAF 파일명에는 Tauri 설정의 전체 버전을 사용합니다. PAF의 숫자 버전은 네 번째 자리에 시험판 순번을 쓰며, 같은 기본 버전의 정식판에는 65535를 사용합니다. 포터블 런타임과 도구를 업데이트할 때 `desktop/release/portable.lock.json`의 버전·공식 URL·SHA-256을 함께 갱신하고 같은 검사를 다시 실행합니다. 고정 WebView2는 새 PAF를 설치할 때 갱신됩니다. [Microsoft 고정 버전 배포 문서](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
 
-배포 관련 경로를 바꾸는 `main` 대상 PR에서는 같은 배포 워크플로의 Windows 작업만 실행합니다. Windows Server 러너에 이미 설치된 Evergreen WebView2를 사용해 기존 설치판을 검증한 뒤, PAF는 자체 WebView2 프로세스 경로와 조판 결과를 별도로 확인합니다. 초안 생성은 공개 `main` 커밋과 일치하는 `release-batch/v*-preview.*` 브랜치 푸시에서 실행합니다.
+배포 관련 경로를 바꾸는 `main` 대상 PR에서는 같은 배포 워크플로의 Windows 작업만 실행합니다. Windows Server 러너에 이미 설치된 Evergreen WebView2를 사용해 기존 설치판을 검증한 뒤, PAF는 아카이브 무결성과 파일 해시를 확인한 뒤 `-ExtractOnly`로 풀어 자체 WebView2 프로세스 경로, 폴더 이동과 조판 결과를 검사합니다. PAF 설치 마법사와 업데이트는 아래의 대화형 수락 검사에서 확인합니다. 초안 생성은 공개 `main` 커밋과 일치하는 `release-batch/v*-preview.*` 브랜치 푸시에서 실행합니다.
 
 TeX 실행 파일은 [TeX Live 2022 보관소](https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2022/)에서 가져오고 조판 자료는 저장소 Dockerfile의 Debian 패키지를 사용합니다. 구성 요소별 고지문은 설치된 `runtime/licenses`에 포함합니다.
 
@@ -54,12 +54,11 @@ TeX 실행 파일은 [TeX Live 2022 보관소](https://ftp.math.utah.edu/pub/tex
 ```powershell
 # Run from the release commit's checkout before disconnecting.
 python -m pip install --require-hashes --only-binary=:all: -r desktop/qa/requirements-compare.lock
-# Read and accept the terms in the interactive PAF before using unattended mode.
 # Disconnect the test machine, then substitute the exact filename from the draft.
 pwsh -NoProfile -File desktop/qa/runtime/verify-portable.ps1 -Package 'C:\검증 파일\JjokgyeolPortable_<version>.paf.exe'
 ```
 
-명령은 PAF의 SHA-256을 출력하고, 한글과 공백이 있는 경로에 설치한 뒤 실행 중인 브라우저의 바이너리와 프로필 위치를 확인합니다. 같은 PAF를 다시 설치하고 폴더를 옮겨도 `Data`의 시험 파일이 남아 있는지 확인하며, 실제 동봉 작업자가 출력한 양면 줄 번호 PDF를 기준 파일의 글자와 좌표에 대조합니다. 이전 PAF가 있으면 `-PreviousPackage <path>`를 추가해 이전 버전에서의 업데이트를 검사할 수 있습니다. 기본값은 같은 버전을 덮어쓰는 검사입니다.
+명령은 PAF의 SHA-256을 출력하고, 한글과 공백이 있는 임시 설치 경로를 표시합니다. 최초 설치와 재설치 때 표시된 경로를 유지하고 마법사의 약관을 읽고 동의해 설치를 진행합니다. 설치 후 실행 중인 브라우저의 바이너리와 프로필 위치를 확인합니다. 같은 PAF를 다시 설치하고 폴더를 옮겨도 `Data`의 시험 파일이 남아 있는지 확인하며, 실제 동봉 작업자가 출력한 양면 줄 번호 PDF를 기준 파일의 글자와 좌표에 대조합니다. 이전 PAF가 있으면 `-PreviousPackage <path>`를 추가해 이전 버전에서의 업데이트를 검사할 수 있습니다. 기본값은 같은 버전을 덮어쓰는 검사입니다. 마지막 설치 마법사에서는 취소 대신 설치를 진행해 링크가 있는 경로를 거부한다는 오류를 확인합니다.
 
 같은 PAF를 단독 설치해 본문 글자 크기를 바꾸고 **새 문서 기본값으로 저장**을 누릅니다. 한글 원고를 한글과 공백이 포함된 경로에 `.jjok`로 저장하고 PDF 미리보기와 내보내기를 실행합니다. 앱을 닫고 폴더를 옮긴 뒤 저장한 기본값으로 새 문서가 시작되고, `.jjok`를 다시 열었을 때 원고와 양식이 유지되는지 확인합니다. 같은 위치에 PAF를 다시 설치해 이 항목을 반복합니다. PortableApps.com Platform에서도 동일한 PAF를 설치해 메뉴 등록 및 실행을 확인합니다.
 

@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from portable import (
-    build, package_version, payload_inventory, prepare_installer_template, stage,
+    build, package_version, payload_inventory, stage,
     validate_webview, verify_hash, verify_payload,
 )
 
@@ -70,21 +70,31 @@ class PortableTests(unittest.TestCase):
             build(self.root / 'missing.exe', self.root / 'runtime', self.root, 'v0.1.1-preview.7')
         self.assertEqual(output.read_bytes(), b'existing release')
 
-    def test_installer_guard_precedes_destination_writes(self):
-        template = self.root / 'installer.nsi'
-        original = ('\tSetSilent normal\n\tSectionIn RO\n\tSetOutPath $INSTDIR\n'
-                    '\t!ifmacrodef CustomCodePreInstall\n'
-                    '\t\t!insertmacro CustomCodePreInstall\n\t!endif\n'
-                    '\tRMDir /r "$INSTDIR\\App"\n')
-        template.write_text(original, encoding='utf-16')
-        prepare_installer_template(template)
-        result = template.read_text(encoding='utf-16')
-        hook = '!insertmacro CustomCodePreInstall'
-        self.assertEqual(result.count(hook), 1)
-        self.assertLess(result.index(hook), result.index('SetOutPath $INSTDIR'))
-        self.assertNotIn('SetSilent normal', result)
-        with self.assertRaisesRegex(ValueError, 'Unexpected PortableApps'):
-            prepare_installer_template(template)
+    def test_paf_contains_the_original_vendor_template(self):
+        candidate = self.root / 'candidate.exe'
+        self.pe(candidate)
+        original = b'pinned original source'
+        digest = hashlib.sha256(original).hexdigest()
+
+        for source in (b'edited vendor source', original):
+            def extract(*arguments):
+                if arguments[1] == 'x':
+                    output = Path(arguments[3][2:])
+                    template = output / 'Other/Source/PortableApps.comInstaller.nsi'
+                    template.parent.mkdir(parents=True)
+                    template.write_bytes(source)
+                    self.pe(output / 'JjokgyeolPortable.exe')
+                    for name in ('appinfo.ini', 'EULA.txt', 'Launcher/JjokgyeolPortable.ini'):
+                        file = output / 'App/AppInfo' / name
+                        file.parent.mkdir(parents=True, exist_ok=True)
+                        file.write_bytes(b'fixture')
+
+            with self.subTest(source=source), patch('portable.run', side_effect=extract):
+                if source == original:
+                    verify_payload(Path('7z'), candidate, {}, digest)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'changed payload.*PortableApps.comInstaller.nsi'):
+                        verify_payload(Path('7z'), candidate, {}, digest)
 
     def test_stage(self):
         executable = self.root / 'compiled.exe'
@@ -122,7 +132,7 @@ class PortableTests(unittest.TestCase):
         self.pe(candidate)
         with patch('portable.run') as run:
             with self.assertRaisesRegex(ValueError, 'missing payload'):
-                verify_payload(Path('7z'), candidate, inventory)
+                verify_payload(Path('7z'), candidate, inventory, 'unused-after-missing-payload')
             self.assertEqual(run.call_args_list[0].args[1], 't')
         (package / 'App/Jjokgyeol/WebView2/icudtl.dat').unlink()
         with self.assertRaisesRegex(ValueError, 'icudtl.dat'):

@@ -167,13 +167,14 @@ def payload_inventory(package, version):
             for file in app.rglob('*') if file.is_file()}
 
 
-def verify_payload(seven_zip, candidate, inventory):
+def verify_payload(seven_zip, candidate, inventory, template_digest):
     require_pe(candidate)
     run(seven_zip, 't', candidate)
     with tempfile.TemporaryDirectory(dir=candidate.parent) as temporary:
         extracted = Path(temporary)
         run(seven_zip, 'x', '-y', f'-o{extracted}', candidate)
-        for name, digest in inventory.items():
+        expected = inventory | {'Other/Source/PortableApps.comInstaller.nsi': template_digest}
+        for name, digest in expected.items():
             file = extracted / name
             if not file.is_file():
                 raise ValueError(f'PAF is missing payload file: {name}')
@@ -184,20 +185,6 @@ def verify_payload(seven_zip, candidate, inventory):
             file = extracted / 'App/AppInfo' / name
             if not file.is_file() or not file.stat().st_size:
                 raise ValueError(f'PAF is missing metadata: {name}')
-
-
-def prepare_installer_template(path):
-    source = path.read_text(encoding='utf-16')
-    early_write = '\tSectionIn RO\n\tSetOutPath $INSTDIR'
-    preinstall = '\t!ifmacrodef CustomCodePreInstall\n\t\t!insertmacro CustomCodePreInstall\n\t!endif'
-    for original in (early_write, preinstall, '\tSetSilent normal'):
-        if source.count(original) != 1:
-            raise ValueError(f'Unexpected PortableApps installer template: {original!r}')
-    # Keep all destination writes after the embedded guard. The explicit /S switch
-    # is for acceptance runs where the operator has already accepted the EULA.
-    source = source.replace(preinstall, '').replace('\tSetSilent normal', '')
-    source = source.replace(early_write, '\tSectionIn RO\n' + preinstall + '\n\tSetOutPath $INSTDIR')
-    path.write_text(source, encoding='utf-16', newline='\r\n')
 
 
 def build(executable, runtime, output_dir, tag):
@@ -224,6 +211,9 @@ def build(executable, runtime, output_dir, tag):
             folder = work / name
             run(seven_zip, 'x', '-y', f'-o{folder}', archive)
             extracted[name] = folder
+        template = extracted['installer'] / 'App/installer/PortableApps.comInstaller.nsi'
+        # The official generator copies its original NSIS template into the PAF.
+        template_digest = sha256(template)
         version = pins['webview']['version']
         webview = extracted['webview'] / f'Microsoft.WebView2.FixedVersionRuntime.{version}.x64'
         validate_webview(webview, version)
@@ -234,12 +224,10 @@ def build(executable, runtime, output_dir, tag):
         source = package / 'Other/Source'
         shutil.copytree(extracted['launcher'] / 'Other/Source', source / 'PortableApps.comLauncher')
         shutil.copy2(extracted['installer'] / 'Other/Source/License.txt', source / 'Installer-License.txt')
-        template = extracted['installer'] / 'App/installer/PortableApps.comInstaller.nsi'
-        prepare_installer_template(template)
         inventory = payload_inventory(package, version)
         candidate = payload / output.name
         compile_package(package, extracted['launcher'], extracted['installer'], candidate)
-        verify_payload(seven_zip, candidate, inventory)
+        verify_payload(seven_zip, candidate, inventory, template_digest)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         # Publish only the completed installer, with an atomic no-overwrite operation on Windows.
