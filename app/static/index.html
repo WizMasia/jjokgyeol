@@ -27,6 +27,31 @@
   <a class="skip" href="#source">원고 편집으로 이동</a>
   <header class="masthead">
     <h1><span class="mark" aria-hidden="true"></span><b>쪽결</b><span class="product">원고 편집기<!--APP_VERSION--></span></h1>
+    <nav class="app-menus" aria-label="편집기 메뉴">
+      <details class="app-menu"><summary>파일</summary><div class="menu-items" role="menu" aria-label="파일">
+        <button type="button" role="menuitem" data-command="open">원고 열기</button>
+        <button type="button" role="menuitem" data-command="import-source" class="web-only-menu">원고 가져오기</button>
+        <button type="button" role="menuitem" data-command="save">원고 저장</button>
+        <button type="button" role="menuitem" data-command="open-document">쪽결 문서 열기</button>
+        <button type="button" role="menuitem" data-command="save-document">쪽결 문서 저장</button>
+      </div></details>
+      <details class="app-menu"><summary>편집</summary><div class="menu-items" role="menu" aria-label="편집">
+        <button type="button" role="menuitem" data-command="undo">실행 취소</button>
+        <button type="button" role="menuitem" data-command="redo">다시 실행</button>
+        <button type="button" role="menuitem" data-command="open-settings">설정</button>
+      </div></details>
+      <details class="app-menu"><summary>서식</summary><div class="menu-items" role="menu" aria-label="서식">
+        <button type="button" role="menuitem" data-command="format-bold">굵게</button>
+        <button type="button" role="menuitem" data-command="format-italic">기울임</button>
+        <button type="button" role="menuitem" data-command="open-fonts">문서 글꼴</button>
+        <button type="button" role="menuitem" data-command="paragraph-align">문단 정렬</button>
+        <button type="button" role="menuitem" data-command="toggle-paragraph-dock">문단 서식</button>
+      </div></details>
+      <details class="app-menu"><summary>조판</summary><div class="menu-items" role="menu" aria-label="조판">
+        <button type="button" role="menuitem" data-command="refresh">미리보기 갱신</button>
+        <button type="button" role="menuitem" data-command="export">PDF 다운로드</button>
+      </div></details>
+    </nav>
     <div class="document-actions" role="group" aria-label="쪽결 문서">
       <button type="button" id="open-document">쪽결 문서 열기</button>
       <input type="file" id="document-file" accept=".jjok" hidden>
@@ -78,7 +103,6 @@
         <header class="panel-head">
           <h2 id="manuscript-title">원고</h2>
           <div class="file-actions">
-            <label>문단 정렬 <select id="paragraph-align" aria-describedby="paragraph-align-message"></select></label>
             <button type="button" id="toggle-article-pin" hidden title="원고에서 조 제목에 커서를 놓고 번호를 고정하거나 해제합니다.">번호 고정/해제</button>
             <button type="button" id="open">원고 열기</button>
             <button type="button" id="import-source">원고 가져오기</button>
@@ -87,12 +111,16 @@
             <input type="file" id="file" accept=".md,.markdown,text/markdown,text/plain" hidden>
           </div>
         </header>
+        <nav id="source-toolbar" aria-label="원고 서식 도구">
+          <button type="button" id="format-bold">굵게</button>
+          <button type="button" id="format-italic">기울임</button>
+          <label>정렬 <select id="paragraph-align" aria-describedby="paragraph-align-message"></select></label>
+          <button type="button" id="toggle-paragraph-dock" aria-controls="paragraph-dock" aria-expanded="false">문단 서식</button>
+        </nav>
         <div class="sheet">
           <label class="sr-only" for="source">마크다운 원고</label>
           <textarea id="source" spellcheck="false" autocomplete="off" placeholder="원고를 입력하세요."></textarea>
         </div>
-        <fieldset id="paragraph-spacing" disabled><legend>선택한 문단 여백</legend></fieldset>
-        <p id="paragraph-align-message" aria-live="polite"></p>
         <section id="import-notice" aria-labelledby="import-warnings-title" hidden>
           <h3 id="import-warnings-title">원고 가져오기 경고</h3>
           <ul id="import-warnings"></ul>
@@ -103,17 +131,22 @@
         <header class="panel-head">
           <h2 id="proof-title">조판 미리보기</h2>
           <label>조판 방식 <select id="proof-choice" aria-describedby="proof-decision"></select></label>
-          <span id="status" role="status">샘플 불러오는 중</span>
         </header>
         <div class="proof-stage">
           <p id="placeholder">첫 지면을 준비하고 있습니다.</p>
           <p id="viewer-fallback" hidden>이 브라우저에서는 PDF 다운로드로 지면을 확인하세요.</p>
           <iframe id="preview" title="조판된 PDF 미리보기" hidden></iframe>
         </div>
-        <p id="paragraph-spacing-applied" aria-live="polite"></p>
         <footer class="folio"><span id="proof-size">PDF</span><span id="proof-decision" aria-live="polite"></span></footer>
       </section>
     </div>
+    <section id="paragraph-dock" aria-label="문단 서식" hidden>
+      <header class="dock-head"><h2>문단 서식</h2><button type="button" id="close-paragraph-dock">닫기</button></header>
+      <fieldset id="paragraph-spacing" disabled><legend>선택한 문단 여백</legend></fieldset>
+      <p id="paragraph-align-message" aria-live="polite"></p>
+      <p id="paragraph-spacing-applied" aria-live="polite"></p>
+    </section>
+    <footer id="app-status-bar"><span id="status" role="status">샘플 불러오는 중</span></footer>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <header class="settings-head">
         <h2 id="settings-title">출판 설정</h2>

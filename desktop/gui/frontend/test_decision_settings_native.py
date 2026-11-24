@@ -98,6 +98,10 @@ class DecisionSettingsTest(unittest.TestCase):
                 child.add_init_script("window.snapshot = " + json.dumps(snapshot))
                 child.goto(url + "?view=settings")
                 expect(child.locator("#apply-settings")).to_be_enabled()
+                expect(child.locator(".masthead")).to_be_hidden()
+                expect(child.locator(".spread")).to_be_hidden()
+                expect(child.locator("#paragraph-dock")).to_be_hidden()
+                expect(child.locator("#app-status-bar")).to_be_hidden()
                 return child
 
             child = open_child()

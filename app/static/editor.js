@@ -979,6 +979,91 @@ function applyPinnedSource(text) {
 const paragraphAlign = byId("paragraph-align");
 paragraphAlign.add(new Option("양식 따르기", ""));
 for (const [label, value] of alignmentChoices) paragraphAlign.add(new Option(label, value));
+const paragraphDock = byId("paragraph-dock");
+const paragraphDockToggle = byId("toggle-paragraph-dock");
+function setParagraphDock(open) {
+  paragraphDock.hidden = !open;
+  paragraphDockToggle.setAttribute("aria-expanded", String(open));
+}
+paragraphDockToggle.addEventListener("click", () => setParagraphDock(paragraphDock.hidden));
+byId("close-paragraph-dock").addEventListener("click", () => {
+  setParagraphDock(false);
+  paragraphDockToggle.focus();
+});
+
+function toggleEmphasis(marker) {
+  const start = source.selectionStart, end = source.selectionEnd;
+  if (start === end) return;
+  const value = source.value;
+  const unwrap = value.slice(start - marker.length, start) === marker &&
+    value.slice(end, end + marker.length) === marker;
+  const from = unwrap ? start - marker.length : start;
+  const to = unwrap ? end + marker.length : end;
+  const selected = value.slice(start, end);
+  const replacement = unwrap ? selected : marker + selected + marker;
+  source.focus({preventScroll: true});
+  source.setSelectionRange(from, to);
+  if (!document.execCommand("insertText", false, replacement)) return;
+  const innerStart = from + (unwrap ? 0 : marker.length);
+  source.setSelectionRange(innerStart, innerStart + selected.length);
+}
+byId("format-bold").addEventListener("click", () => toggleEmphasis("**"));
+byId("format-italic").addEventListener("click", () => toggleEmphasis("*"));
+
+const menus = [...document.querySelectorAll(".app-menu")];
+for (const menu of menus) {
+  const summary = menu.querySelector("summary");
+  summary.setAttribute("aria-haspopup", "menu");
+  summary.setAttribute("aria-expanded", "false");
+  menu.addEventListener("toggle", () => {
+    summary.setAttribute("aria-expanded", String(menu.open));
+    if (menu.open) menus.filter(other => other !== menu).forEach(other => { other.open = false; });
+  });
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]')]
+    .filter(item => item.getClientRects().length > 0);
+  menu.querySelector("summary").addEventListener("keydown", event => {
+    if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+    event.preventDefault();
+    menu.open = true;
+    const visible = items();
+    visible[event.key === "ArrowDown" ? 0 : visible.length - 1]?.focus();
+  });
+  menu.querySelector("[role=menu]").addEventListener("keydown", event => {
+    const visible = items();
+    const index = visible.indexOf(document.activeElement);
+    const next = event.key === "ArrowDown" ? (index + 1) % visible.length :
+      event.key === "ArrowUp" ? (index - 1 + visible.length) % visible.length :
+      event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    visible[next]?.focus();
+  });
+}
+document.addEventListener("click", event => {
+  if (!event.target.closest(".app-menu")) menus.forEach(menu => { menu.open = false; });
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  const menu = menus.find(item => item.open);
+  if (!menu) return;
+  event.preventDefault();
+  menu.open = false;
+  menu.querySelector("summary").focus();
+});
+for (const item of document.querySelectorAll(".menu-items [data-command]")) {
+  item.addEventListener("click", () => {
+    const command = item.dataset.command;
+    if (command === "undo" || command === "redo") {
+      source.focus({preventScroll: true});
+      document.execCommand(command);
+    } else if (command === "paragraph-align") {
+      paragraphAlign.focus({preventScroll: true});
+    } else {
+      byId(command)?.click();
+    }
+    menus.forEach(menu => { menu.open = false; });
+  });
+}
 const paragraphSpacing = byId("paragraph-spacing");
 const individualSpacing = paragraphSpacingFields(paragraphSpacing, "양식 따르기");
 const spacingSources = {manual: "직접", style: "양식", ai: "AI", rule: "규칙 대체", default: "기본"};

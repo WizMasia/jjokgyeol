@@ -17,6 +17,12 @@ def amount(scope, side):
     return scope.locator(f'[data-spacing-value="space_{side}_pt"]')
 
 
+def open_paragraph_dock(page):
+    button = page.locator("#toggle-paragraph-dock")
+    if button.get_attribute("aria-expanded") != "true":
+        button.click()
+
+
 def test_role_and_list_settings_roundtrip_and_independent_reset(editor):
     p = editor.page
     open_settings(p)
@@ -58,6 +64,7 @@ def test_role_and_list_settings_roundtrip_and_independent_reset(editor):
 
 def test_individual_edits_only_send_one_side_and_preserve_undo(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     editor.source.fill("첫 문단\n\n마지막 문단")
     select_text(editor.source, 1, 1)
@@ -102,6 +109,7 @@ def proof_reply(editor, index, receipt, decision="model"):
 
 def test_display_tracks_proof_selection_revision_and_archive(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     source = "처음\n\n중간\n계속\n\n마지막"
     editor.source.fill(source)
@@ -141,6 +149,7 @@ def test_display_tracks_proof_selection_revision_and_archive(editor):
 
 def test_unfinished_numeric_paragraph_edit_cannot_be_saved(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     editor.source.fill("한 문단")
     select_text(editor.source, 0, 0)
@@ -163,6 +172,7 @@ def test_unfinished_numeric_paragraph_edit_cannot_be_saved(editor):
 
 
 def test_manual_value_keeps_the_exact_side_of_a_half_sp(editor):
+    open_paragraph_dock(editor.page)
     connect_paragraph_service(editor)
     editor.source.fill("원고")
     select_text(editor.source, 0, 0)
@@ -178,6 +188,7 @@ def test_manual_value_keeps_the_exact_side_of_a_half_sp(editor):
 
 def test_second_side_waits_for_first_edit_and_late_selection_reply_is_ignored(editor):
     p = editor.page
+    open_paragraph_dock(p)
     connect_paragraph_service(editor)
     source = "처음\n\n다음"
     editor.source.fill(source)
@@ -206,6 +217,7 @@ def test_second_side_waits_for_first_edit_and_late_selection_reply_is_ignored(ed
 
 def test_leaving_amount_for_pdf_checkbox_commits_and_keeps_focus(editor):
     page = editor.page
+    open_paragraph_dock(page)
     connect_paragraph_service(editor)
     editor.source.fill("가을\n\n겨울")
     select_text(editor.source, 0, 0)
@@ -232,6 +244,7 @@ def test_role_spacing_error_marks_the_invalid_amount(editor):
 
 def test_settings_waits_for_blurred_paragraph_amount(editor):
     page = editor.page
+    open_paragraph_dock(page)
     connect_paragraph_service(editor)
     editor.source.fill("날짜\n\n본문")
     select_text(editor.source, 0, 0)
