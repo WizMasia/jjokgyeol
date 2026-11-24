@@ -41,7 +41,9 @@ try {
     }
     function Test-DirectoryWrite([string]$Path) {
         $probe = Join-Path $Path ([IO.Path]::GetRandomFileName())
-        try { [IO.File]::Open($probe, 'CreateNew', 'Write', 'None', 4096, 'DeleteOnClose').Dispose() }
+        try {
+            [IO.FileStream]::new($probe, 'CreateNew', 'Write', 'None', 4096, [IO.FileOptions]::DeleteOnClose).Dispose()
+        }
         catch { throw "Cannot write in $Path. $($_.Exception.Message)" }
     }
     function Test-IniWrite([string]$Path) {
