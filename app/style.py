@@ -558,8 +558,14 @@ def _load(current, patch, *, stored):
         units = {key: (key, 1) for key, _ in units.values()}
     names = {key: external for external, (key, _) in units.items()}
     errors = {}
-    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers", "paragraph_gap_pt", "paragraph_gap_sp"}
-    if patch.keys() - units.keys() - set(FONTS) - optional_fields:
+    gap_field = "paragraph_gap_sp" if stored else "paragraph_gap_pt"
+    wrong_gap_field = "paragraph_gap_pt" if stored else "paragraph_gap_sp"
+    optional_fields = {"list_levels", "article_expr", "section_rules", "text_styles", "paragraph_layout", "line_numbers", gap_field}
+    unsupported = patch.keys() - units.keys() - set(FONTS) - optional_fields
+    if wrong_gap_field in unsupported:
+        errors[wrong_gap_field] = "문단 간격 단위가 전송 형식과 맞지 않습니다."
+        unsupported.remove(wrong_gap_field)
+    if unsupported:
         errors["style"] = "지원하지 않는 양식 필드가 있습니다."
     if "line_numbers" in patch:
         setting = patch["line_numbers"]
@@ -584,8 +590,8 @@ def _load(current, patch, *, stored):
             errors["article_expr"] = str(error) if isinstance(expr, str) else "조 번호 표현식은 문자열이어야 합니다."
         else:
             values["article_expr"] = expr
-    if "paragraph_gap_pt" in patch or (stored and "paragraph_gap_sp" in patch):
-        field = "paragraph_gap_sp" if stored else "paragraph_gap_pt"
+    if gap_field in patch:
+        field = gap_field
         try:
             if patch[field] == "auto":
                 raise ValueError("기본 문단 간격은 수치로 입력하세요.")

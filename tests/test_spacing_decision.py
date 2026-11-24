@@ -5,6 +5,7 @@ from time import monotonic
 import pytest
 
 from app.ai import decision, providers
+from app.ai.spacing import verify_report
 from app.ai.builtin import BuiltinDecision
 from app.document import parse_md
 from app.style import SP_PER_PT, Style, apply_style
@@ -91,6 +92,17 @@ def test_selects_only_automatic_gaps_on_accepted_line_proof(tmp_path):
     assert report(tmp_path) == report(tmp_path / engine.calls[-1][0])
     assert [r["source"] for r in report(tmp_path)] == ["manual", "style", "ai"]
     assert report(tmp_path / "measure") == rows
+
+
+def test_recovered_page_boundary_uses_document_gap_from_original_render(tmp_path):
+    requested = tmp_path / "measure"
+    requested.mkdir()
+    (requested / "input.json").write_text(json.dumps({
+        "style": {"paragraph_gap_sp": 9 * SP_PER_PT}, "spacing": {"2": {"auto": False}},
+    }))
+    old = dict(boundary(2, source="default"), page=2, left_page=1, gap_sp=0)
+    new = dict(old, page=1, left_page=1, gap_sp=9 * SP_PER_PT)
+    verify_report([old], [new], {}, requested)
 
 
 def test_spacing_alone_and_document_call_limit(tmp_path, monkeypatch):

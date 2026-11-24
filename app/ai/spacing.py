@@ -58,7 +58,7 @@ def options(row, body_sp):
 
 
 def verify_report(before, after, choices, original_folder):
-    requested = None
+    requested = default_gap = None
     for old, new in zip(before, after, strict=True):
         if not measured(new) or any(old[k] != new[k] for k in IDENTITY):
             raise ValueError("unverified spacing boundary")
@@ -71,7 +71,16 @@ def verify_report(before, after, choices, original_folder):
             # The former page edge hid the requested gap. Recover it from the original render.
             if requested is None:
                 with (original_folder / "input.json").open(encoding="utf-8") as stream:
-                    requested = json.load(stream)["spacing"]
-            gap = requested[key].get("gap_sp", paragraph_spacing_sp(publication.PARAGRAPH_SPACING["default_pt"]))
+                    render_input = json.load(stream)
+                requested = render_input["spacing"]
+                style_gap = render_input.get("style", {}).get("paragraph_gap_sp")
+                if type(style_gap) is int and style_gap >= 0:
+                    default_gap = style_gap
+                else:
+                    policy_gap = render_input.get("policy", {}).get("paragraph_spacing", {}).get("default_pt")
+                    default_gap = paragraph_spacing_sp(
+                        policy_gap if policy_gap is not None else publication.PARAGRAPH_SPACING["default_pt"]
+                    )
+            gap = requested.get(key, {}).get("gap_sp", default_gap)
         if new["source"] != source or new["gap_sp"] != gap:
             raise ValueError("unverified spacing selection")
