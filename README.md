@@ -8,7 +8,7 @@
 
 ## 배포 상태
 
-**v0.1.1-preview.4**에서는 웹판과 데스크톱 앱 모두 출판 양식과 AI 모델을 새 문서의 기본값으로 저장할 수 있습니다. **설정 → AI 모델 설정 → 외부 API**에서 Ollama 다음의 **LM Studio**를 선택하고, 모델 ID를 직접 입력하거나 서버 목록에서 고르세요. 설치 후 편집기 상단의 버전이 릴리즈 태그와 일치하는지 확인할 수 있습니다. [운영체제별 설치 파일과 SHA-256](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.1-preview.4)
+**v0.1.1-preview.6**에서는 원고와 PDF를 나란히 보면서 하단 **문단 서식**에서 문단 위·아래 여백과 줄 간격을 조정할 수 있습니다. **AI로 조판**하면 하단에 진행 상태가 표시되며, 검증된 AI 간격값을 항목별로 원고에 고정할 수 있습니다. 설치 후 편집기 상단의 버전을 릴리즈 태그와 대조하세요. [운영체제별 설치 파일과 SHA-256](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.1-preview.6)
 
 배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
 
