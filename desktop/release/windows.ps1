@@ -82,6 +82,11 @@ try {
         -not (Test-Path -LiteralPath (Join-Path $installedRuntime 'licenses') -PathType Container)) {
         throw "Installed files are missing from $install"
     }
+    foreach ($portablePath in @('JjokgyeolPortable.exe', 'WebView2', 'Data/WebView2')) {
+        if (Test-Path -LiteralPath (Join-Path $install $portablePath)) {
+            throw "Ordinary installer contains unexpected portable files: $portablePath"
+        }
+    }
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\쪽결'
     $version = (Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion
     if ("v$version" -ne $env:JJOKGYEOL_RELEASE_TAG) { throw "Unexpected installed version $version" }

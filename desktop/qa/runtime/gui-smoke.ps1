@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Executable,
-    [Parameter(Mandatory=$true)][string]$StatusFile
+    [Parameter(Mandatory=$true)][string]$StatusFile,
+    [string]$PortableRoot
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -38,6 +39,7 @@ $desktop = [DesktopAccess]::OpenInputDesktop(0, $false, 1)
 $interactive = [Environment]::UserInteractive -and $desktop -ne [IntPtr]::Zero
 if ($desktop -ne [IntPtr]::Zero) { [void][DesktopAccess]::CloseDesktop($desktop) }
 $process = $null
+$launcher = $null
 $StatusFile = [IO.Path]::GetFullPath($StatusFile)
 $observations = Join-Path (Split-Path -Parent $StatusFile) 'gui-smoke-observations.txt'
 'Starting GUI smoke' | Set-Content -Encoding utf8 $observations
@@ -51,11 +53,21 @@ function Check-Editor {
     if (-not [DesktopAccess]::IsWindow($editor)) { throw 'Editor window closed during smoke' }
 }
 try {
-    $process = Start-Process -FilePath $Executable -PassThru
+    if ($PortableRoot) {
+        $launcher = Start-Process -FilePath (Join-Path $PortableRoot 'JjokgyeolPortable.exe') -WorkingDirectory $PortableRoot -PassThru
+    } else {
+        $process = Start-Process -FilePath $Executable -PassThru
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds($(if ($interactive) { 30 } else { 5 }))
     $editor = [IntPtr]::Zero
     while ([DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 500
+        if ($launcher -and -not $process) {
+            if ($launcher.HasExited) { throw "Portable launcher exited before starting the editor (exit $($launcher.ExitCode))" }
+            $process = Get-Process -Name 'jjokgyeol-desktop' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $Executable } | Select-Object -First 1
+            if (-not $process) { continue }
+        }
         $process.Refresh()
         if ($process.HasExited) { throw "GUI exited before a window appeared (exit $($process.ExitCode))" }
         if ($process.MainWindowTitle -eq '쪽결') {
@@ -70,6 +82,25 @@ try {
     }
     if ($editor -eq [IntPtr]::Zero) { throw 'GUI window title not observed within 30 seconds' }
     Observe "Editor window observed: process $($process.Id), handle $editor, title 쪽결"
+
+    if ($PortableRoot) {
+        $browserPath = Join-Path $PortableRoot 'App/Jjokgyeol/WebView2/msedgewebview2.exe'
+        $profile = Join-Path $PortableRoot 'Data/WebView2'
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Check-Editor
+            $browser = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe' AND ParentProcessId = $($process.Id)")
+            if ($browser.Count) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $browser.Count -or @($browser | Where-Object { $_.ExecutablePath -ne $browserPath }).Count) {
+            throw "Editor did not start the bundled WebView2: expected $browserPath, observed $($browser.ExecutablePath -join ', ')"
+        }
+        if (-not @($browser | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($profile, [StringComparison]::OrdinalIgnoreCase) }).Count) {
+            throw "WebView2 did not use the portable profile: $profile"
+        }
+        Observe "Bundled WebView2 observed: $browserPath, profile $profile"
+    }
 
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
@@ -125,6 +156,15 @@ try {
 } finally {
     if ($process) {
         $process.Refresh()
-        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+        if (-not $process.HasExited) {
+            if (-not $PortableRoot -or -not ($process.CloseMainWindow() -and $process.WaitForExit(15000))) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($launcher -and -not $launcher.WaitForExit(15000)) {
+        $launcher.Kill($true)
+        $launcher.WaitForExit()
+        throw 'Portable launcher did not exit after closing the editor.'
     }
 }

@@ -30,14 +30,23 @@ def package_version(tag):
     return tag[1:], '.'.join((major, minor, patch, preview or '65535'))
 
 
-def verify_hash(path, expected):
-    if not path.is_file():
-        raise ValueError(f'Missing dependency: {path}')
+def portable_filename(tag):
+    display, _ = package_version(tag)
+    return f'{APP_ID}_{display}.paf.exe'
+
+
+def sha256(path):
     digest = hashlib.sha256()
     with path.open('rb') as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b''):
             digest.update(chunk)
-    if digest.hexdigest() != expected:
+    return digest.hexdigest()
+
+
+def verify_hash(path, expected):
+    if not path.is_file():
+        raise ValueError(f'Missing dependency: {path}')
+    if sha256(path) != expected:
         raise ValueError(f'Dependency SHA-256 mismatch: {path}')
 
 
@@ -57,6 +66,10 @@ def require_pe(path, x64=False):
 def validate_webview(path, version):
     if path.name != f'Microsoft.WebView2.FixedVersionRuntime.{version}.x64' or not path.is_dir():
         raise ValueError(f'Invalid x64 Fixed Version WebView2 directory: {path}')
+    validate_webview_files(path, version)
+
+
+def validate_webview_files(path, version):
     for name in ('msedgewebview2.exe', 'msedge.dll'):
         require_pe(path / name, x64=True)
     for name in (f'{version}.manifest', 'icudtl.dat', 'Locales/en-US.pak'):
@@ -118,7 +131,6 @@ def stage(package, executable, runtime, webview, tag):
     shutil.copy2(executable, app / 'jjokgyeol-desktop.exe')
     shutil.copytree(runtime, app / 'runtime')
     shutil.copytree(webview, app / 'WebView2')
-    shutil.copy2(HERE / 'portable/prepare-webview.ps1', app)
 
 
 def run(*arguments):
@@ -147,35 +159,59 @@ def compile_package(package, launcher, installer, output):
         raise ValueError(f'Expected exactly one generated PAF: {output.name}')
 
 
-def verify_payload(seven_zip, candidate):
-    listing = subprocess.check_output(
-        [seven_zip, 'l', '-slt', '-sccUTF-8', candidate], encoding='utf-8', timeout=120)
-    files = {line[7:].replace('\\', '/') for line in listing.splitlines() if line.startswith('Path = ')}
-    expected = {
-        f'{APP_ID}.exe', 'help.html',
-        'App/AppInfo/appinfo.ini', f'App/AppInfo/Launcher/{APP_ID}.ini',
-        'App/AppInfo/EULA.txt', 'App/Jjokgyeol/prepare-webview.ps1',
-        'App/Jjokgyeol/jjokgyeol-desktop.exe', 'App/Jjokgyeol/runtime/runtime.json',
-        'App/Jjokgyeol/runtime/worker/jjokgyeol-worker.exe',
-        'App/Jjokgyeol/WebView2/msedgewebview2.exe', 'App/Jjokgyeol/WebView2/msedge.dll',
-    }
-    if missing := expected - files:
-        raise ValueError(f'PAF is missing payload files: {", ".join(sorted(missing))}')
+def payload_inventory(package, version):
+    app = package / 'App/Jjokgyeol'
+    validate_inputs(app / 'jjokgyeol-desktop.exe', app / 'runtime')
+    validate_webview_files(app / 'WebView2', version)
+    return {file.relative_to(package).as_posix(): sha256(file)
+            for file in app.rglob('*') if file.is_file()}
+
+
+def verify_payload(seven_zip, candidate, inventory):
+    require_pe(candidate)
+    run(seven_zip, 't', candidate)
+    with tempfile.TemporaryDirectory(dir=candidate.parent) as temporary:
+        extracted = Path(temporary)
+        run(seven_zip, 'x', '-y', f'-o{extracted}', candidate)
+        for name, digest in inventory.items():
+            file = extracted / name
+            if not file.is_file():
+                raise ValueError(f'PAF is missing payload file: {name}')
+            if sha256(file) != digest:
+                raise ValueError(f'PAF changed payload file: {name}')
+        require_pe(extracted / f'{APP_ID}.exe')
+        for name in ('appinfo.ini', 'EULA.txt', f'Launcher/{APP_ID}.ini'):
+            file = extracted / 'App/AppInfo' / name
+            if not file.is_file() or not file.stat().st_size:
+                raise ValueError(f'PAF is missing metadata: {name}')
+
+
+def prepare_installer_template(path):
+    source = path.read_text(encoding='utf-16')
+    early_write = '\tSectionIn RO\n\tSetOutPath $INSTDIR'
+    preinstall = '\t!ifmacrodef CustomCodePreInstall\n\t\t!insertmacro CustomCodePreInstall\n\t!endif'
+    for original in (early_write, preinstall, '\tSetSilent normal'):
+        if source.count(original) != 1:
+            raise ValueError(f'Unexpected PortableApps installer template: {original!r}')
+    # Keep all destination writes after the embedded guard. The explicit /S switch
+    # is for acceptance runs where the operator has already accepted the EULA.
+    source = source.replace(preinstall, '').replace('\tSetSilent normal', '')
+    source = source.replace(early_write, '\tSectionIn RO\n' + preinstall + '\n\tSetOutPath $INSTDIR')
+    path.write_text(source, encoding='utf-16', newline='\r\n')
 
 
 def build(executable, runtime, output_dir, tag):
-    display, _ = package_version(tag)
+    filename = portable_filename(tag)
     if not output_dir.is_absolute():
         raise ValueError('OutputDir must be an absolute path')
-    output = output_dir / f'{APP_ID}_{display}.paf.exe'
+    output = output_dir / filename
     if os.path.lexists(output):
         raise FileExistsError(f'Output already exists: {output}')
     validate_inputs(executable, runtime)
     if platform.system() != 'Windows' or platform.machine().upper() != 'AMD64':
         raise ValueError('Build the portable release on Windows x64')
     seven_zip = Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / '7-Zip/7z.exe'
-    if not seven_zip.is_file():
-        raise ValueError('7-Zip is required to unpack the verified build dependencies')
+    require_pe(seven_zip, x64=True)
     pins = json.loads((HERE / 'portable.lock.json').read_text(encoding='utf-8'))
     with tempfile.TemporaryDirectory(prefix='jjok-paf-') as temporary:
         work = Path(temporary)
@@ -198,9 +234,12 @@ def build(executable, runtime, output_dir, tag):
         source = package / 'Other/Source'
         shutil.copytree(extracted['launcher'] / 'Other/Source', source / 'PortableApps.comLauncher')
         shutil.copy2(extracted['installer'] / 'Other/Source/License.txt', source / 'Installer-License.txt')
+        template = extracted['installer'] / 'App/installer/PortableApps.comInstaller.nsi'
+        prepare_installer_template(template)
+        inventory = payload_inventory(package, version)
         candidate = payload / output.name
         compile_package(package, extracted['launcher'], extracted['installer'], candidate)
-        verify_payload(seven_zip, candidate)
+        verify_payload(seven_zip, candidate, inventory)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         # Publish only the completed installer, with an atomic no-overwrite operation on Windows.

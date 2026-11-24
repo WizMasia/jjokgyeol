@@ -4,8 +4,12 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from portable import build, package_version, stage, verify_hash, validate_webview
+from portable import (
+    build, package_version, payload_inventory, prepare_installer_template, stage,
+    validate_webview, verify_hash, verify_payload,
+)
 
 
 class PortableTests(unittest.TestCase):
@@ -66,6 +70,22 @@ class PortableTests(unittest.TestCase):
             build(self.root / 'missing.exe', self.root / 'runtime', self.root, 'v0.1.1-preview.7')
         self.assertEqual(output.read_bytes(), b'existing release')
 
+    def test_installer_guard_precedes_destination_writes(self):
+        template = self.root / 'installer.nsi'
+        original = ('\tSetSilent normal\n\tSectionIn RO\n\tSetOutPath $INSTDIR\n'
+                    '\t!ifmacrodef CustomCodePreInstall\n'
+                    '\t\t!insertmacro CustomCodePreInstall\n\t!endif\n'
+                    '\tRMDir /r "$INSTDIR\\App"\n')
+        template.write_text(original, encoding='utf-16')
+        prepare_installer_template(template)
+        result = template.read_text(encoding='utf-16')
+        hook = '!insertmacro CustomCodePreInstall'
+        self.assertEqual(result.count(hook), 1)
+        self.assertLess(result.index(hook), result.index('SetOutPath $INSTDIR'))
+        self.assertNotIn('SetSilent normal', result)
+        with self.assertRaisesRegex(ValueError, 'Unexpected PortableApps'):
+            prepare_installer_template(template)
+
     def test_stage(self):
         executable = self.root / 'compiled.exe'
         self.pe(executable)
@@ -93,6 +113,20 @@ class PortableTests(unittest.TestCase):
         self.assertEqual(ini['Environment']['WEBVIEW2_USER_DATA_FOLDER'], r'%PAL:DataDir%\WebView2')
         self.assertTrue((package / 'App/Jjokgyeol/runtime/runtime.json').is_file())
         self.assertTrue((package / 'App/Jjokgyeol/WebView2/msedgewebview2.exe').is_file())
+        inventory = payload_inventory(package, '158.0.4370.33')
+        for name in ('runtime/texlive/lualatex.exe', 'runtime/fonts/font.ttf',
+                     'runtime/licenses/notice.txt', 'WebView2/158.0.4370.33.manifest',
+                     'WebView2/icudtl.dat', 'WebView2/Locales/en-US.pak'):
+            self.assertIn('App/Jjokgyeol/' + name, inventory)
+        candidate = self.root / 'candidate.exe'
+        self.pe(candidate)
+        with patch('portable.run') as run:
+            with self.assertRaisesRegex(ValueError, 'missing payload'):
+                verify_payload(Path('7z'), candidate, inventory)
+            self.assertEqual(run.call_args_list[0].args[1], 't')
+        (package / 'App/Jjokgyeol/WebView2/icudtl.dat').unlink()
+        with self.assertRaisesRegex(ValueError, 'icudtl.dat'):
+            payload_inventory(package, '158.0.4370.33')
         self.assertEqual(list((package / 'Data').iterdir()), [])
         sentinel = package / 'Data/keep'
         sentinel.write_bytes(b'preserve')
