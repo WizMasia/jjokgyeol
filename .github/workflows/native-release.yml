@@ -2,11 +2,21 @@ name: Native distribution batch
 on:
   push:
     branches: ['release-batch/v*-preview.*']
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-release.yml'
+      - 'desktop/release/**'
+      - 'desktop/qa/runtime/**'
+      - 'desktop/gui/tauri.conf.json'
+      - 'desktop/gui/release.conf.json'
+      - 'desktop/gui/bundle.py'
+      - 'runtime.lock'
 permissions:
   contents: read
 concurrency:
   group: native-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   resources:
@@ -14,20 +24,32 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      matrix: ${{ steps.version.outputs.matrix }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Match candidate to the application version
         id: version
         shell: bash
         run: |
-          tag=${GITHUB_REF_NAME#release-batch/}
           version=$(jq -r .version desktop/gui/tauri.conf.json)
+          windows='{"os":"windows-latest","platform":"windows"}'
+          if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
+            tag="v$version"
+            matrix="{\"include\":[$windows]}"
+          else
+            tag=${GITHUB_REF_NAME#release-batch/}
+            matrix="{\"include\":[{\"os\":\"ubuntu-24.04\",\"platform\":\"linux\"},{\"os\":\"macos-15\",\"platform\":\"macos\"},$windows]}"
+          fi
           [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$ && $tag == "v$version" ]] || {
             echo "Expected v$version, got $tag" >&2
             exit 1
           }
-          main_sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
-          [[ $main_sha == "$GITHUB_SHA" ]] || { echo "Candidate must match published main" >&2; exit 1; }
+          if [[ $GITHUB_EVENT_NAME == push ]]; then
+            main_sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
+            [[ $main_sha == "$GITHUB_SHA" ]] || { echo "Candidate must match published main" >&2; exit 1; }
+          fi
+          python3 desktop/release/assets.py "$tag"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Export TeX resources and notices
         run: desktop/qa/runtime/export-resources.sh "$RUNNER_TEMP/resources.tar"
@@ -42,17 +64,7 @@ jobs:
     needs: resources
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux
-            file: jjokgyeol-linux-x86_64.deb
-          - os: macos-15
-            platform: macos
-            file: jjokgyeol-macos-arm64.dmg
-          - os: windows-latest
-            platform: windows
-            file: jjokgyeol-windows-x64-setup.exe
+      matrix: ${{ fromJSON(needs.resources.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
@@ -93,7 +105,7 @@ jobs:
           tar -xf release-resources/resources.tar -C release-work/resources
           python desktop/release/notices.py release-work/resources/licenses
           python -m unittest discover -s desktop/gui -p test_bundle.py
-      - name: Test portable Unix staging
+      - name: Test Unix staging and draft inventory
         if: runner.os != 'Windows'
         run: python -m unittest discover -s desktop/release -p 'test_*.py'
       - name: Package and test installed Linux application
@@ -106,26 +118,57 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
         run: bash desktop/release/macos.sh release-work/resources release-out
-      - name: Package and test installed Windows application
+      - name: Build Windows packages and test the ordinary installer
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/release-target
-        run: desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path
+        run: |
+          . desktop/qa/runtime/webview2.ps1
+          if (-not @(Get-InstalledWebView2Version).Count) { throw 'Hosted runner must already have Evergreen WebView2 for the ordinary installer smoke test' }
+          python -m unittest discover -s desktop/release -p test_portable.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable packaging regression failed' }
+          desktop/qa/runtime/test-portable-paths.ps1
+          desktop/release/windows.ps1 -Resources (Resolve-Path release-work/resources).Path -OutputDir (Resolve-Path release-out).Path -Portable
+      - name: Resolve exact upload paths
+        id: assets
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          files=$(python desktop/release/assets.py "$JJOKGYEOL_RELEASE_TAG" --platform "$PLATFORM")
+          {
+            echo 'paths<<ASSETS'
+            while IFS= read -r file; do
+              test -s "release-out/$file"
+              echo "release-out/$file"
+            done <<< "$files"
+            echo 'ASSETS'
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: package-${{ matrix.platform }}
-          path: release-out/${{ matrix.file }}
+          path: ${{ steps.assets.outputs.paths }}
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
+      - name: Probe the uploaded Windows portable candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $files = @(python desktop/release/assets.py $env:JJOKGYEOL_RELEASE_TAG --platform windows)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve Windows asset names' }
+          desktop/qa/runtime/verify-portable.ps1 -Package (Join-Path release-out $files[1]) -ExtractOnly
 
   draft:
+    if: github.event_name == 'push'
     needs: [resources, package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: package-*
@@ -139,14 +182,15 @@ jobs:
           TAG: ${{ needs.resources.outputs.tag }}
         shell: bash
         run: |
-          files=(jjokgyeol-linux-x86_64.deb jjokgyeol-macos-arm64.dmg jjokgyeol-windows-x64-setup.exe)
-          for file in "${files[@]}"; do test -s "$file"; done
-          sha256sum "${files[@]}" > SHA256SUMS
+          inventory=$(python3 ../desktop/release/assets.py "$TAG" --checksums .)
+          files=()
+          while IFS= read -r file; do files+=("$file"); done <<< "$inventory"
           sha256sum -c SHA256SUMS
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
           한글 출판 조판기 쪽결의 시험판입니다. 네이티브 앱은 규칙 조판을 지원합니다.
 
           - Windows x64 — setup.exe 실행. WebView2 오프라인 설치 프로그램 포함, 게시자 서명 전.
+          - Windows x64 포터블 — 버전이 표시된 PAF 실행 또는 PortableApps.com Platform에서 설치. 고정 WebView2 포함, 게시자 서명 전.
           - Apple Silicon Mac — DMG를 열어 쪽결을 응용 프로그램으로 복사. 임시 서명, Apple 공증 전.
           - Ubuntu 24.04 x86_64 — sudo apt install ./jjokgyeol-linux-x86_64.deb
 

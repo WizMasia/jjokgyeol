@@ -10,7 +10,7 @@
 
 **v0.1.1-preview.6**에서는 원고와 PDF를 나란히 보면서 하단 **문단 서식**에서 문단 위·아래 여백과 줄 간격을 조정할 수 있습니다. **AI로 조판**하면 하단에 진행 상태가 표시되며, 검증된 AI 간격값을 항목별로 원고에 고정할 수 있습니다. 설치 후 편집기 상단의 버전을 릴리즈 태그와 대조하세요. [운영체제별 설치 파일과 SHA-256](https://github.com/WizMasia/jjokgyeol/releases/tag/v0.1.1-preview.6)
 
-배포 배치는 Windows x64 설치 프로그램, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
+배포 배치는 Windows x64 설치 프로그램과 고정 WebView2가 포함된 버전별 포터블 PAF, Apple Silicon Mac용 DMG, Ubuntu 24.04 x86_64용 DEB를 만들고 각 설치물에서 기준 PDF를 대조합니다. [릴리즈 목록](https://github.com/WizMasia/jjokgyeol/releases) · [설치 및 배치 실행 방법](desktop/release/README.md)
 
 ### 네이티브 개발판과 웹판 비교
 

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Resources,
-    [Parameter(Mandatory=$true)][string]$OutputDir
+    [Parameter(Mandatory=$true)][string]$OutputDir,
+    [switch]$Portable
 )
 $ErrorActionPreference = 'Stop'
 if (-not $env:JJOKGYEOL_RELEASE_TAG) { throw 'Expected release tag' }
@@ -81,6 +82,11 @@ try {
         -not (Test-Path -LiteralPath (Join-Path $installedRuntime 'licenses') -PathType Container)) {
         throw "Installed files are missing from $install"
     }
+    foreach ($portablePath in @('JjokgyeolPortable.exe', 'WebView2', 'Data/WebView2')) {
+        if (Test-Path -LiteralPath (Join-Path $install $portablePath)) {
+            throw "Ordinary installer contains unexpected portable files: $portablePath"
+        }
+    }
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\쪽결'
     $version = (Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion
     if ("v$version" -ne $env:JJOKGYEOL_RELEASE_TAG) { throw "Unexpected installed version $version" }
@@ -99,6 +105,9 @@ try {
     # _?= keeps the uninstaller in place so the waited process is the real one.
     if (Test-Path -LiteralPath $uninstaller) { Remove-Item -LiteralPath $uninstaller -Force }
     Invoke-Checked 'python' @('desktop/release/verify_uninstall.py', 'verify', $install, $inventory)
+    if ($Portable) {
+        & (Join-Path $PSScriptRoot 'portable.ps1') -Executable (Join-Path $target 'release/jjokgyeol-desktop.exe') -Runtime $runtime -OutputDir $OutputDir
+    }
     Copy-Item -LiteralPath $installer -Destination $output
     Write-Host "Release verified: $output"
 } finally {

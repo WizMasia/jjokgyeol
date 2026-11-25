@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Executable,
-    [Parameter(Mandatory=$true)][string]$StatusFile
+    [Parameter(Mandatory=$true)][string]$StatusFile,
+    [string]$PortableRoot
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -17,6 +18,37 @@ public static class DesktopAccess {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int length);
     private delegate bool EnumWindowProc(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowProc callback, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr parameter);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder text, int length);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr capacity, StringBuilder text, uint flags, uint timeout, out IntPtr result);
+    public static string DescribeWindows(uint processId) {
+        var description = new StringBuilder();
+        int windows = 0;
+        int controls = 0;
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner != processId || !IsWindowVisible(window)) return true;
+            var text = new StringBuilder(512);
+            GetWindowText(window, text, text.Capacity);
+            description.AppendLine("  Window " + window + ": " + text);
+            EnumChildWindows(window, (child, childParameter) => {
+                var className = new StringBuilder(64);
+                GetClassName(child, className, className.Capacity);
+                if (IsWindowVisible(child) && className.ToString() == "Static") {
+                    text.Clear();
+                    IntPtr result;
+                    // WM_GETTEXT with SMTO_ABORTIFHUNG gives modal error text without waiting on a hung dialog.
+                    if (SendMessageTimeout(child, 0x000D, new IntPtr(text.Capacity), text, 2, 100, out result) != IntPtr.Zero && text.Length > 0)
+                        description.AppendLine("    " + text);
+                    controls++;
+                }
+                return controls < 8;
+            }, IntPtr.Zero);
+            return ++windows < 4;
+        }, IntPtr.Zero);
+        return description.ToString();
+    }
     public static IntPtr FindWindow(uint processId, string title, IntPtr exclude) {
         IntPtr found = IntPtr.Zero;
         EnumWindows((window, parameter) => {
@@ -38,6 +70,8 @@ $desktop = [DesktopAccess]::OpenInputDesktop(0, $false, 1)
 $interactive = [Environment]::UserInteractive -and $desktop -ne [IntPtr]::Zero
 if ($desktop -ne [IntPtr]::Zero) { [void][DesktopAccess]::CloseDesktop($desktop) }
 $process = $null
+$launcher = $null
+$failed = $false
 $StatusFile = [IO.Path]::GetFullPath($StatusFile)
 $observations = Join-Path (Split-Path -Parent $StatusFile) 'gui-smoke-observations.txt'
 'Starting GUI smoke' | Set-Content -Encoding utf8 $observations
@@ -45,17 +79,54 @@ function Observe([string]$message) {
     $message | Add-Content -Encoding utf8 $observations
     Write-Host $message
 }
+function Observe-LaunchFailure {
+    Observe "Input desktop available: $interactive"
+    if (-not $launcher) { return }
+    Observe "Portable launcher PID: $($launcher.Id)"
+    if ($launcher.HasExited) { Observe "Portable launcher exit: $($launcher.ExitCode)" }
+    $snapshot = @(Get-CimInstance Win32_Process -OperationTimeoutSec 5)
+    $related = [Collections.Generic.HashSet[uint32]]::new()
+    [void]$related.Add($launcher.Id)
+    if ($process) { [void]$related.Add($process.Id) }
+    $prefix = $PortableRoot.TrimEnd('\') + '\'
+    foreach ($entry in $snapshot) {
+        if ($entry.ExecutablePath -and $entry.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            [void]$related.Add($entry.ProcessId)
+        }
+    }
+    do {
+        $count = $related.Count
+        foreach ($entry in $snapshot) {
+            if ($related.Contains($entry.ParentProcessId)) { [void]$related.Add($entry.ProcessId) }
+        }
+    } while ($related.Count -gt $count)
+    foreach ($entry in ($snapshot | Where-Object { $related.Contains($_.ProcessId) } | Select-Object -First 20)) {
+        Observe "PID $($entry.ProcessId) parent $($entry.ParentProcessId): $($entry.Name), $($entry.ExecutablePath)"
+        $windows = [DesktopAccess]::DescribeWindows($entry.ProcessId)
+        if ($windows) { Observe $windows.TrimEnd() }
+    }
+}
 function Check-Editor {
     $process.Refresh()
     if ($process.HasExited) { throw "GUI exited during smoke (exit $($process.ExitCode))" }
     if (-not [DesktopAccess]::IsWindow($editor)) { throw 'Editor window closed during smoke' }
 }
 try {
-    $process = Start-Process -FilePath $Executable -PassThru
+    if ($PortableRoot) {
+        $launcher = Start-Process -FilePath (Join-Path $PortableRoot 'JjokgyeolPortable.exe') -WorkingDirectory $PortableRoot -PassThru
+    } else {
+        $process = Start-Process -FilePath $Executable -PassThru
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds($(if ($interactive) { 30 } else { 5 }))
     $editor = [IntPtr]::Zero
     while ([DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 500
+        if ($launcher -and -not $process) {
+            if ($launcher.HasExited) { throw "Portable launcher exited before starting the editor (exit $($launcher.ExitCode))" }
+            $process = Get-Process -Name 'jjokgyeol-desktop' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $Executable } | Select-Object -First 1
+            if (-not $process) { continue }
+        }
         $process.Refresh()
         if ($process.HasExited) { throw "GUI exited before a window appeared (exit $($process.ExitCode))" }
         if ($process.MainWindowTitle -eq '쪽결') {
@@ -66,10 +137,30 @@ try {
     if (-not $interactive) {
         'INCONCLUSIVE: input desktop unavailable' | Set-Content -Encoding utf8 $StatusFile
         Observe '::warning::GUI smoke inconclusive: input desktop unavailable'
+        if ($PortableRoot) { throw 'Portable GUI smoke requires an input desktop.' }
         exit 0
     }
     if ($editor -eq [IntPtr]::Zero) { throw 'GUI window title not observed within 30 seconds' }
     Observe "Editor window observed: process $($process.Id), handle $editor, title 쪽결"
+
+    if ($PortableRoot) {
+        $browserPath = Join-Path $PortableRoot 'App/Jjokgyeol/WebView2/msedgewebview2.exe'
+        $profile = Join-Path $PortableRoot 'Data/WebView2'
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Check-Editor
+            $browser = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe' AND ParentProcessId = $($process.Id)")
+            if ($browser.Count) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $browser.Count -or @($browser | Where-Object { $_.ExecutablePath -ne $browserPath }).Count) {
+            throw "Editor did not start the bundled WebView2: expected $browserPath, observed $($browser.ExecutablePath -join ', ')"
+        }
+        if (-not @($browser | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($profile, [StringComparison]::OrdinalIgnoreCase) }).Count) {
+            throw "WebView2 did not use the portable profile: $profile"
+        }
+        Observe "Bundled WebView2 observed: $browserPath, profile $profile"
+    }
 
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
@@ -119,12 +210,31 @@ try {
     'PASS' | Set-Content -Encoding utf8 $StatusFile
     exit 0
 } catch {
+    $failed = $true
     Observe "FAIL: $_"
     "FAIL: $_" | Set-Content -Encoding utf8 $StatusFile
+    if ($PortableRoot) {
+        try { Observe-LaunchFailure }
+        catch { Write-Warning "Could not collect launcher diagnostics: $_" }
+    }
     throw
 } finally {
-    if ($process) {
-        $process.Refresh()
-        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    try {
+        if ($process) {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+                if (-not $PortableRoot -or -not ($process.CloseMainWindow() -and $process.WaitForExit(15000))) {
+                    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        if ($launcher -and -not $launcher.WaitForExit(15000)) {
+            $launcher.Kill($true)
+            [void]$launcher.WaitForExit(5000)
+            throw 'Portable launcher did not exit after closing the editor.'
+        }
+    } catch {
+        if (-not $failed) { throw }
+        Write-Warning "GUI cleanup failed after the original failure: $_"
     }
 }
