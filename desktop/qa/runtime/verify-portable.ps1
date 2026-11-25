@@ -152,7 +152,26 @@ try {
     }
     $runtime = Join-Path $moved 'App/Jjokgyeol/runtime'
     $job = Join-Path $work 'worker-proof'
-    Run-Check 'worker' { python (Join-Path $PSScriptRoot 'diagnostic.py') $runtime $job --packaged }
+    try {
+        Run-Check 'worker' { python (Join-Path $PSScriptRoot 'diagnostic.py') $runtime $job --packaged }
+    } catch {
+        foreach ($name in @('diagnostic-exception.txt', 'diagnostic-book.log')) {
+            $path = Join-Path $job $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            try {
+                $stream = [IO.File]::OpenRead($path)
+                try {
+                    [void]$stream.Seek([Math]::Max(0, $stream.Length - 8192), [IO.SeekOrigin]::Begin)
+                    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+                    try {
+                        Write-Host "=== $name (last 8192 bytes) ==="
+                        Write-Host $reader.ReadToEnd()
+                    } finally { $reader.Dispose() }
+                } finally { $stream.Dispose() }
+            } catch { Write-Warning "Could not read diagnostic file ${name}: $_" }
+        }
+        throw
+    }
     Run-Check 'compare' {
         python (Join-Path $repo 'desktop/qa/compare_pdfs.py') (Join-Path $job 'response.pdf') (Join-Path $repo 'proofs/numbering/odd-even.pdf')
     }

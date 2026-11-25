@@ -4,6 +4,7 @@ import hashlib
 import json
 import lzma
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
@@ -84,6 +85,29 @@ def download(url: str, dest: Path) -> None:
         shutil.copyfileobj(response, output)
 
 
+def embed_utf8_manifests(bin_dir: Path) -> None:
+    program_files = os.environ.get('ProgramFiles(x86)')
+    if program_files:
+        kit = Path(program_files) / 'Windows Kits/10/bin'
+        candidates = [
+            (tuple(map(int, path.parent.parent.name.split('.'))), path)
+            for path in kit.glob('*/x64/mt.exe')
+            if path.is_file() and re.fullmatch(r'[0-9]+(?:\.[0-9]+){3}', path.parent.parent.name)
+        ]
+    else:
+        candidates = []
+    if not candidates:
+        raise FileNotFoundError('Install the Windows SDK with x64 mt.exe to provision the TeX runtime.')
+    tool = max(candidates)[1]
+    manifest = Path(__file__).resolve().with_name('utf8.manifest')
+    # The pinned binaries have no manifest. Kpathsea uses the process code page
+    # to locate the TeX tree relative to the executable on Windows.
+    for name in ('lualatex.exe', 'luahbtex.exe', 'kpsewhich.exe'):
+        exe = bin_dir / name
+        subprocess.run([str(tool), '-nologo', '-manifest', str(manifest),
+                        f'-outputresource:{exe};#1'], check=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('resources', type=Path, help='extracted resource directory')
@@ -124,6 +148,7 @@ def main() -> None:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with bundle.extractfile(member) as source, target.open('wb') as output:
                         shutil.copyfileobj(source, output)
+    embed_utf8_manifests(tex / 'bin/win32')
     shutil.rmtree(cache)
     (tex / 'texmf.cnf').write_text(
         'TEXMFHOME = $TEXMFROOT/empty\nTEXMFLOCAL = $TEXMFROOT/empty\n'
@@ -137,7 +162,7 @@ def main() -> None:
     write_lsr(tex / 'texmf-var')
     found = subprocess.check_output([str(tex / 'bin/win32/kpsewhich.exe'),
                                      '--progname=lualatex', '--engine=luahbtex', '--format=fmt', 'lualatex.fmt'],
-                                    cwd=runtime, env=env, text=True).strip()
+                                    cwd=runtime, env=env, encoding='utf-8').strip()
     if Path(found).resolve() != (fmt / 'lualatex.fmt').resolve():
         raise ValueError(f'wrong LuaLaTeX format: {found}')
     subprocess.run([str(tex / 'bin/win32/lualatex.exe'), '--version'], env=env, check=True)
